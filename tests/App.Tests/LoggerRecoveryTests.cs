@@ -112,6 +112,130 @@ public sealed class LoggerRecoveryTests
     }
 
     [Fact]
+    public async Task AppLogger_RecordAfterTornWriteStaysReadable()
+    {
+        using var dataRoot = new TestDataRoot();
+        var logPath = Path.Combine(dataRoot.Path, "Logs", "app.jsonl");
+        var statePath = Path.Combine(dataRoot.Path, "State", "ecoqos.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+
+        // A previous process died mid-write: half a record, no terminator.
+        await File.WriteAllTextAsync(
+            logPath,
+            """{"timestamp":"2026-10-01T12:00:00Z","operationId":"torn","actionId":"test.to""");
+
+        var operationId = Guid.NewGuid().ToString("N");
+        using (var logger = new AppLogger(logPath))
+        {
+            await logger.WriteAsync(
+                "test.after.torn",
+                "STARTED",
+                new { mode = "WRITE" },
+                operationId);
+        }
+
+        var lines = await File.ReadAllLinesAsync(logPath);
+        Assert.Equal(2, lines.Length);
+        using (var document = JsonDocument.Parse(lines[1]))
+        {
+            Assert.Equal(
+                operationId,
+                document.RootElement.GetProperty("operationId").GetString());
+        }
+
+        var status = new OperationRecoveryService(
+            new EcoQosStateStore(statePath),
+            logPath).Analyze();
+        var operation = Assert.Single(status.IncompleteOperations);
+        Assert.Equal("test.after.torn", operation.ActionId);
+    }
+
+    [Fact]
+    public async Task Recovery_IgnoresValidJsonLinesThatAreNotRecords()
+    {
+        using var dataRoot = new TestDataRoot();
+        var logPath = Path.Combine(dataRoot.Path, "Logs", "app.jsonl");
+        var statePath = Path.Combine(dataRoot.Path, "State", "ecoqos.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+
+        await File.WriteAllLinesAsync(
+            logPath,
+            [
+                "[]",
+                "42",
+                "\"text\"",
+                "null",
+                "true",
+                """{"actionId":"test.write","status":"STARTED","operationId":"real","timestamp":"2026-10-01T12:00:00Z","data":[]}"""
+            ]);
+
+        var service = new OperationRecoveryService(
+            new EcoQosStateStore(statePath),
+            logPath);
+
+        var status = service.Analyze();
+
+        // The non-record lines are skipped and the real record survives them.
+        var operation = Assert.Single(status.IncompleteOperations);
+        Assert.Equal("test.write", operation.ActionId);
+    }
+
+    [Theory]
+    [InlineData("READ", false)]
+    [InlineData("DRY_RUN", false)]
+    [InlineData("WRITE", true)]
+    [InlineData(null, true)]
+    public async Task Recovery_ReportsOnlyInterruptedOperationsThatCouldChangeState(
+        string? mode,
+        bool expectedReported)
+    {
+        using var dataRoot = new TestDataRoot();
+        var logPath = Path.Combine(dataRoot.Path, "Logs", "app.jsonl");
+        var statePath = Path.Combine(dataRoot.Path, "State", "ecoqos.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+
+        var data = mode is null ? "{}" : $$"""{"mode":"{{mode}}"}""";
+        await File.WriteAllLinesAsync(
+            logPath,
+            [
+                $$"""{"actionId":"test.interrupted","status":"STARTED","operationId":"interrupted","timestamp":"2026-10-01T12:00:00Z","data":{{data}}}"""
+            ]);
+
+        var service = new OperationRecoveryService(
+            new EcoQosStateStore(statePath),
+            logPath);
+
+        var status = service.Analyze();
+
+        Assert.Equal(
+            expectedReported,
+            status.IncompleteOperations.Any(
+                item => item.ActionId == "test.interrupted"));
+    }
+
+    [Fact]
+    public async Task Executor_StartedRecordDeclaresTheActionMode()
+    {
+        // Shape check across the two components: the STARTED record written
+        // by the real executor carries the mode the recovery reader relies on.
+        using var dataRoot = new TestDataRoot();
+        var logPath = Path.Combine(dataRoot.Path, "Logs", "app.jsonl");
+
+        using (var bridge = dataRoot.CreateBridge())
+        {
+            await bridge.HandleSerializedAsync(
+                """{"type":"request","requestId":"r","method":"actions.run","payload":{"id":"privacy.audit"}}""");
+        }
+
+        var started = (await File.ReadAllLinesAsync(logPath))
+            .Single(line => line.Contains("\"STARTED\"", StringComparison.Ordinal));
+        using var document = JsonDocument.Parse(started);
+        Assert.Equal(
+            "READ",
+            document.RootElement.GetProperty("data").GetProperty("mode").GetString());
+    }
+
+    [Fact]
     public async Task Recovery_UsesRecordTimestampsWhenRotatedLogsAreOutOfOrder()
     {
         using var dataRoot = new TestDataRoot();

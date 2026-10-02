@@ -83,6 +83,9 @@ public sealed class OperationRecoveryService(
             .Select(pair => pair.Value)
             .Where(value =>
                 value.StartedAt is not null &&
+                // An interrupted read-only audit (app closed mid-scan, helper
+                // killed on timeout) left nothing behind to recover.
+                value.MayHaveChangedState &&
                 !TerminalStatuses.Contains(value.LastStatus))
             .OrderByDescending(value => value.StartedAt)
             .Select(value => new RecoveryOperation(
@@ -145,6 +148,12 @@ public sealed class OperationRecoveryService(
         {
             using var document = JsonDocument.Parse(line);
             var root = document.RootElement;
+
+            // A line can be valid JSON without being a log record (an array,
+            // a bare number or string). TryGetProperty throws on those.
+            if (root.ValueKind != JsonValueKind.Object)
+                return;
+
             var actionId = root.TryGetProperty(
                     "actionId",
                     out var actionNode) &&
@@ -207,6 +216,7 @@ public sealed class OperationRecoveryService(
                     StringComparison.OrdinalIgnoreCase))
             {
                 state.StartedAt = timestamp;
+                state.MayHaveChangedState = !IsDeclaredReadOnly(root);
             }
         }
         catch (JsonException)
@@ -215,9 +225,30 @@ public sealed class OperationRecoveryService(
         }
     }
 
+    /// <summary>
+    /// True only when the STARTED record itself declares a READ or DRY_RUN
+    /// mode. Records without a mode (older logs, other writers) stay
+    /// reportable: an unknown operation is never assumed to be harmless.
+    /// </summary>
+    private static bool IsDeclaredReadOnly(JsonElement record)
+    {
+        if (!record.TryGetProperty("data", out var data) ||
+            data.ValueKind != JsonValueKind.Object ||
+            !data.TryGetProperty("mode", out var mode) ||
+            mode.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        var value = mode.GetString();
+        return string.Equals(value, "READ", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(value, "DRY_RUN", StringComparison.OrdinalIgnoreCase);
+    }
+
     private sealed class OperationStateRecord(string actionId)
     {
         public string ActionId { get; } = actionId;
+        public bool MayHaveChangedState { get; set; } = true;
         public DateTimeOffset? StartedAt { get; set; }
         public DateTimeOffset LastTimestamp { get; set; } = DateTimeOffset.MinValue;
         public string LastStatus { get; set; } = "UNKNOWN";

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 
 namespace Win11PerformanceControlCenter.App.Core;
@@ -8,6 +9,9 @@ public sealed class AppLogger : IDisposable
 {
     private const int DefaultMaxLogBytes = 2 * 1024 * 1024;
     private const int MaxArchives = 5;
+    private static readonly UTF8Encoding RecordEncoding = new(false);
+    private static readonly byte[] RecordSeparator =
+        RecordEncoding.GetBytes(Environment.NewLine);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly string _path;
@@ -80,13 +84,41 @@ public sealed class AppLogger : IDisposable
             await using var crossProcessLock =
                 await AcquireCrossProcessLockAsync();
 
-            await File.AppendAllTextAsync(_path, line);
+            await AppendRecordAsync(line);
             TryRotate();
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    private async Task AppendRecordAsync(string line)
+    {
+        await using var stream = new FileStream(
+            _path,
+            FileMode.OpenOrCreate,
+            FileAccess.ReadWrite,
+            FileShare.Read,
+            bufferSize: 4096,
+            FileOptions.Asynchronous);
+
+        if (stream.Length > 0)
+        {
+            // A process killed in the middle of a write leaves a record
+            // without its line terminator. Appending straight after it would
+            // fuse the next record into the same unreadable line.
+            stream.Seek(-1, SeekOrigin.End);
+            var last = new byte[1];
+            if (await stream.ReadAsync(last) == 1 && last[0] != (byte)'\n')
+            {
+                stream.Seek(0, SeekOrigin.End);
+                await stream.WriteAsync(RecordSeparator);
+            }
+        }
+
+        stream.Seek(0, SeekOrigin.End);
+        await stream.WriteAsync(RecordEncoding.GetBytes(line));
     }
 
     private async Task<FileStream> AcquireCrossProcessLockAsync()
