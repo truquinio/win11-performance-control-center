@@ -9,6 +9,7 @@
     "build:demo": "node scripts/frontend-build.mjs demo",
     "test:frontend-contract": "node scripts/frontend-contract.mjs",
     "test:ui-smoke": "npm run build:demo && node scripts/ui-smoke.mjs",
+    "test:package-contract": "node scripts/package-contract.mjs",
     "watch:frontend": "tsc --watch"
   },
   "devDependencies": {

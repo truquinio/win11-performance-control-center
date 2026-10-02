@@ -54,9 +54,10 @@ try {
         } |
         Remove-Item -Force -ErrorAction Stop
 
-    Get-Process Win11PerformanceControlCenter -ErrorAction SilentlyContinue |
-        Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Milliseconds 400
+    $runningApp = Get-Process Win11PerformanceControlCenter -ErrorAction SilentlyContinue
+    if ($runningApp) {
+        throw "La aplicación está abierta. Cerrala antes de reemplazar el paquete local; el build no termina procesos en ejecución."
+    }
 
     if (Test-Path $output) {
         Remove-Item $output -Recurse -Force -ErrorAction Stop

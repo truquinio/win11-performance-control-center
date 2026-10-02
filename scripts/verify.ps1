@@ -28,6 +28,8 @@ Invoke-Step "Frontend contract" { npm run test:frontend-contract }
 
 Invoke-Step "UI smoke" { npm run test:ui-smoke }
 
+Invoke-Step "Package safety contract" { npm run test:package-contract }
+
 Invoke-Step "Release build" {
     & $dotnet build ".\\Win11PerformanceControlCenter.slnx" -c $Configuration --nologo --verbosity minimal -warnaserror
 }
