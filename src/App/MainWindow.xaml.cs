@@ -25,6 +25,8 @@ public partial class MainWindow : Window
 
     private readonly HostBridge _bridge = HostBridge.CreateDefault();
     private readonly List<DateTime> _rendererRecoveries = [];
+    private IntPtr _limitsMonitor;
+    private bool _inMoveSizeLoop;
 
     public MainWindow()
     {
@@ -57,22 +59,50 @@ public partial class MainWindow : Window
         const int WmSettingChange = 0x001A;
         const int WmDisplayChange = 0x007E;
         const int WmDpiChanged = 0x02E0;
+        const int WmMove = 0x0003;
+        const int WmEnterSizeMove = 0x0231;
+        const int WmExitSizeMove = 0x0232;
+        const uint MonitorDefaultToNearest = 0x00000002;
 
         if (message == WmGetMinMaxInfo)
         {
             ApplyMonitorWorkingArea(hwnd, lParam);
             handled = true;
         }
+        else if (message == WmEnterSizeMove)
+        {
+            _inMoveSizeLoop = true;
+        }
+        else if (message == WmExitSizeMove)
+        {
+            _inMoveSizeLoop = false;
+            QueueConstrain(reposition: false);
+        }
+        else if (message == WmMove)
+        {
+            // Moving to another monitor with the same DPI raises none of the
+            // display messages below, yet the min/max limits were computed
+            // for the previous monitor's work area.
+            if (MonitorFromWindow(hwnd, MonitorDefaultToNearest) != _limitsMonitor)
+                QueueConstrain(reposition: false);
+        }
         else if (message is WmSettingChange or WmDisplayChange or WmDpiChanged)
         {
-            _ = Dispatcher.BeginInvoke(() =>
-            {
-                if (IsLoaded && WindowState != WindowState.Minimized)
-                    ConstrainToWorkingArea();
-            });
+            // Never pull the window back while the user is dragging it
+            // across a monitor boundary.
+            QueueConstrain(reposition: !_inMoveSizeLoop);
         }
 
         return IntPtr.Zero;
+    }
+
+    private void QueueConstrain(bool reposition)
+    {
+        _ = Dispatcher.BeginInvoke(() =>
+        {
+            if (IsLoaded && WindowState != WindowState.Minimized)
+                ConstrainToWorkingArea(reposition);
+        });
     }
 
     private void ApplyMonitorWorkingArea(
@@ -107,14 +137,14 @@ public partial class MainWindow : Window
         var dpi = VisualTreeHelper.GetDpi(this);
         var minWidth = double.IsFinite(MinWidth) ? MinWidth : 0d;
         var minHeight = double.IsFinite(MinHeight) ? MinHeight : 0d;
-        info.MinTrackSize.X = Math.Clamp(
-            (int)Math.Ceiling(minWidth * dpi.DpiScaleX),
-            1,
-            Math.Max(1, info.MaxSize.X));
-        info.MinTrackSize.Y = Math.Clamp(
-            (int)Math.Ceiling(minHeight * dpi.DpiScaleY),
-            1,
-            Math.Max(1, info.MaxSize.Y));
+        info.MinTrackSize.X = WindowGeometryPolicy.ScaleMinimumToPixels(
+            minWidth,
+            dpi.DpiScaleX,
+            info.MaxSize.X);
+        info.MinTrackSize.Y = WindowGeometryPolicy.ScaleMinimumToPixels(
+            minHeight,
+            dpi.DpiScaleY,
+            info.MaxSize.Y);
 
         Marshal.StructureToPtr(info, lParam, false);
     }
@@ -149,39 +179,30 @@ public partial class MainWindow : Window
             : new Thickness(6);
     }
 
-    private void ConstrainToWorkingArea()
+    private void ConstrainToWorkingArea(bool reposition = true)
     {
         var workArea = GetCurrentMonitorWorkArea();
-        const double margin = 16d;
-        const double desiredMinWidth = 1024d;
-        const double desiredMinHeight = 640d;
+        var layout = WindowGeometryPolicy.Constrain(
+            workArea.Left,
+            workArea.Top,
+            workArea.Width,
+            workArea.Height,
+            Width,
+            Height,
+            Left,
+            Top);
 
-        var availableWidth = Math.Max(1d, workArea.Width - margin);
-        var availableHeight = Math.Max(1d, workArea.Height - margin);
+        MinWidth = layout.MinWidth;
+        MinHeight = layout.MinHeight;
+        MaxWidth = layout.MaxWidth;
+        MaxHeight = layout.MaxHeight;
 
-        MinWidth = Math.Min(desiredMinWidth, availableWidth);
-        MinHeight = Math.Min(desiredMinHeight, availableHeight);
-        MaxWidth = Math.Max(MinWidth, workArea.Width);
-        MaxHeight = Math.Max(MinHeight, workArea.Height);
-
-        if (WindowState == WindowState.Normal)
+        if (reposition && WindowState == WindowState.Normal)
         {
-            Width = Math.Min(Math.Max(Width, MinWidth), availableWidth);
-            Height = Math.Min(Math.Max(Height, MinHeight), availableHeight);
-
-            var minLeft = workArea.Left;
-            var maxLeft = workArea.Right - Width;
-            var minTop = workArea.Top;
-            var maxTop = workArea.Bottom - Height;
-
-            if (Left < minLeft || Left > maxLeft ||
-                Top < minTop || Top > maxTop)
-            {
-                Left = workArea.Left +
-                    Math.Max(0d, (workArea.Width - Width) / 2d);
-                Top = workArea.Top +
-                    Math.Max(0d, (workArea.Height - Height) / 2d);
-            }
+            Width = layout.Width;
+            Height = layout.Height;
+            Left = layout.Left;
+            Top = layout.Top;
         }
     }
 
@@ -194,6 +215,8 @@ public partial class MainWindow : Window
         var monitor = MonitorFromWindow(source.Handle, MonitorDefaultToNearest);
         if (monitor == IntPtr.Zero)
             return SystemParameters.WorkArea;
+
+        _limitsMonitor = monitor;
 
         var info = new MonitorInfo
         {

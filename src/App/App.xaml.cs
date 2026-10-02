@@ -53,14 +53,10 @@ public partial class App : Application
 
         // Two UI instances would each keep their own in-memory copy of the
         // EcoQoS rollback snapshots and overwrite each other's state file.
-        _singleInstance = new Mutex(
-            initiallyOwned: true,
-            SingleInstanceName,
-            out var isFirstInstance);
-        if (!isFirstInstance)
+        if (!SingleInstanceGuard.TryAcquire(
+                SingleInstanceName,
+                out _singleInstance))
         {
-            _singleInstance.Dispose();
-            _singleInstance = null;
             ActivateRunningInstance();
             Shutdown(0);
             return;
