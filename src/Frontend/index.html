@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Win11 Performance Control Center</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body data-mode="compact">
+  <svg class="svg-sprite" aria-hidden="true">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5M5.5 10v9h13v-9M9.5 19v-5h5v5"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a8 8 0 1 1 16 0M12 18l4-6M7 18h10"/></symbol>
+    <symbol id="i-broom" viewBox="0 0 24 24"><path d="m14 4 6 6M17 7l-7 7M8 13l3 3-5 5H2v-4z"/></symbol>
+    <symbol id="i-system" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+    <symbol id="i-network" viewBox="0 0 24 24"><path d="M4 10a12 12 0 0 1 16 0M7 14a8 8 0 0 1 10 0M10 18a3 3 0 0 1 4 0M12 21h.01"/></symbol>
+    <symbol id="i-tools" viewBox="0 0 24 24"><path d="M14 6a4 4 0 0 0-5 5L3 17l4 4 6-6a4 4 0 0 0 5-5l-3 3-4-4z"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.7-.6-1.4.9-1.9-2.1-2.1-1.9.9-1.4-.6-.7-2h-3l-.7 2-1.4.6-1.9-.9-2.1 2.1.9 1.9-.6 1.4-2 .7v3l2 .7.6 1.4-.9 1.9 2.1 2.1 1.9-.9 1.4.6.7 2h3l.7-2 1.4-.6 1.9.9 2.1-2.1-.9-1.9.6-1.4z"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+    <symbol id="i-ram" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 10v4M11 10v4M15 10v4M19 10v4M6 17v2M18 17v2"/></symbol>
+    <symbol id="i-disk" viewBox="0 0 24 24"><path d="M5 4h14l2 5v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9z"/><path d="M3 9h18M8 15h.01M12 15h5"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 20 6v5c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10V6z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></symbol>
+    <symbol id="i-rocket" viewBox="0 0 24 24"><path d="M14 5c3-2 5-2 6-2 0 1 0 3-2 6l-5 5-4-4z"/><path d="m9 10-4 1-2 3 5 1M13 14l-1 5-3 2-1-5M14 6l4 4"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.5 8A7 7 0 0 1 19 12M17.5 16A7 7 0 0 1 5 12"/></symbol>
+    <symbol id="i-browser" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 9h18M8 3.8C9.8 6.2 10.7 9 10.7 12S9.8 17.8 8 20.2M16 3.8c-1.8 2.4-2.7 5.2-2.7 8.2s.9 5.8 2.7 8.2"/></symbol>
+    <symbol id="i-media" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/></symbol>
+    <symbol id="i-temp" viewBox="0 0 24 24"><path d="M10 5a2 2 0 0 1 4 0v9.2a4 4 0 1 1-4 0z"/><path d="M12 8v8"/></symbol>
+    <symbol id="i-driver" viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="4"/></symbol>
+    <symbol id="i-log" viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6z"/><path d="M15 3v4h4M9 11h6M9 15h6"/></symbol>
+    <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></symbol>
+  </svg>
+
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark">W</div><div><strong>Win11 Performance Control Center</strong><span>by truquinio</span></div></div>
+      <nav class="nav">
+        <button class="nav-item active" data-view="dashboard"><img class="asset-icon" src="./icons/inicio.png" alt="" aria-hidden="true"><span>Dashboard</span></button>
+        <button class="nav-item" data-view="performance"><img class="asset-icon" src="./icons/rendimiento.png" alt="" aria-hidden="true"><span>Rendimiento</span></button>
+        <button class="nav-item compact-nav" data-view="cleanup"><img class="asset-icon" src="./icons/limpieza.png" alt="" aria-hidden="true"><span>Limpieza</span></button>
+        <button class="nav-item compact-nav" data-view="system"><img class="asset-icon" src="./icons/herramientas.png" alt="" aria-hidden="true"><span>Sistema</span></button>
+        <button class="nav-item compact-nav" data-view="network"><img class="asset-icon" src="./icons/navegadores.png" alt="" aria-hidden="true"><span>Red</span></button>
+        <button class="nav-item developer-nav" data-view="memory"><img class="asset-icon" src="./icons/ram.png" alt="" aria-hidden="true"><span>RAM</span></button>
+        <button class="nav-item developer-nav" data-view="cpu"><img class="asset-icon" src="./icons/cpu.png" alt="" aria-hidden="true"><span>CPU / EcoQoS</span></button>
+        <button class="nav-item developer-nav" data-view="cleanup"><img class="asset-icon" src="./icons/almacenamiento.png" alt="" aria-hidden="true"><span>Disco y limpieza</span></button>
+        <button class="nav-item developer-nav" data-view="startup"><img class="asset-icon" src="./icons/rendimiento.png" alt="" aria-hidden="true"><span>Inicio</span></button>
+        <button class="nav-item developer-nav" data-view="integrity"><img class="asset-icon" src="./icons/seguridad.png" alt="" aria-hidden="true"><span>Integridad</span></button>
+        <button class="nav-item developer-nav" data-view="drivers"><img class="asset-icon" src="./icons/drivers.png" alt="" aria-hidden="true"><span>Drivers y hardware</span></button>
+        <button class="nav-item developer-nav" data-view="multimedia"><img class="asset-icon" src="./icons/aplicaciones.png" alt="" aria-hidden="true"><span>Multimedia</span></button>
+        <button class="nav-item developer-nav" data-view="network"><img class="asset-icon" src="./icons/navegadores.png" alt="" aria-hidden="true"><span>Red</span></button>
+        <button class="nav-item developer-nav" data-view="browsers"><img class="asset-icon" src="./icons/navegadores.png" alt="" aria-hidden="true"><span>Navegadores</span></button>
+        <button class="nav-item developer-nav" data-view="windows-update"><img class="asset-icon" src="./icons/windows-update.png" alt="" aria-hidden="true"><span>Windows Update</span></button>
+        <button class="nav-item developer-nav" data-view="apps"><img class="asset-icon" src="./icons/aplicaciones.png" alt="" aria-hidden="true"><span>Aplicaciones</span></button>
+        <button class="nav-item developer-nav" data-view="privacy"><img class="asset-icon" src="./icons/privacidad.png" alt="" aria-hidden="true"><span>Privacidad</span></button>
+        <button class="nav-item developer-nav" data-view="developer"><img class="asset-icon" src="./icons/cpu.png" alt="" aria-hidden="true"><span>Developer Performance</span></button>
+        <button class="nav-item developer-nav" data-view="thermal"><img class="asset-icon" src="./icons/temperatura.png" alt="" aria-hidden="true"><span>Energía / temperaturas</span></button>
+        <button class="nav-item developer-nav" data-view="diagnostics"><img class="asset-icon" src="./icons/herramientas.png" alt="" aria-hidden="true"><span>Diagnóstico avanzado</span></button>
+        <button class="nav-item developer-nav" data-view="activation"><img class="asset-icon" src="./icons/herramientas.png" alt="" aria-hidden="true"><span>Licencia / activación</span></button>
+        <button class="nav-item developer-nav" data-view="backup"><img class="asset-icon" src="./icons/restaurar.png" alt="" aria-hidden="true"><span>Backups / rollback</span></button>
+        <button class="nav-item developer-nav" data-view="history"><img class="asset-icon" src="./icons/diagnostico.png" alt="" aria-hidden="true"><span>Historial</span></button>
+        <div class="nav-separator compact-tool"></div>
+        <button class="nav-item compact-tool" data-view="tools"><img class="asset-icon" src="./icons/herramientas.png" alt="" aria-hidden="true"><span>Herramientas</span><span class="chev">›</span></button>
+        <button class="nav-item" data-view="settings"><img class="asset-icon" src="./icons/herramientas.png" alt="" aria-hidden="true"><span>Configuración</span></button>
+      </nav>
+      <div class="sidebar-foot"><span>v0.1.0 · by truquinio</span><span id="surface-badge">LOCAL</span></div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div class="title-group">
+          <h1>Win11 Performance Control Center</h1>
+          <p>Optimiza, limpia, diagnostica y mantiene tu Windows 11. Ligero. Seguro. En tus manos.</p>
+        </div>
+        <div class="topbar-actions">
+          <span id="global-state" class="badge badge-green"><i></i>IDLE</span>
+          <span class="badge badge-cyan">OFFLINE-FIRST</span>
+          <button id="diagnostic-btn" class="btn btn-primary"><img class="asset-icon" src="./icons/diagnostico.png" alt="" aria-hidden="true">Diagnóstico completo</button>
+          <button class="btn btn-secondary developer-only action-trigger" data-action="disk.cleanup.safe"><img class="asset-icon" src="./icons/limpieza.png" alt="" aria-hidden="true">Limpieza segura</button>
+          <button class="btn btn-secondary developer-only action-trigger profile-performance-btn" data-action="cpu.ecoqos.analyze"><img class="asset-icon" src="./icons/rendimiento.png" alt="" aria-hidden="true">Perfil rendimiento</button>
+          <button id="mode-toggle" class="btn btn-secondary">Modo experto</button>
+        </div>
+      </header>
+
+      <section id="dashboard-view" class="view active">
+        <div class="metrics-grid">
+          <article class="metric-card spark-metric"><div class="metric-icon cyan"><img class="asset-icon" src="./icons/cpu.png" alt="" aria-hidden="true"></div><div class="metric-body"><span>CPU</span><strong id="cpu-value">—</strong><small id="cpu-sub">Midiendo…</small></div><div class="metric-bar"><i id="cpu-bar"></i></div><svg class="sparkline" viewBox="0 0 100 24" preserveAspectRatio="none"><polyline id="cpu-sparkline" points="" /></svg></article>
+          <article class="metric-card"><div class="metric-icon purple"><img class="asset-icon" src="./icons/ram.png" alt="" aria-hidden="true"></div><div class="metric-body"><span>RAM</span><strong id="ram-value">—</strong><small id="ram-sub">Midiendo…</small></div><div class="metric-bar purple-bar"><i id="ram-bar"></i></div></article>
+          <article class="metric-card"><div class="metric-icon cyan"><img class="asset-icon" src="./icons/almacenamiento.png" alt="" aria-hidden="true"></div><div class="metric-body"><span id="disk-label">Disco</span><strong id="disk-value">—</strong><small id="disk-sub">Midiendo…</small></div><div class="metric-bar"><i id="disk-bar"></i></div></article>
+          <article class="metric-card developer-only"><div class="metric-icon orange"><img class="asset-icon" src="./icons/temperatura.png" alt="" aria-hidden="true"></div><div class="metric-body"><span>Temperatura</span><strong id="temperature-value">Midiendo…</strong><small id="temperature-sub">Buscando sensores compatibles</small></div><div class="metric-bar orange-bar"><i id="temperature-bar" style="width:0"></i></div></article>
+          <article class="metric-card spark-metric"><div class="metric-icon cyan"><img class="asset-icon" src="./icons/navegadores.png" alt="" aria-hidden="true"></div><div class="metric-body"><span>Red</span><strong id="network-value">—</strong><small id="network-sub">Detectando…</small></div><div class="metric-bar"><i id="network-bar"></i></div><svg class="sparkline" viewBox="0 0 100 24" preserveAspectRatio="none"><polyline id="network-sparkline" points="" /></svg></article>
+          <article class="metric-card"><div class="metric-icon green"><img class="asset-icon" src="./icons/seguridad.png" alt="" aria-hidden="true"></div><div class="metric-body"><span>Integridad</span><strong id="integrity-value">—</strong><small id="integrity-sub">Sin analizar</small></div></article>
+          <article class="metric-card developer-only developer-driver-card"><div class="metric-icon cyan"><img class="asset-icon" src="./icons/drivers.png" alt="" aria-hidden="true"></div><div class="metric-body"><span>Drivers</span><strong id="developer-driver-value">Sin evaluar</strong><small id="developer-driver-sub">Ejecuta diagnóstico</small></div></article>
+          <article class="metric-card developer-only"><div class="metric-icon cyan"><img class="asset-icon" src="./icons/herramientas.png" alt="" aria-hidden="true"></div><div class="metric-body"><span>Activación</span><strong id="developer-activation-value">Sin evaluar</strong><small id="developer-activation-sub">Estado de licencia</small></div></article>
+          <article class="metric-card developer-only developer-reboot-card"><div class="metric-icon cyan"><img class="asset-icon" src="./icons/windows-update.png" alt="" aria-hidden="true"></div><div class="metric-body"><span>Reinicio</span><strong id="developer-reboot-value">—</strong><small id="developer-reboot-sub">Comprobando estado</small></div></article>
+        </div>
+
+        <section class="section-block action-section">
+          <div class="section-title"><div><h2 class="compact-heading">Acciones principales</h2><h2 class="developer-only">Acciones recomendadas</h2><p>Tareas esenciales para un Windows más rápido, estable y limpio.</p></div><button class="link-btn" data-view="tools">Ver más acciones →</button></div>
+          <div class="actions-grid">
+            <article class="action-card action-cleanup"><div class="action-symbol amber"><img class="asset-icon" src="./icons/limpieza.png" alt="" aria-hidden="true"></div><div><h3>Limpieza segura de C:</h3><p>Analiza temporales y cachés regenerables antes de cualquier limpieza.</p></div><div class="action-meta"><span class="pill safe">Seguro</span><span class="pill">Dry-run</span></div><button class="btn btn-primary action-trigger" data-action="disk.cleanup.safe">Analizar</button></article>
+            <article class="action-card action-diagnostic"><div class="action-symbol purple"><img class="asset-icon" src="./icons/diagnostico.png" alt="" aria-hidden="true"></div><div><h3>Diagnóstico del sistema</h3><p>Analiza rendimiento, estabilidad y posibles problemas de Windows.</p></div><div class="action-meta"><span class="pill safe">Seguro</span><span class="pill">Sin admin</span></div><button class="btn btn-primary action-trigger" data-action="system.health.scan">Analizar</button></article>
+            <article class="action-card action-ecoqos"><div class="action-symbol blue"><img class="asset-icon" src="./icons/rendimiento.png" alt="" aria-hidden="true"></div><div><h3>EcoQoS y rendimiento</h3><p>Detecta procesos elegibles antes de aplicar cambios seleccionados.</p></div><div class="action-meta"><span class="pill safe">Seguro</span><span class="pill">Análisis</span></div><button class="btn btn-primary action-trigger" data-action="cpu.ecoqos.analyze">Analizar</button></article>
+            <article class="action-card developer-only action-memory"><div class="action-symbol purple"><img class="asset-icon" src="./icons/ram.png" alt="" aria-hidden="true"></div><div><h3>MemoryTrim</h3><p>Previsualiza procesos elegibles antes de liberar working sets.</p></div><div class="action-meta"><span class="pill safe">Seguro</span><span class="pill">Preview</span></div><button class="btn btn-primary action-trigger" data-action="memory.trim.preview">Analizar</button></article>
+            <article class="action-card developer-only action-multimedia"><div class="action-symbol magenta"><img class="asset-icon" src="./icons/aplicaciones.png" alt="" aria-hidden="true"></div><div><h3>Diagnóstico multimedia</h3><p>Inventaría dispositivos de audio y vídeo registrados por Windows.</p></div><div class="action-meta"><span class="pill safe">Seguro</span><span class="pill">Read-only</span></div><button class="btn btn-primary action-trigger" data-action="multimedia.inventory">Analizar</button></article>
+            <article class="action-card developer-only action-startup"><div class="action-symbol blue"><img class="asset-icon" src="./icons/rendimiento.png" alt="" aria-hidden="true"></div><div><h3>Startup Intelligence</h3><p>Audita inicio, tareas y servicios automáticos sin modificarlos.</p></div><div class="action-meta"><span class="pill safe">Seguro</span><span class="pill">Read-only</span></div><button class="btn btn-primary action-trigger" data-action="startup.audit">Analizar</button></article>
+            <article class="action-card developer-only action-update"><div class="action-symbol cyan"><img class="asset-icon" src="./icons/windows-update.png" alt="" aria-hidden="true"></div><div><h3>Comprobar Windows Update</h3><p>Verifica eventos recientes y el estado de actualización del sistema.</p></div><div class="action-meta"><span class="pill safe">Seguro</span><span class="pill">Read-only</span></div><button class="btn btn-primary action-trigger" data-action="windows.update.audit">Comprobar</button></article>
+          </div>
+        </section>
+
+        <div class="lower-grid">
+          <section class="panel recovery-panel">
+            <div class="panel-head"><div><h2><img class="heading-icon asset-icon" src="./icons/restaurar.png" alt="" aria-hidden="true">Recuperación avanzada de C:</h2><p id="storage-drive">Unidad del sistema · análisis seguro</p></div><button class="btn btn-outline action-trigger" data-action="disk.scan"><img class="asset-icon" src="./icons/windows-update.png" alt="" aria-hidden="true">Analizar de nuevo</button></div>
+            <div class="recovery-summary">
+              <span><b id="storage-free">—</b> libres</span>
+              <span><b id="storage-total">—</b> capacidad</span>
+              <span><b id="storage-recoverable">—</b> recuperable</span>
+              <span id="storage-risk" class="status-text neutral">Sin analizar</span>
+            </div>
+            <div class="storage-track sr-track"><i id="storage-bar"></i></div>
+            <div class="table-wrap recovery-table-wrap">
+              <table class="recovery-table">
+                <thead><tr><th>Categoría</th><th>Descripción</th><th>Tamaño</th><th>Recuperable</th><th>Riesgo</th><th>Acción</th></tr></thead>
+                <tbody id="recovery-body">
+                  <tr><td>Archivos temporales</td><td>Temporales seguros detectados</td><td>—</td><td>—</td><td><span class="risk-chip safe">Seguro</span></td><td>Analizar</td></tr>
+                  <tr><td>Cachés de aplicaciones</td><td>Cachés regenerables detectadas</td><td>—</td><td>—</td><td><span class="risk-chip safe">Seguro</span></td><td>Revisar</td></tr>
+                  <tr><td>Descargas</td><td>Archivos del usuario; nunca se eliminan automáticamente</td><td>—</td><td>—</td><td><span class="risk-chip caution">Precaución</span></td><td>Revisar</td></tr>
+                  <tr><td>Componentes de Windows</td><td>Diagnóstico read-only del almacén de componentes</td><td>—</td><td>—</td><td><span class="risk-chip caution">Precaución</span></td><td>Diagnóstico</td></tr>
+                  <tr class="developer-only"><td>Aplicaciones detectadas</td><td>Inventario local de aplicaciones</td><td>—</td><td>—</td><td><span class="risk-chip caution">Revisar</span></td><td>Inventario</td></tr>
+                  <tr class="developer-only"><td>npm cache</td><td>Caché de paquetes regenerable</td><td>—</td><td>—</td><td><span class="risk-chip safe">Seguro</span></td><td>Analizar</td></tr>
+                  <tr class="developer-only"><td>Codex cache</td><td>Cachés locales de herramientas de IA</td><td>—</td><td>—</td><td><span class="risk-chip safe">Seguro</span></td><td>Analizar</td></tr>
+                  <tr class="developer-only"><td>Playwright / Puppeteer</td><td>Navegadores de prueba descargados</td><td>—</td><td>—</td><td><span class="risk-chip safe">Seguro</span></td><td>Analizar</td></tr>
+                  <tr class="developer-only"><td>Hibernación</td><td>hiberfil.sys; nunca se modifica sin confirmación</td><td>—</td><td>—</td><td><span class="risk-chip caution">Precaución</span></td><td>Revisar</td></tr>
+                  <tr class="developer-only"><td>Restore Points</td><td>Puntos de restauración de Windows</td><td>—</td><td>—</td><td><span class="risk-chip caution">Revisar</span></td><td>Gestionar</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <div class="right-stack">
+            <section class="panel activity-panel">
+              <div class="panel-head"><div><h2><img class="heading-icon asset-icon" src="./icons/diagnostico.png" alt="" aria-hidden="true">Actividad y logs</h2><p>Operaciones y diagnóstico local.</p></div><span id="activity-count" class="badge">0 eventos</span></div>
+              <div id="activity-list" class="activity-list"><div class="empty">Aún no hay actividad.</div></div>
+            </section>
+            <section class="panel interlocks-panel developer-only">
+              <div class="panel-head"><div><h2>Interlocks</h2><p>Protecciones activas antes de cualquier WRITE.</p></div></div>
+              <div class="interlock-grid">
+                <div><span class="interlock-dot warn"></span><b>WRITE protegido</b><small>Selección + confirmación explícita.</small></div>
+                <div><span class="interlock-dot good"></span><b id="reboot-interlock-title">Reinicio</b><small id="reboot-interlock-text">Comprobando estado.</small></div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <section class="panel developer-detail">
+          <div class="panel-head"><div><h2>Reliability & Unexpected Restart</h2><p>Evidencia reciente del registro de eventos de Windows.</p></div><button class="btn btn-secondary action-trigger" data-action="system.reliability.analyze">Actualizar eventos</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Hora</th><th>ID</th><th>Proveedor</th><th>Clasificación</th><th>Descripción</th></tr></thead><tbody id="reliability-body"><tr><td colspan="5">Sin datos.</td></tr></tbody></table></div>
+        </section>
+
+        <section class="panel developer-detail">
+          <div class="panel-head"><div><h2>Action Catalog</h2><p>Acciones allowlisted disponibles en esta build.</p></div><span class="badge badge-cyan">NO ARBITRARY SHELL</span></div>
+          <div id="catalog-grid" class="catalog-grid"></div>
+        </section>
+      </section>
+
+      <section id="module-view" class="view module-view">
+        <div class="module-heading"><div><span id="module-kicker" class="module-kicker">MÓDULO</span><h2 id="module-title">Módulo</h2><p id="module-description">Diagnóstico local basado en evidencia.</p></div><button class="btn btn-secondary" data-view="dashboard">Volver al Dashboard</button></div>
+        <div id="module-summary" class="module-summary"></div>
+        <section class="panel module-actions-panel"><div class="panel-head"><div><h2>Acciones disponibles</h2><p>Solo acciones allowlisted del backend local.</p></div></div><div id="module-actions" class="module-actions"></div></section>
+        <section id="module-result-panel" class="panel module-result-panel is-hidden"><div class="panel-head"><div><h2 id="module-result-title">Resultado</h2><p id="module-result-subtitle">Evidencia de la última acción.</p></div><span id="module-result-status" class="badge">LOCAL</span></div><div id="module-result-content" class="module-result-content"></div></section>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast-host" class="toast-host" aria-live="polite"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

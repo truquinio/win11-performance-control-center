@@ -1,0 +1,35 @@
+# Build output
+**/bin/
+**/obj/
+**/TestResults/
+src/Frontend/dist/
+artifacts/
+
+# Frontend dependencies
+node_modules/
+npm-debug.log*
+
+# Local developer state
+.vs/
+.vscode/.ropeproject/
+*.user
+*.suo
+.dev-config.ps1
+.env
+.env.local
+
+# Runtime/private data
+logs/
+reports/
+snapshots/
+backups/
+*.dmp
+*.etl
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+
+# Internal AI/project handoff
+CLAUDE.md
+PROJECT_STATE.md

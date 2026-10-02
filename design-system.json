@@ -1,0 +1,23 @@
+{
+  "name": "Win11 Performance Control Center",
+  "fontFamily": "'Segoe UI Variable Text', 'Segoe UI', sans-serif",
+  "colors": {
+    "bg": "#071426",
+    "bgElevated": "#0b1d33",
+    "surface": "#0d223b",
+    "surfaceStrong": "#102944",
+    "border": "#1d4568",
+    "primary": "#0a84ff",
+    "primaryBright": "#19a7ff",
+    "success": "#32d583",
+    "warning": "#f5b942",
+    "danger": "#ff5c64",
+    "purple": "#8b5cf6",
+    "text": "#f4f8ff",
+    "textMuted": "#9cb1c8"
+  },
+  "radius": { "sm": 8, "md": 12, "lg": 16 },
+  "spacing": { "xs": 4, "sm": 8, "md": 12, "lg": 18, "xl": 24 },
+  "breakpoints": { "minimumDesktop": 1366, "targetDesktop": 1920 },
+  "motion": { "fastMs": 120, "normalMs": 180 }
+}

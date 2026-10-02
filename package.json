@@ -1,0 +1,17 @@
+{
+  "name": "win11-performance-control-center",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Shared frontend for the local Windows app and static demo.",
+  "scripts": {
+    "clean": "node scripts/frontend-build.mjs clean",
+    "build:frontend": "node scripts/frontend-build.mjs build",
+    "build:demo": "node scripts/frontend-build.mjs demo",
+    "test:frontend-contract": "node scripts/frontend-contract.mjs",
+    "test:ui-smoke": "npm run build:demo && node scripts/ui-smoke.mjs",
+    "watch:frontend": "tsc --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
