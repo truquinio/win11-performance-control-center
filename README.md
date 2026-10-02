@@ -11,6 +11,7 @@ Aplicación de escritorio para diagnóstico, mantenimiento controlado y análisi
 ![WPF](https://img.shields.io/badge/WPF-Desktop-0C54C2?style=flat)
 ![WebView2](https://img.shields.io/badge/WebView2-Edge-0A84FF?style=flat&logo=microsoftedge&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-Frontend-3178C6?style=flat&logo=typescript&logoColor=white)
+[![Pages](https://github.com/truquinio/win11-performance-control-center/actions/workflows/pages.yml/badge.svg)](https://github.com/truquinio/win11-performance-control-center/actions/workflows/pages.yml)
 
 [**Portfolio demo**](https://truquinio.github.io/win11-performance-control-center/) ·
 [**Arquitectura**](docs/ARCHITECTURE.md) ·
@@ -113,6 +114,10 @@ La omisión es deliberada: este repositorio existe para **demostrar el trabajo s
 
 **Portfolio / Showcase Edition.**  
 El desarrollo completo continúa de forma privada.
+
+## 🔏 Uso y reutilización
+
+Este repositorio público muestra el proyecto con fines de portfolio. **No concede una licencia open source de reutilización del código**.
 
 ---
 
