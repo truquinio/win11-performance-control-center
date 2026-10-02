@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Windows;
 using System.Windows.Threading;
 using Win11PerformanceControlCenter.App.Core;
@@ -8,10 +9,24 @@ namespace Win11PerformanceControlCenter.App;
 
 public partial class App : Application
 {
-    private const string SingleInstanceName =
-        @"Local\Win11PerformanceControlCenter.SingleInstance";
+    private static readonly string SingleInstanceName =
+        CreateSingleInstanceName();
 
     private Mutex? _singleInstance;
+
+    private static string CreateSingleInstanceName()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        var sid = identity.User?.Value;
+        if (string.IsNullOrWhiteSpace(sid))
+            throw new InvalidOperationException(
+                "No se pudo resolver la identidad de Windows para el bloqueo de instancia única.");
+
+        // App data is per-user but shared by all sessions of that user.
+        // Global + SID prevents two sessions from racing the same state while
+        // still allowing different Windows users to run their own instance.
+        return $@"Global\Win11PerformanceControlCenter.{sid}.SingleInstance";
+    }
 
     protected override void OnStartup(StartupEventArgs e)
     {
