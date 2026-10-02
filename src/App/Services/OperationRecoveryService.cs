@@ -187,17 +187,27 @@ public sealed class OperationRecoveryService(
                 states[key] = state;
             }
 
+            if (timestamp < state.LastTimestamp)
+                return;
+
+            if (timestamp == state.LastTimestamp &&
+                TerminalStatuses.Contains(state.LastStatus) &&
+                status.Equals(
+                    "STARTED",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            state.LastTimestamp = timestamp;
+            state.LastStatus = status;
+
             if (status.Equals(
                     "STARTED",
                     StringComparison.OrdinalIgnoreCase))
             {
                 state.StartedAt = timestamp;
-                state.LastStatus = status;
-                return;
             }
-
-            if (state.StartedAt is not null)
-                state.LastStatus = status;
         }
         catch (JsonException)
         {
@@ -209,6 +219,7 @@ public sealed class OperationRecoveryService(
     {
         public string ActionId { get; } = actionId;
         public DateTimeOffset? StartedAt { get; set; }
+        public DateTimeOffset LastTimestamp { get; set; } = DateTimeOffset.MinValue;
         public string LastStatus { get; set; } = "UNKNOWN";
     }
 }

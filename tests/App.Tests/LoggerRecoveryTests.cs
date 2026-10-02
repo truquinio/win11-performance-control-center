@@ -112,6 +112,57 @@ public sealed class LoggerRecoveryTests
     }
 
     [Fact]
+    public async Task Recovery_UsesRecordTimestampsWhenRotatedLogsAreOutOfOrder()
+    {
+        using var dataRoot = new TestDataRoot();
+        var logDirectory = Path.Combine(dataRoot.Path, "Logs");
+        var logPath = Path.Combine(logDirectory, "app.jsonl");
+        var statePath = Path.Combine(dataRoot.Path, "State", "ecoqos.json");
+        Directory.CreateDirectory(logDirectory);
+
+        var operationId = Guid.NewGuid().ToString("N");
+        var completedArchive = Path.Combine(
+            logDirectory,
+            "app-20261002-120100-000-complete.jsonl");
+        var staleArchive = Path.Combine(
+            logDirectory,
+            "app-20261002-120000-000-started.jsonl");
+
+        await File.WriteAllTextAsync(
+            completedArchive,
+            JsonSerializer.Serialize(new
+            {
+                timestamp = DateTimeOffset.Parse("2026-10-02T12:01:00Z"),
+                operationId,
+                actionId = "test.recovery.order",
+                status = "COMPLETED"
+            }) + Environment.NewLine);
+        await File.WriteAllTextAsync(
+            staleArchive,
+            JsonSerializer.Serialize(new
+            {
+                timestamp = DateTimeOffset.Parse("2026-10-02T12:00:00Z"),
+                operationId,
+                actionId = "test.recovery.order",
+                status = "STARTED"
+            }) + Environment.NewLine);
+
+        // Deliberately make filesystem metadata disagree with record time.
+        File.SetLastWriteTimeUtc(completedArchive, DateTime.UtcNow.AddMinutes(-2));
+        File.SetLastWriteTimeUtc(staleArchive, DateTime.UtcNow.AddMinutes(-1));
+
+        var service = new OperationRecoveryService(
+            new EcoQosStateStore(statePath),
+            logPath);
+
+        var status = service.Analyze();
+
+        Assert.DoesNotContain(
+            status.IncompleteOperations,
+            item => item.ActionId == "test.recovery.order");
+    }
+
+    [Fact]
     public async Task AppLogger_TryWriteAfterDispose_ReturnsFalse()
     {
         using var dataRoot = new TestDataRoot();
