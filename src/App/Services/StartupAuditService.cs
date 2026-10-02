@@ -37,7 +37,8 @@ public sealed class StartupAuditService
             using var searcher = new ManagementObjectSearcher(
                 "SELECT Name, Command, Location, User FROM Win32_StartupCommand");
 
-            foreach (var raw in searcher.Get())
+            using var results = searcher.Get();
+            foreach (var raw in results)
             {
                 using (raw)
                 {
@@ -81,7 +82,8 @@ public sealed class StartupAuditService
                 new ObjectQuery(
                     "SELECT TaskName, TaskPath, State FROM MSFT_ScheduledTask"));
 
-            foreach (var raw in searcher.Get())
+            using var results = searcher.Get();
+            foreach (var raw in results)
             {
                 using (raw)
                 {
@@ -125,7 +127,8 @@ public sealed class StartupAuditService
                 "SELECT Name, DisplayName, State, StartMode FROM Win32_Service " +
                 "WHERE StartMode='Auto'");
 
-            foreach (var raw in searcher.Get())
+            using var results = searcher.Get();
+            foreach (var raw in results)
             {
                 using (raw)
                 {

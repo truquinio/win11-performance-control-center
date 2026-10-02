@@ -33,7 +33,8 @@ public sealed class ThermalEnergyService
                 new ObjectQuery(
                     "SELECT ElementName, InstanceID FROM Win32_PowerPlan WHERE IsActive=True"));
 
-            foreach (var raw in searcher.Get())
+            using var results = searcher.Get();
+            foreach (var raw in results)
             {
                 using (raw)
                 {
@@ -75,7 +76,8 @@ public sealed class ThermalEnergyService
                 new ObjectQuery(
                     "SELECT InstanceName, CurrentTemperature FROM MSAcpi_ThermalZoneTemperature"));
 
-            foreach (var baseObject in searcher.Get())
+            using var results = searcher.Get();
+            foreach (var baseObject in results)
             {
                 using (baseObject)
                 {

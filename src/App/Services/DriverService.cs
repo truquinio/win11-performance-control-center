@@ -20,7 +20,8 @@ public sealed class DriverService
                     "SELECT Name, ConfigManagerErrorCode, Manufacturer, PNPDeviceID " +
                     "FROM Win32_PnPEntity WHERE ConfigManagerErrorCode <> 0");
 
-                foreach (var raw in searcher.Get())
+                using var results = searcher.Get();
+                foreach (var raw in results)
                 {
                     using (raw)
                     {

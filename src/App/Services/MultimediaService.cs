@@ -33,7 +33,8 @@ public sealed class MultimediaService
         try
         {
             using var searcher = new ManagementObjectSearcher(query);
-            foreach (var raw in searcher.Get())
+            using var results = searcher.Get();
+            foreach (var raw in results)
             {
                 using (raw)
                 {

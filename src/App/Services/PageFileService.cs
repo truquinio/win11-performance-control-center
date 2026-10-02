@@ -16,7 +16,8 @@ public sealed class PageFileService
             {
                 using var computerSearcher = new ManagementObjectSearcher(
                     "SELECT AutomaticManagedPagefile FROM Win32_ComputerSystem");
-                foreach (var raw in computerSearcher.Get())
+                using var computerResults = computerSearcher.Get();
+                foreach (var raw in computerResults)
                 {
                     using (raw)
                     {
@@ -47,7 +48,8 @@ public sealed class PageFileService
                 using var usageSearcher = new ManagementObjectSearcher(
                     "SELECT Name, AllocatedBaseSize, CurrentUsage, PeakUsage FROM Win32_PageFileUsage");
 
-                foreach (var raw in usageSearcher.Get())
+                using var usageResults = usageSearcher.Get();
+                foreach (var raw in usageResults)
                 {
                     using (raw)
                     {

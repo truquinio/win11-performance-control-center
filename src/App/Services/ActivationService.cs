@@ -23,7 +23,8 @@ public sealed class ActivationService
                 using var searcher = new ManagementObjectSearcher(query);
                 var candidates = new List<ActivationAnalysis>();
 
-                foreach (var raw in searcher.Get())
+                using var results = searcher.Get();
+                foreach (var raw in results)
                 {
                     using (raw)
                     {
