@@ -36,6 +36,8 @@ Invoke-Step "CI parity contract" { npm run test:ci-contract }
 
 Invoke-Step "WebView security contract" { npm run test:webview-security }
 
+Invoke-Step "Platform compatibility contract" { npm run test:platform-contract }
+
 Invoke-Step "Visual QA isolation contract" {
     powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\visual-qa-contract.ps1"
 }

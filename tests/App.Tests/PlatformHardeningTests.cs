@@ -186,4 +186,45 @@ public sealed class PlatformHardeningTests
             CultureInfo.CurrentUICulture = originalUiCulture;
         }
     }
+
+    [Fact]
+    public void JsonProtocol_IsInvariantAcrossAllSpecificCultures()
+    {
+        var originalCulture = CultureInfo.CurrentCulture;
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            foreach (var culture in CultureInfo.GetCultures(
+                         CultureTypes.SpecificCultures))
+            {
+                CultureInfo.CurrentCulture = culture;
+                CultureInfo.CurrentUICulture = culture;
+
+                var json = JsonSerializer.Serialize(
+                    new
+                    {
+                        number = 1234.5,
+                        timestamp = new DateTimeOffset(
+                            2026, 10, 2, 20, 15, 30, TimeSpan.Zero)
+                    },
+                    HostBridge.JsonOptions);
+
+                using var document = JsonDocument.Parse(json);
+                Assert.Equal(
+                    1234.5,
+                    document.RootElement.GetProperty("number").GetDouble());
+                Assert.Equal(
+                    new DateTimeOffset(
+                        2026, 10, 2, 20, 15, 30, TimeSpan.Zero),
+                    document.RootElement
+                        .GetProperty("timestamp")
+                        .GetDateTimeOffset());
+            }
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
+    }
 }

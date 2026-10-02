@@ -13,6 +13,7 @@
     "test:resource-contract": "node scripts/resource-contract.mjs",
     "test:ci-contract": "node scripts/ci-contract.mjs",
     "test:webview-security": "node scripts/webview-security-contract.mjs",
+    "test:platform-contract": "node scripts/platform-contract.mjs",
     "watch:frontend": "tsc --watch"
   },
   "devDependencies": {

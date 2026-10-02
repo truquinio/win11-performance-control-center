@@ -71,6 +71,15 @@ public sealed class ElevatedActionClient
                 "La elevación UAC fue cancelada por el usuario.",
                 ex);
         }
+        catch (Win32Exception ex) when (
+            ex.NativeErrorCode is 1260 or 577)
+        {
+            throw new InvalidOperationException(
+                "Windows bloqueó el helper elevado mediante una política " +
+                "de seguridad o integridad de código (por ejemplo, " +
+                "Group Policy, AppLocker o WDAC). No se intentó eludirla.",
+                ex);
+        }
 
         using var timeoutCts =
             CancellationTokenSource.CreateLinkedTokenSource(
