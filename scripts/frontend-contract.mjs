@@ -99,6 +99,20 @@ for (const controlId of ["diagnostic-btn", "mode-toggle"]) {
 
 // The backend coordinator runs one action at a time, so firing several
 // actions in parallel always makes all but the first fail.
+const actionTimeoutMatch = app.match(
+  /const timeoutMs = (\d+);/
+);
+if (!actionTimeoutMatch) {
+  throw new Error("No se pudo verificar el timeout de actions.run.");
+}
+const actionTimeoutFloor = Number(actionTimeoutMatch[1]);
+if (actionTimeoutFloor < 270000) {
+  throw new Error(
+    "El timeout del frontend expira antes que el presupuesto máximo del backend: " +
+    actionTimeoutFloor + " ms"
+  );
+}
+
 const parallelActions = [...app.matchAll(/Promise\.all\(\s*\[([\s\S]*?)\]\s*\)/g)]
   .filter(match => (match[1].match(/\brunAction\(/g) ?? []).length > 1);
 if (parallelActions.length) {

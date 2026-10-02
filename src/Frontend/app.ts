@@ -132,7 +132,11 @@ class LocalProvider implements Provider {
   runAction(id: string, parameters: Record<string, unknown> = {}): Promise<ActionResult> {
     const payload: Record<string, unknown> = { id };
     if (Object.keys(parameters).length > 0) payload.parameters = parameters;
-    const timeoutMs = id === "system.integrity.check" ? 240000 : 60000;
+    // The backend can legitimately keep a read operation alive for up to
+    // four minutes (and an elevated helper for up to three). The UI timeout
+    // must outlive those budgets or it can report a false failure while the
+    // global operation interlock is still held.
+    const timeoutMs = 270000;
     return this.request("actions.run", payload, timeoutMs);
   }
 }
