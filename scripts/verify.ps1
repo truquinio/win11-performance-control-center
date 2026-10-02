@@ -34,6 +34,8 @@ Invoke-Step "Resource safety contract" { npm run test:resource-contract }
 
 Invoke-Step "CI parity contract" { npm run test:ci-contract }
 
+Invoke-Step "WebView security contract" { npm run test:webview-security }
+
 Invoke-Step "Release build" {
     & $dotnet build ".\\Win11PerformanceControlCenter.slnx" -c $Configuration --nologo --verbosity minimal -warnaserror
 }

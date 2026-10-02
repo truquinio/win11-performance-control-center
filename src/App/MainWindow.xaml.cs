@@ -257,6 +257,8 @@ public partial class MainWindow : Window
             CoreWebView2HostResourceAccessKind.DenyCors);
         core.NavigationStarting += OnNavigationStarting;
         core.NewWindowRequested += OnNewWindowRequested;
+        core.PermissionRequested += OnPermissionRequested;
+        core.DownloadStarting += OnDownloadStarting;
         core.WebMessageReceived += OnWebMessageReceived;
         core.ProcessFailed += OnWebViewProcessFailed;
 
@@ -284,6 +286,20 @@ public partial class MainWindow : Window
         CoreWebView2NewWindowRequestedEventArgs e)
     {
         e.Handled = true;
+    }
+
+    private static void OnPermissionRequested(
+        object? sender,
+        CoreWebView2PermissionRequestedEventArgs e)
+    {
+        e.State = CoreWebView2PermissionState.Deny;
+    }
+
+    private static void OnDownloadStarting(
+        object? sender,
+        CoreWebView2DownloadStartingEventArgs e)
+    {
+        e.Cancel = true;
     }
 
     private void OnWebViewProcessFailed(

@@ -26,6 +26,9 @@ WRITE operations require explicit user confirmation. EcoQoS stores process-insta
 ## UAC
 The main process is not always-admin. `ElevatedActionClient` starts a constrained helper through Windows `runas`; the helper revalidates the Action Catalog and its own elevation, runs only the requested read-only action and returns the result over a one-shot, current-user-only named pipe whose name is derived from a random token. Parameterised actions are never forwarded to the elevated helper. The interactive Windows consent dialog is intentionally not automated.
 
+## WebView2
+The desktop surface accepts messages only from the mapped local HTTPS host. External navigation and new windows are blocked, browser permission requests are denied, and downloads are cancelled by default. The local UI does not need camera, microphone, geolocation, notifications or download privileges.
+
 ## Files and privacy
 - Safe Cleanup is DRY_RUN in this release candidate.
 - Browser/extension health is read-only.
