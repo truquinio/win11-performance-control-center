@@ -11,8 +11,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/trauquinio/win11-performance-control-center/actions/workflows/ci.yml">
-    <img src="https://github.com/trauquinio/win11-performance-control-center/actions/workflows/ci.yml/badge.svg" alt="CI"/>
+  <a href="https://github.com/truquinio/win11-performance-control-center/actions/workflows/ci.yml">
+    <img src="https://github.com/truquinio/win11-performance-control-center/actions/workflows/ci.yml/badge.svg" alt="CI"/>
   </a>
   <img src="https://img.shields.io/badge/Windows-11-0078D4?style=flat&logo=windows11&logoColor=white" alt="Windows 11"/>
   <img src="https://img.shields.io/badge/.NET-10-512BD4?style=flat&logo=dotnet&logoColor=white" alt=".NET 10"/>
@@ -174,4 +174,4 @@ No hay una licencia de reutilización declarada en el repositorio en este moment
 
 ---
 
-**by [truquinio](https://github.com/trauquinio)** · [LinkedIn](https://www.linkedin.com/in/federico-trucco/)
+**by [truquinio](https://github.com/truquinio)** · [LinkedIn](https://www.linkedin.com/in/federico-trucco/)
