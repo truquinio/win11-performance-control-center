@@ -37,5 +37,7 @@ The desktop surface accepts messages only from the mapped local HTTPS host. Exte
 - A WRITE action is refused when its audit record cannot be written first; read-only diagnostics keep working without the log.
 - EcoQoS rollback snapshots are persisted (write, flush, atomic rename) before a process is touched. If the snapshot cannot be saved, the process is left unchanged.
 - External tools are started from fixed system locations (`dism.exe`, `nvidia-smi.exe`), never resolved through the working directory or `PATH`.
-- Only one UI instance runs per session, so rollback state has a single writer.
+- The application's own native calls are resolved only from `System32`, so they never load a library planted next to the executable.
+- Only one UI instance runs per Windows user across all of that user's sessions, so rollback state has a single writer. A second launch exits quietly, including when the running instance was started elevated.
+- Recovery reports an interrupted operation only when its audit record does not declare it read-only; an interrupted read-only audit leaves nothing to recover.
 - No telemetry or CDN is required for local operation.
