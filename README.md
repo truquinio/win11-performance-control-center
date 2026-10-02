@@ -11,73 +11,74 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/trauquinio/win11-performance-control-center/actions/workflows/ci.yml">
+    <img src="https://github.com/trauquinio/win11-performance-control-center/actions/workflows/ci.yml/badge.svg" alt="CI"/>
+  </a>
   <img src="https://img.shields.io/badge/Windows-11-0078D4?style=flat&logo=windows11&logoColor=white" alt="Windows 11"/>
   <img src="https://img.shields.io/badge/.NET-10-512BD4?style=flat&logo=dotnet&logoColor=white" alt=".NET 10"/>
   <img src="https://img.shields.io/badge/WPF-Desktop-0C54C2?style=flat" alt="WPF"/>
   <img src="https://img.shields.io/badge/WebView2-Edge-0A84FF?style=flat&logo=microsoftedge&logoColor=white" alt="WebView2"/>
   <img src="https://img.shields.io/badge/TypeScript-Frontend-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript"/>
-  <img src="https://img.shields.io/badge/tests-70%2F70-brightgreen?style=flat" alt="70/70 tests"/>
+  <img src="https://img.shields.io/badge/status-preview-orange?style=flat" alt="Preview status"/>
 </p>
 
 <p align="center">
-  <strong>by truquinio</strong>
+  <a href="#-build-local"><strong>Build local</strong></a> ·
+  <a href="docs/ARCHITECTURE.md"><strong>Architecture</strong></a> ·
+  <a href="docs/SECURITY.md"><strong>Security</strong></a> ·
+  <a href="docs/TESTING.md"><strong>Testing</strong></a>
 </p>
 
 ---
 
 ## 🖥️ Vista general
 
-Win11 Performance Control Center centraliza métricas, diagnóstico y tareas de mantenimiento de Windows 11 en una aplicación local. El objetivo no es aplicar tweaks indiscriminados, sino seguir un flujo controlado:
+Win11 Performance Control Center es una aplicación local para centralizar métricas, diagnóstico y tareas controladas de mantenimiento de Windows 11.
+
+Su flujo de diseño es:
 
 `detectar → diagnosticar → medir → explicar → actuar → verificar → revertir`
 
-La interfaz ofrece un modo **Compact** para uso diario y un modo **Developer** con módulos técnicos, Action Catalog, evidencias y controles avanzados.
+La interfaz ofrece **Compact** para uso diario y **Developer** para Action Catalog, evidencias y controles técnicos.
 
-### Compact
+| Compact | Developer |
+| --- | --- |
+| ![Dashboard Compact](docs/screenshots/dashboard-compact.png) | ![Dashboard Developer](docs/screenshots/dashboard-developer.png) |
 
-<p align="center">
-  <img src="docs/screenshots/dashboard-compact.png" alt="Dashboard Compact" width="100%"/>
-</p>
+> Las capturas usan el modo DEMO con datos simulados; no exponen información del equipo real.
 
-### Developer
+## ⚡ Capacidades
 
-<p align="center">
-  <img src="docs/screenshots/dashboard-developer.png" alt="Dashboard Developer" width="100%"/>
-</p>
-
-> Las capturas utilizan el modo DEMO con datos simulados; no exponen información del equipo real.
-
-## ⚡ Funcionalidad
-
-- 🧠 **CPU / EcoQoS** — análisis de procesos, selección segura, aplicación y rollback.
-- 🧩 **RAM / MemoryTrim** — presión de memoria, preview de candidatos y recorte seleccionado.
+- 🧠 **CPU / EcoQoS** — análisis de procesos, aplicación controlada y rollback.
+- 🧩 **RAM / MemoryTrim** — presión de memoria, preview y recorte seleccionado.
 - 💾 **Almacenamiento** — espacio disponible, categorías recuperables y Safe Cleanup en dry-run.
-- 🛡️ **Integridad** — línea base del sistema y DISM CheckHealth con UAC puntual.
+- 🛡️ **Integridad** — línea base del sistema y DISM CheckHealth con elevación puntual.
 - 🌐 **Red** — adaptador activo, enlace y tráfico medido.
 - 🌡️ **Energía y temperatura** — plan de energía, ACPI y lectura NVIDIA cuando está disponible.
 - 🧰 **Drivers, aplicaciones e inicio** — auditorías locales read-only.
 - 🔄 **Windows Update** — análisis de eventos recientes de instalación y error.
-- 🌍 **Navegadores** — inventario y diagnóstico de salud de extensiones de Edge.
+- 🌍 **Navegadores** — inventario y diagnóstico de extensiones de Edge.
 - 🎧 **Multimedia** — inventario de dispositivos de audio y vídeo.
-- 🔐 **Privacidad y activación** — lectura de configuraciones y estado de licencia.
-- 📈 **Reliability** — correlación de reinicios, apagados inesperados y eventos relevantes.
-- ↩️ **Recovery / rollback** — detección de operaciones incompletas y snapshots de EcoQoS.
+- 🔐 **Privacidad y activación** — lectura de configuración y estado de licencia.
+- 📈 **Reliability** — correlación de reinicios, apagados inesperados y eventos.
+- ↩️ **Recovery** — detección de operaciones incompletas y snapshots de EcoQoS.
 
 ## 🔐 Modelo de seguridad
 
-La aplicación está diseñada para que la UI no pueda ejecutar comandos arbitrarios.
+| Operación | Comportamiento |
+| --- | --- |
+| Lecturas | Sin elevación por defecto |
+| Escrituras | Action IDs tipadas + parámetros estructurados + confirmación |
+| Acciones administrativas | UAC sólo cuando la acción lo requiere |
+| Comandos arbitrarios desde UI | No permitidos |
+| Reinicio automático | No |
+| Safe Cleanup | `DRY_RUN` en la versión actual |
 
-- El frontend sólo invoca **Action IDs tipadas y allowlisted**.
-- Las acciones WRITE requieren parámetros estructurados y confirmación explícita.
-- El proceso funciona sin elevación por defecto.
-- UAC se solicita únicamente para acciones concretas que lo necesitan.
-- El helper elevado vuelve a ejecutar el **mismo ejecutable**, valida Action ID y utiliza un token efímero de respuesta.
-- No desactiva Windows Security.
-- No modifica BIOS, firmware ni drivers.
-- No reinicia Windows automáticamente.
-- Safe Cleanup permanece en **DRY_RUN** en la versión actual.
+El helper elevado vuelve a ejecutar el mismo ejecutable, valida el Action ID y usa un token efímero de respuesta.
 
-Más detalle en [docs/SECURITY.md](docs/SECURITY.md).
+La aplicación no desactiva Windows Security ni modifica BIOS, firmware o drivers.
+
+📘 [Security model](docs/SECURITY.md)
 
 ## 🏗️ Arquitectura
 
@@ -92,7 +93,7 @@ WPF / .NET 10
     │           └── ActionExecutor
     │                 ├── Servicios read-only
     │                 ├── Operaciones protegidas
-    │                 └── ElevatedActionClient (UAC puntual)
+    │                 └── ElevatedActionClient
     │
     └── Logs / state / rollback local
 ```
@@ -103,29 +104,22 @@ WPF / .NET 10
 | UI | HTML · CSS · TypeScript |
 | Render | Microsoft Edge WebView2 |
 | Sistema | WMI · Event Log · Registry · Windows APIs |
-| Tests | xUnit · Node UI smoke · contract tests |
+| Tests | xUnit · frontend contracts · UI smoke |
 | CI | GitHub Actions |
 
-Documentación técnica: [Architecture](docs/ARCHITECTURE.md) · [Action Catalog](docs/ACTION_CATALOG.md) · [Testing](docs/TESTING.md) · [Demo](docs/DEMO.md)
+Documentación: [Architecture](docs/ARCHITECTURE.md) · [Action Catalog](docs/ACTION_CATALOG.md) · [Testing](docs/TESTING.md) · [Demo](docs/DEMO.md)
 
 ## ✅ Calidad y verificación
 
-La puerta de verificación actual comprueba:
+La verificación automatizada cubre build Release, tests .NET, contratos frontend, paridad del Action Catalog, UI smoke, recursos, packaging y auditorías de dependencias definidas por el proyecto.
 
-- **70/70 tests** .NET.
-- Release build con **0 warnings / 0 errors**.
-- Analyzers y code-style gates.
-- Contrato frontend: **23 views**, **18 rutas Developer**, **40 botones literales**.
-- Paridad entre el Action Catalog TypeScript y el catálogo C#.
-- UI smoke de navegación, iconos, botones y feedback.
-- Auditoría NuGet: **0 paquetes vulnerables conocidos**.
-- Auditoría npm de producción: **0 vulnerabilidades**.
-
-Ejecutar la suite completa:
+Ejecutar la puerta de verificación:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
 ```
+
+El badge de CI de la cabecera refleja el estado real del workflow de GitHub Actions; no se mantiene un contador manual de tests en este README.
 
 ## 🚀 Build local
 
@@ -144,7 +138,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\build-local.ps1
 ```
 
-Salida:
+Salida local:
 
 ```text
 artifacts/local-win-x64/
@@ -157,30 +151,27 @@ artifacts/Win11PerformanceControlCenter-win-x64.zip
 npm run build:demo
 ```
 
-La demo usa exactamente el mismo frontend, con datos simulados y sin acceso al sistema operativo.
+La demo utiliza el mismo frontend con datos simulados y sin acceso al sistema operativo.
 
 ## 📁 Estructura
 
 ```text
 src/
 ├── App/                 # WPF host, bridge, services, action execution
-└── Frontend/            # UI HTML/CSS/TypeScript + iconos
+└── Frontend/            # HTML/CSS/TypeScript + iconos
 
 tests/App.Tests/         # unit + integration tests
-scripts/                 # build, contract, UI smoke, verification
+scripts/                 # build, contracts, smoke, verification
 docs/                    # arquitectura, seguridad y screenshots
 .github/workflows/       # CI
 ```
 
-## 👤 Autor
+## 📌 Estado
 
-**truquinio**
+**Preview / v0.1.0.** El repositorio contiene funcionalidades read-only y acciones controladas; Safe Cleanup continúa en dry-run.
 
-[![GitHub](https://img.shields.io/badge/GitHub-truquinio-181717?style=flat&logo=github&logoColor=white)](https://github.com/truquinio)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Federico%20Trucco-0077B5?style=flat&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/federico-trucco/)
+No hay una licencia de reutilización declarada en el repositorio en este momento.
 
 ---
 
-<p align="center">
-  <sub>Win11 Performance Control Center · v0.1.0 · by truquinio</sub>
-</p>
+**by [truquinio](https://github.com/trauquinio)** · [LinkedIn](https://www.linkedin.com/in/federico-trucco/)
