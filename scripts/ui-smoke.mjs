@@ -62,6 +62,21 @@ const edgeProcess = spawn(edge, [
 ], { stdio: "ignore" });
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+async function cleanup(socket) {
+  try { socket?.close(); } catch {}
+  edgeProcess.kill();
+  await sleep(300);
+  await new Promise(resolve => server.close(resolve));
+  try {
+    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  } catch {
+    // Edge can briefly retain profile handles after headless shutdown.
+  }
+}
+
+let socket;
+try {
 let target;
 for (let i = 0; i < 40; i++) {
   try {
@@ -73,7 +88,7 @@ for (let i = 0; i < 40; i++) {
 }
 if (!target?.webSocketDebuggerUrl) throw new Error("CDP no disponible.");
 
-const socket = new WebSocket(target.webSocketDebuggerUrl);
+socket = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((resolve, reject) => {
   socket.addEventListener("open", resolve, { once: true });
   socket.addEventListener("error", reject, { once: true });
@@ -115,6 +130,20 @@ const expression = String.raw`
   })));
   const brokenIcons = iconImages.filter(img => img.naturalWidth === 0 || img.naturalHeight === 0);
   if (brokenIcons.length) errors.push("Iconos rotos: " + brokenIcons.length);
+
+  const allButtons = [...document.querySelectorAll("button")];
+  for (const button of allButtons) {
+    const accessibleName = (
+      button.getAttribute("aria-label") ||
+      button.getAttribute("title") ||
+      button.textContent ||
+      ""
+    ).trim();
+    if (!accessibleName)
+      errors.push("Botón sin nombre accesible");
+    if (!button.disabled && button.tabIndex < 0)
+      errors.push("Botón fuera del orden de teclado: " + accessibleName);
+  }
 
   const developerButtons = [...document.querySelectorAll(".developer-nav")].filter(visible);
   let moduleButtonsSeen = 0;
@@ -169,6 +198,29 @@ const expression = String.raw`
   if (document.body.dataset.mode === beforeMode)
     errors.push("Modo experto/compacto no cambió");
 
+  // Keyboard focus and the action buttons must survive the periodic
+  // snapshot refresh (5 s) while a module view is open.
+  const moduleNav = [...document.querySelectorAll(".nav-item")]
+    .filter(visible)
+    .find(node => node.dataset.view === "performance");
+  moduleNav?.click();
+  await wait(20);
+  const focusTarget = document.querySelector("#module-actions button:not([disabled])");
+  if (!focusTarget) {
+    errors.push("Módulo Rendimiento sin acciones habilitadas");
+  } else {
+    focusTarget.focus();
+    await wait(5600);
+    if (!focusTarget.isConnected)
+      errors.push("El refresco periódico reconstruyó los botones del módulo");
+    if (document.activeElement !== focusTarget)
+      errors.push("El refresco periódico quitó el foco de teclado");
+  }
+  if (moduleNav && moduleNav.getAttribute("aria-current") !== "page")
+    errors.push("La navegación activa no expone aria-current");
+  document.querySelector('[data-view="dashboard"]')?.click();
+  await wait(20);
+
   const diagnostic = document.querySelector("#diagnostic-btn");
   if (!diagnostic || !diagnostic.textContent.trim())
     errors.push("Diagnóstico completo ausente o sin etiqueta");
@@ -198,12 +250,8 @@ console.log(
   `UI_SMOKE_OK developerButtons=${result.developerButtons} compactButtons=${result.compactButtons} dashboardActions=${result.actions} moduleButtons=${result.moduleButtonsSeen} buttons=${result.literalButtons}`
 );
 
-socket.close();
-edgeProcess.kill();
-await sleep(300);
-server.close();
-try {
-  fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
-} catch {
-  // Edge can briefly retain profile handles after headless shutdown.
+} finally {
+  // A failed assertion must not leave the browser and the HTTP server
+  // running: that keeps Node alive and stalls CI until its timeout.
+  await cleanup(socket);
 }

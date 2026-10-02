@@ -25,12 +25,23 @@ public sealed class OperationRecoveryService(
     public RecoveryStatus Analyze(string? excludeOperationId = null)
     {
         var incomplete = ReadIncompleteOperations(excludeOperationId);
-        var snapshots = _ecoQosStateStore.Snapshot()
+        var states = _ecoQosStateStore.Snapshot();
+        var snapshots = states
             .Select(state =>
                 $"EcoQoS · PID {state.ProcessId} · {state.Name} · {state.CapturedAt:O}")
             .ToArray();
 
-        return new RecoveryStatus(incomplete, snapshots);
+        // A snapshot is only actionable while the exact process instance it
+        // was captured from is still running.
+        var targets = states
+            .Select(state => new RollbackTarget(
+                state.ProcessId,
+                state.Name,
+                state.CapturedAt,
+                ProcessTuningService.IsSameInstanceRunning(state) == true))
+            .ToArray();
+
+        return new RecoveryStatus(incomplete, snapshots, targets);
     }
 
     private IReadOnlyList<RecoveryOperation> ReadIncompleteOperations(

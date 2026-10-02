@@ -1,11 +1,10 @@
-using System.IO;
-
 namespace Win11PerformanceControlCenter.App.Core;
 
 public static class ElevatedActionProtocol
 {
     public const string ActionFlag = "--elevated-action";
     public const string TokenFlag = "--result-token";
+    private const string PipePrefix = "WPCC-Elevated-";
 
     public static bool TryParse(
         IReadOnlyList<string> args,
@@ -27,20 +26,13 @@ public static class ElevatedActionProtocol
                Guid.TryParseExact(args[3], "N", out token);
     }
 
-    public static string GetResultDirectory()
-    {
-        AppPaths.EnsureDirectories();
-        return AppPaths.ElevatedResults;
-    }
-    public static string GetResultPath(Guid token)
+    public static string GetPipeName(Guid token)
     {
         if (token == Guid.Empty)
             throw new ArgumentException(
                 "Result token inválido.",
                 nameof(token));
 
-        return Path.Combine(
-            GetResultDirectory(),
-            token.ToString("N") + ".json");
+        return PipePrefix + token.ToString("N");
     }
 }

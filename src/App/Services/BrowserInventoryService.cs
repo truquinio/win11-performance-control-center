@@ -57,7 +57,10 @@ public sealed class BrowserInventoryService
                     using var baseKey = RegistryKey.OpenBaseKey(hive, view);
                     using var key = baseKey.OpenSubKey(
                         $@"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{executableName}");
-                    var value = key?.GetValue(null) as string;
+                    // Installers frequently register the path quoted.
+                    var value = (key?.GetValue(null) as string)
+                        ?.Trim()
+                        .Trim('"');
                     if (!string.IsNullOrWhiteSpace(value) &&
                         File.Exists(value))
                     {
@@ -71,6 +74,10 @@ public sealed class BrowserInventoryService
                 catch (System.Security.SecurityException)
                 {
                     // Registry discovery can be policy restricted.
+                }
+                catch (IOException)
+                {
+                    // A transient registry/hive I/O error is non-fatal.
                 }
             }
         }

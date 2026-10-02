@@ -26,6 +26,14 @@ public sealed class ExplorerAuditService
                 {
                     // Process exited during the snapshot.
                 }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                    // An Explorer instance from another session is not readable.
+                }
+                catch (NotSupportedException)
+                {
+                    // Process details are unavailable for this instance.
+                }
             }
         }
 

@@ -1,3 +1,4 @@
+using System.IO;
 using Microsoft.Win32;
 using Win11PerformanceControlCenter.App.Models;
 
@@ -66,6 +67,10 @@ public sealed class InstalledAppsService
         catch (System.Security.SecurityException)
         {
             // Registry access can be restricted by local policy.
+        }
+        catch (IOException)
+        {
+            // A transient registry/hive I/O error must not break inventory.
         }
     }
 }

@@ -6,19 +6,27 @@ namespace Win11PerformanceControlCenter.App.Services;
 
 public sealed class StartupAuditService
 {
-    private const int MaxItems = 80;
+    private const int MaxItemsPerCategory = 30;
 
     public Task<AuditResult> AnalyzeAsync() =>
         Task.Run(() =>
         {
-            var items = new List<AuditItem>();
-            ReadStartupCommands(items);
-            ReadAutomaticServices(items);
-            ReadScheduledTasks(items);
+            var startupItems = new List<AuditItem>();
+            var serviceItems = new List<AuditItem>();
+            var taskItems = new List<AuditItem>();
+
+            ReadStartupCommands(startupItems);
+            ReadAutomaticServices(serviceItems);
+            ReadScheduledTasks(taskItems);
+
+            var items = startupItems
+                .Concat(serviceItems)
+                .Concat(taskItems)
+                .ToArray();
 
             return new AuditResult(
-                items.Count == 0 ? "NO_DATA" : "OK",
-                [.. items.Take(MaxItems)]);
+                items.Length == 0 ? "NO_DATA" : "OK",
+                items);
         });
 
     private static void ReadStartupCommands(
@@ -36,7 +44,7 @@ public sealed class StartupAuditService
                     if (raw is not ManagementObject item)
                         continue;
 
-                    if (items.Count >= MaxItems) return;
+                    if (items.Count >= MaxItemsPerCategory) return;
                     items.Add(new AuditItem(
                         "Startup",
                         Convert.ToString(item["Name"]) ?? "Unknown",
@@ -80,7 +88,7 @@ public sealed class StartupAuditService
                     if (raw is not ManagementObject item)
                         continue;
 
-                    if (items.Count >= MaxItems) return;
+                    if (items.Count >= MaxItemsPerCategory) return;
 
                     var taskName = Convert.ToString(item["TaskName"]);
                     if (string.IsNullOrWhiteSpace(taskName)) continue;
@@ -124,7 +132,7 @@ public sealed class StartupAuditService
                     if (raw is not ManagementObject item)
                         continue;
 
-                    if (items.Count >= MaxItems) return;
+                    if (items.Count >= MaxItemsPerCategory) return;
 
                     var state = Convert.ToString(item["State"]) ?? "Unknown";
                     items.Add(new AuditItem(

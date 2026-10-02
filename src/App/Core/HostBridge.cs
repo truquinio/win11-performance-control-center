@@ -141,13 +141,46 @@ public sealed class HostBridge : IDisposable
         catch (Exception ex)
         {
             var requestId = request?.RequestId ?? TryReadRequestId(json) ?? "invalid";
-            await _logger.WriteAsync("bridge", "REJECTED", new
+            await _logger.TryWriteAsync("bridge", "REJECTED", new
             {
                 requestMethod = request?.Method,
                 errorType = ex.GetType().Name,
                 ex.Message
             });
             return new BridgeResponse(requestId, false, null, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Handles a request and always returns a serialized response, so a
+    /// result that cannot be represented as JSON reaches the caller as an
+    /// error instead of escaping as an unhandled exception.
+    /// </summary>
+    public async Task<string> HandleSerializedAsync(string json)
+    {
+        var response = await HandleAsync(json);
+        try
+        {
+            return JsonSerializer.Serialize(response, JsonOptions);
+        }
+        catch (Exception ex) when (
+            ex is NotSupportedException or
+            JsonException or
+            ArgumentException or
+            InvalidOperationException)
+        {
+            await _logger.TryWriteAsync("bridge", "REJECTED", new
+            {
+                errorType = ex.GetType().Name,
+                ex.Message
+            });
+            return JsonSerializer.Serialize(
+                new BridgeResponse(
+                    response.RequestId,
+                    false,
+                    null,
+                    "No se pudo serializar la respuesta del backend local."),
+                JsonOptions);
         }
     }
 
@@ -159,7 +192,9 @@ public sealed class HostBridge : IDisposable
             throw new InvalidOperationException("Falta Action ID.");
         }
 
-        var id = idElement.GetString();
+        var id = idElement.ValueKind == JsonValueKind.String
+            ? idElement.GetString()
+            : null;
         if (string.IsNullOrWhiteSpace(id))
             throw new InvalidOperationException("Action ID vacía.");
 
@@ -180,11 +215,13 @@ public sealed class HostBridge : IDisposable
         try
         {
             using var document = JsonDocument.Parse(json);
-            return document.RootElement.TryGetProperty("requestId", out var value)
+            return document.RootElement.ValueKind == JsonValueKind.Object &&
+                   document.RootElement.TryGetProperty("requestId", out var value) &&
+                   value.ValueKind == JsonValueKind.String
                 ? value.GetString()
                 : null;
         }
-        catch
+        catch (JsonException)
         {
             return null;
         }

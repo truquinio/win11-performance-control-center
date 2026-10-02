@@ -63,6 +63,7 @@ public sealed class ThermalEnergyService
             // Read-only WMI can be policy restricted.
         }
     }
+
     private static void ReadThermalZones(ICollection<AuditItem> items)
     {
         try
@@ -108,11 +109,15 @@ public sealed class ThermalEnergyService
 
     private static void ReadNvidiaTemperatures(ICollection<AuditItem> items)
     {
+        var executable = ResolveNvidiaSmi();
+        if (executable is null)
+            return;
+
         try
         {
             var startInfo = new ProcessStartInfo
             {
-                FileName = "nvidia-smi.exe",
+                FileName = executable,
                 Arguments = "--query-gpu=name,temperature.gpu --format=csv,noheader,nounits",
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -124,14 +129,27 @@ public sealed class ThermalEnergyService
             if (process is null)
                 return;
 
-            var output = process.StandardOutput.ReadToEnd();
-            if (!process.WaitForExit(2000))
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+            using var cts = new CancellationTokenSource(
+                TimeSpan.FromSeconds(2));
+
+            try
+            {
+                process.WaitForExitAsync(cts.Token)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+            catch (OperationCanceledException)
             {
                 try { process.Kill(entireProcessTree: true); }
                 catch (InvalidOperationException) { }
                 catch (Win32Exception) { }
                 return;
             }
+
+            var output = stdoutTask.GetAwaiter().GetResult();
+            _ = stderrTask.GetAwaiter().GetResult();
 
             if (process.ExitCode != 0)
                 return;
@@ -176,6 +194,41 @@ public sealed class ThermalEnergyService
         {
             // Driver utility output was unavailable.
         }
+    }
+
+    /// <summary>
+    /// The utility is only launched from the locations the NVIDIA driver
+    /// installs it to. A bare file name would let the working directory or a
+    /// user-writable PATH entry decide which binary runs.
+    /// </summary>
+    public static string? ResolveNvidiaSmi()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "nvidia-smi.exe"),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "NVIDIA Corporation",
+                "NVSMI",
+                "nvidia-smi.exe")
+        };
+
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+            catch (ArgumentException)
+            {
+                // Malformed environment-derived path; try the next location.
+            }
+        }
+
+        return null;
     }
 
     private static double ToDouble(object? value)

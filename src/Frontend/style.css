@@ -364,3 +364,23 @@ body[data-mode="compact"] .action-symbol{align-self:start;margin-top:2px}
 body[data-mode="developer"] .nav-item .asset-icon{width:27px;height:27px;border-radius:7px}
 body[data-mode="developer"] .metric-icon .asset-icon{width:38px;height:38px}
 body[data-mode="developer"] .action-symbol .asset-icon{width:42px;height:42px}
+
+
+/* Accessibility hardening */
+button:focus-visible,
+[role="button"]:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible{
+  outline:2px solid #5fd0ff;
+  outline-offset:2px;
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    scroll-behavior:auto!important;
+    transition-duration:.01ms!important;
+    animation-duration:.01ms!important;
+    animation-iteration-count:1!important;
+  }
+}

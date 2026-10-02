@@ -1,4 +1,6 @@
 using System.IO;
+using System.IO.Pipes;
+using System.Text;
 using System.Text.Json;
 
 namespace Win11PerformanceControlCenter.App.Core;
@@ -9,56 +11,65 @@ public static class ElevatedActionRunner
         string actionId,
         Guid token)
     {
-        var resultPath = ElevatedActionProtocol.GetResultPath(token);
-        Directory.CreateDirectory(
-            ElevatedActionProtocol.GetResultDirectory());
-
-        BridgeResponse response;
-
         try
         {
-            var privilege = new PrivilegeBoundary();
-            if (!privilege.IsElevated)
-                throw new InvalidOperationException(
-                    "El helper no recibió un token administrativo.");
+            using var pipe = new NamedPipeClientStream(
+                ".",
+                ElevatedActionProtocol.GetPipeName(token),
+                PipeDirection.Out,
+                PipeOptions.Asynchronous);
 
-            var catalog = new ActionCatalog();
-            var action = catalog.GetRequired(actionId);
-            if (!action.RequiresAdmin)
-                throw new InvalidOperationException(
-                    "La acción solicitada no pertenece al boundary elevado.");
+            using var connectCts = new CancellationTokenSource(
+                TimeSpan.FromSeconds(15));
+            await pipe.ConnectAsync(connectCts.Token);
 
-            using var bridge = HostBridge.CreateDefault();
-            var requestId = token.ToString("N");
-            var request = JsonSerializer.Serialize(
-                new
-                {
-                    type = "request",
-                    requestId,
-                    method = "actions.run",
-                    payload = new { id = action.Id }
-                },
-                HostBridge.JsonOptions);
-            response = await bridge.HandleAsync(request);
-        }
-        catch (Exception ex)
-        {
-            response = new BridgeResponse(
-                token.ToString("N"),
-                false,
-                null,
-                ex.Message);
-        }
+            BridgeResponse response;
+            try
+            {
+                var privilege = new PrivilegeBoundary();
+                if (!privilege.IsElevated)
+                    throw new InvalidOperationException(
+                        "El helper no recibió privilegios administrativos.");
 
-        try
-        {
-            var tempPath = resultPath + ".tmp";
+                var catalog = new ActionCatalog();
+                var action = catalog.GetRequired(actionId);
+                if (!action.RequiresAdmin)
+                    throw new InvalidOperationException(
+                        "La acción solicitada no pertenece al boundary elevado.");
+
+                using var bridge = HostBridge.CreateDefault();
+                var requestId = token.ToString("N");
+                var request = JsonSerializer.Serialize(
+                    new
+                    {
+                        type = "request",
+                        requestId,
+                        method = "actions.run",
+                        payload = new { id = action.Id }
+                    },
+                    HostBridge.JsonOptions);
+                response = await bridge.HandleAsync(request);
+            }
+            catch (Exception ex)
+            {
+                response = new BridgeResponse(
+                    token.ToString("N"),
+                    false,
+                    null,
+                    ex.Message);
+            }
+
             var json = JsonSerializer.Serialize(
                 response,
                 HostBridge.JsonOptions);
+            using var writer = new StreamWriter(
+                pipe,
+                new UTF8Encoding(false),
+                bufferSize: 4096,
+                leaveOpen: true);
+            await writer.WriteAsync(json);
+            await writer.FlushAsync();
 
-            await File.WriteAllTextAsync(tempPath, json);
-            File.Move(tempPath, resultPath, overwrite: true);
             return response.Ok ? 0 : 1;
         }
         catch

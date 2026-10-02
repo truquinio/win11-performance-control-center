@@ -34,6 +34,8 @@ public sealed class ActionExecutor(
     ElevatedActionClient elevatedActionClient)
 {
     private const int MaxProcessSelection = 20;
+    private static readonly TimeSpan ReadActionBudget =
+        TimeSpan.FromMinutes(4);
 
     public async Task<ActionResult> ExecuteAsync(
         string id,
@@ -46,12 +48,24 @@ public sealed class ActionExecutor(
         using var lease = coordinator.Begin(
             id,
             action.Mode == ActionMode.WRITE ? "OPTIMIZING" : "ANALYZING");
-        await logger.WriteAsync(id, "STARTED", new
+
+        var startedData = new
         {
             action.Risk,
             action.RequiresAdmin,
             action.Mode
-        }, operationId);
+        };
+        if (action.Mode == ActionMode.WRITE)
+        {
+            // A WRITE never runs without its audit record on disk first.
+            await logger.WriteAsync(id, "STARTED", startedData, operationId);
+        }
+        else
+        {
+            // Read-only diagnostics stay available when the log is not
+            // writable (disk full, policy, lock held by another process).
+            await logger.TryWriteAsync(id, "STARTED", startedData, operationId);
+        }
 
         try
         {
@@ -59,14 +73,17 @@ public sealed class ActionExecutor(
 
             if (action.RequiresAdmin && !privilege.IsElevated)
             {
-                await logger.WriteAsync(id, "ELEVATION_REQUESTED", new
+                await logger.TryWriteAsync(id, "ELEVATION_REQUESTED", new
                 {
                     boundary = "per-action",
                     action.RequiresAdmin
                 }, operationId);
-                if (parameters is not null)
+                if (parameters is { ValueKind: JsonValueKind.Object } supplied &&
+                    supplied.EnumerateObject().Any())
+                {
                     throw new InvalidOperationException(
                         "Las acciones elevadas con parámetros no están habilitadas en esta build.");
+                }
 
                 result = await elevatedActionClient.ExecuteAsync(action);
                 ApplyElevatedOutcome(action.Id, result);
@@ -74,13 +91,24 @@ public sealed class ActionExecutor(
             else
             {
                 privilege.Validate(action);
-                result = await ExecuteAllowedAsync(
+                var work = ExecuteAllowedAsync(
                     action,
                     parameters,
                     operationId);
+
+                // WRITE actions are short and must never be abandoned
+                // half-way; only read-only work is put under the watchdog.
+                result = action.Mode == ActionMode.WRITE
+                    ? await work
+                    : await OperationWatchdog.RunAsync(
+                        work,
+                        ReadActionBudget,
+                        action.Title);
             }
 
-            await logger.WriteAsync(id, "COMPLETED", new
+            // The action already happened: a log failure here must not turn
+            // an applied change into a reported failure.
+            await logger.TryWriteAsync(id, "COMPLETED", new
             {
                 result.Success,
                 result.DryRun,
@@ -90,7 +118,7 @@ public sealed class ActionExecutor(
         }
         catch (Exception ex)
         {
-            await logger.WriteAsync(id, "FAILED", new
+            await logger.TryWriteAsync(id, "FAILED", new
             {
                 errorType = ex.GetType().Name,
                 ex.Message
@@ -174,8 +202,13 @@ public sealed class ActionExecutor(
         var count = 0;
         foreach (var item in node.EnumerateArray())
         {
-            if (!item.TryGetInt32(out _))
+            // TryGetInt32 throws for non-numeric elements instead of
+            // returning false, so the kind is checked first.
+            if (item.ValueKind != JsonValueKind.Number ||
+                !item.TryGetInt32(out _))
+            {
                 return false;
+            }
 
             count++;
             if (count > MaxProcessSelection)
@@ -260,7 +293,14 @@ public sealed class ActionExecutor(
                 snapshot,
                 reliabilityEvents = reliabilityTask.Result.Count,
                 drivers = driverTask.Result,
-                activation = activationTask.Result
+                // The partial product key stays inside the backend, as in
+                // the dedicated activation action.
+                activation = new
+                {
+                    activationTask.Result.Status,
+                    activationTask.Result.LicenseStatus,
+                    activationTask.Result.Description
+                }
             });
     }
 
@@ -327,9 +367,10 @@ public sealed class ActionExecutor(
         JsonElement? parameters)
     {
         var processIds = GetConfirmedProcessIds(parameters);
-        processService.ValidateMemoryTrimSelection(processIds);
-        var result = await processTuningService.TrimWorkingSetsAsync(
+        var targets = processService.ValidateMemoryTrimSelection(
             processIds);
+        var result = await processTuningService.TrimWorkingSetsAsync(
+            targets);
 
         var before = result.Items
             .Where(item => item.Success)
@@ -359,9 +400,10 @@ public sealed class ActionExecutor(
         JsonElement? parameters)
     {
         var processIds = GetConfirmedProcessIds(parameters);
-        processService.ValidateEcoQosSelection(processIds);
-        var result = await processTuningService.ApplyEcoQosAsync(
+        var targets = processService.ValidateEcoQosSelection(
             processIds);
+        var result = await processTuningService.ApplyEcoQosAsync(
+            targets);
 
         return new ActionResult(
             result.Succeeded > 0,
@@ -627,7 +669,8 @@ public sealed class ActionExecutor(
             new
             {
                 incompleteOperations = status.IncompleteOperations,
-                rollbackSnapshots = status.RollbackSnapshots
+                rollbackSnapshots = status.RollbackSnapshots,
+                ecoQosTargets = status.EcoQosTargets
             });
     }
 

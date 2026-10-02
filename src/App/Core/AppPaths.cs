@@ -11,8 +11,6 @@ public static class AppPaths
 
     public static string Logs => Path.Combine(Root, "Logs");
     public static string State => Path.Combine(Root, "State");
-    public static string ElevatedResults =>
-        Path.Combine(Root, "ElevatedResults");
     public static string WebView2UserData =>
         Path.Combine(Root, "WebView2");
 
@@ -24,7 +22,6 @@ public static class AppPaths
     {
         Directory.CreateDirectory(Logs);
         Directory.CreateDirectory(State);
-        Directory.CreateDirectory(ElevatedResults);
         Directory.CreateDirectory(WebView2UserData);
     }
 }

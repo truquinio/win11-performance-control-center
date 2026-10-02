@@ -371,7 +371,10 @@ class DemoProvider implements Provider {
         message: "DEMO: estado de recovery simulado.",
         data: {
           incompleteOperations: [],
-          rollbackSnapshots: ["DEMO: EcoQoS snapshot"]
+          rollbackSnapshots: ["DEMO: EcoQoS snapshot"],
+          ecoQosTargets: [
+            { processId: 4242, name: "example", capturedAt: new Date().toISOString(), restorable: true }
+          ]
         }
       };
     }
@@ -460,6 +463,10 @@ let latestTemperatureCelsius: number | null = null;
 let latestTemperatureSensor = "Sensor no expuesto";
 let activeView = "dashboard";
 let actionInFlight = false;
+// The backend runs one operation at a time. Background telemetry and
+// user-triggered actions are therefore serialized here as well, so neither
+// is rejected with "operación activa" because of the other.
+let backgroundWork: Promise<void> | null = null;
 const cpuHistory: number[] = [];
 const networkHistory: number[] = [];
 const HistoryLimit = 36;
@@ -788,6 +795,18 @@ function getModuleSummary(
   }
 }
 
+// Periodic refreshes only touch the read-only summary cards. Rebuilding the
+// action buttons on every snapshot would drop keyboard focus and discard the
+// busy state of a running action.
+function renderModuleSummary(view: string): void {
+  if (!moduleDefinitions[view]) return;
+
+  byId("module-summary").replaceChildren(
+    ...getModuleSummary(view).map(([label, value, detail]) =>
+      createSummaryCard(label, value, detail))
+  );
+}
+
 function renderModuleView(view: string): void {
   const definition = moduleDefinitions[view];
   if (!definition) throw new Error("Vista no soportada: " + view);
@@ -796,11 +815,7 @@ function renderModuleView(view: string): void {
   byId("module-title").textContent = definition.title;
   byId("module-description").textContent = definition.description;
 
-  const summary = byId("module-summary");
-  summary.replaceChildren(
-    ...getModuleSummary(view).map(([label, value, detail]) =>
-      createSummaryCard(label, value, detail))
-  );
+  renderModuleSummary(view);
 
   const actionsHost = byId("module-actions");
   const actions = view === "tools"
@@ -1077,7 +1092,8 @@ function createEcoQosRollback(
   const processIds = items
     .filter(item => item.success === true &&
       typeof item.processId === "number")
-    .map(item => item.processId as number);
+    .map(item => item.processId as number)
+    .slice(0, MaxProcessSelection);
 
   if (!processIds.length) return null;
 
@@ -1398,6 +1414,15 @@ function renderStructuredResult(  actionId: string,
       pre.textContent = snapshots.map(displayValue).join("\n");
       content.append(pre);
     }
+
+    // The rollback offered right after an apply disappears with that
+    // result panel; persisted snapshots stay restorable from here.
+    const rollback = createEcoQosRollback(
+      asArray(data.ecoQosTargets)
+        .map(asRecord)
+        .filter((item): item is Record<string, unknown> => item !== null)
+        .map(item => ({ processId: item.processId, success: item.restorable === true })));
+    if (rollback) content.append(rollback);
     return;
   }
 
@@ -1544,7 +1569,7 @@ function renderSnapshot(snapshot: SystemSnapshot): void {
   risk.textContent = freePercent < 10 ? "Espacio crítico" : freePercent < 20 ? "Poco espacio" : "Espacio correcto";
   risk.className = "status-text " + (freePercent < 10 ? "bad" : freePercent < 20 ? "warn" : "good");
   setGlobalState(snapshot.operationState);
-  if (activeView !== "dashboard") renderModuleView(activeView);
+  if (activeView !== "dashboard") renderModuleSummary(activeView);
 }
 
 function setGlobalState(state: OperationState): void {
@@ -1570,7 +1595,8 @@ function setGlobalState(state: OperationState): void {
 
 function renderReliability(events: ReliabilityEvent[]): void {
   currentReliabilityEvents = events;
-  if (activeView === "system") renderModuleView(activeView);
+  if (activeView === "system" || activeView === "history")
+    renderModuleSummary(activeView);
   const body = byId<HTMLTableSectionElement>("reliability-body");
   body.replaceChildren();
   if (!events.length) {
@@ -1696,23 +1722,31 @@ function applyTemperatureResult(result: ActionResult): void {
   bar.style.width = clampPercent((hottest.celsius / 100) * 100).toFixed(1) + "%";
 }
 
-let temperatureRefreshInFlight = false;
+function runInBackground(work: () => Promise<void>): Promise<void> {
+  if (actionInFlight || backgroundWork) return Promise.resolve();
 
-async function refreshTemperature(): Promise<void> {
-  if (temperatureRefreshInFlight || actionInFlight) return;
-  temperatureRefreshInFlight = true;
-  try {
-    const result = await provider.runAction("thermal.audit");
-    applyTemperatureResult(result);
-    if (activeView === "thermal") renderModuleView(activeView);
-  } catch (error) {
-    const value = document.getElementById("temperature-value");
-    const sub = document.getElementById("temperature-sub");
-    if (value) value.textContent = "No disponible";
-    if (sub) sub.textContent = error instanceof Error ? error.message : String(error);
-  } finally {
-    temperatureRefreshInFlight = false;
-  }
+  const tracked = work()
+    .catch(() => undefined)
+    .finally(() => {
+      if (backgroundWork === tracked) backgroundWork = null;
+    });
+  backgroundWork = tracked;
+  return tracked;
+}
+
+function refreshTemperature(): Promise<void> {
+  return runInBackground(async () => {
+    try {
+      const result = await provider.runAction("thermal.audit");
+      applyTemperatureResult(result);
+      if (activeView === "thermal") renderModuleSummary(activeView);
+    } catch (error) {
+      const value = document.getElementById("temperature-value");
+      const sub = document.getElementById("temperature-sub");
+      if (value) value.textContent = "No disponible";
+      if (sub) sub.textContent = error instanceof Error ? error.message : String(error);
+    }
+  });
 }
 
 async function refreshSnapshot(silent = false): Promise<void> {
@@ -1737,15 +1771,18 @@ async function refreshReliability(): Promise<void> {
 }
 
 async function refreshBaselineHealth(): Promise<void> {
-  try {
-    await Promise.all([
-      provider.runAction("drivers.analyze"),
-      provider.runAction("system.activation.analyze")
-    ]);
-    await refreshSnapshot(true);
-  } catch {
-    // Baseline health is best-effort; individual modules remain available manually.
-  }
+  await runInBackground(async () => {
+    // One at a time: the backend rejects overlapping actions, so a parallel
+    // pair would always lose its second member.
+    for (const id of ["drivers.analyze", "system.activation.analyze"]) {
+      try {
+        await provider.runAction(id);
+      } catch {
+        // Baseline health is best-effort; each module stays available manually.
+      }
+    }
+  });
+  await refreshSnapshot(true);
 }
 
 async function runFullDiagnostic(button: HTMLButtonElement): Promise<void> {
@@ -1774,11 +1811,13 @@ async function runAction(
   const isWrite = action?.mode === "WRITE";
   if (button) {
     button.disabled = true;
+    button.setAttribute("aria-busy", "true");
     button.replaceChildren(
       document.createTextNode(isWrite ? "Aplicando…" : "Analizando…"));
   }
   setGlobalState(isWrite ? "OPTIMIZING" : "ANALYZING");
   try {
+    while (backgroundWork) await backgroundWork;
     const result = await provider.runAction(id, parameters);
     renderActionResult(id, result);
     pushActivity(id, result.message, result.success ? "ok" : "warn");
@@ -1789,7 +1828,7 @@ async function runAction(
       byId("storage-recoverable").textContent = formatBytes(estimated);
       const data = asRecord(result.data);
       if (data) renderRecoveryCategories(data);
-      if (activeView === "cleanup") renderModuleView(activeView);
+      if (activeView === "cleanup") renderModuleSummary(activeView);
     }
 
     const integrityStatus = result.data?.status;
@@ -1812,6 +1851,7 @@ async function runAction(
     actionInFlight = false;
     if (button) {
       button.disabled = false;
+      button.removeAttribute("aria-busy");
       button.replaceChildren(...originalNodes);
     }
   }
@@ -1819,10 +1859,12 @@ async function runAction(
 
 function showView(view: string): void {
   activeView = view;
-  document.querySelectorAll(".nav-item").forEach(node =>
-    node.classList.toggle(
-      "active",
-      (node as HTMLElement).dataset.view === view));
+  document.querySelectorAll(".nav-item").forEach(node => {
+    const current = (node as HTMLElement).dataset.view === view;
+    node.classList.toggle("active", current);
+    if (current) node.setAttribute("aria-current", "page");
+    else node.removeAttribute("aria-current");
+  });
 
   const dashboard = byId("dashboard-view");
   const module = byId("module-view");

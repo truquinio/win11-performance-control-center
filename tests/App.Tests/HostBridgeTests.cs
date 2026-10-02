@@ -209,4 +209,19 @@ public sealed class HostBridgeTests
         Assert.True(result.Success);
         Assert.True(result.DryRun);
     }
+
+    [Fact]
+    public async Task DisposedBridge_RejectsLateMalformedMessageWithoutThrowing()
+    {
+        using var dataRoot = new TestDataRoot();
+        var bridge = dataRoot.CreateBridge();
+        bridge.Dispose();
+
+        var response = await bridge.HandleAsync("{not-json");
+
+        Assert.False(response.Ok);
+        Assert.Equal("invalid", response.RequestId);
+        Assert.False(string.IsNullOrWhiteSpace(response.Error));
+    }
+
 }

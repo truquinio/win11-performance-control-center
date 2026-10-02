@@ -97,6 +97,27 @@ for (const controlId of ["diagnostic-btn", "mode-toggle"]) {
     throw new Error("Control sin binding en app.ts: " + controlId);
 }
 
+// The backend coordinator runs one action at a time, so firing several
+// actions in parallel always makes all but the first fail.
+const parallelActions = [...app.matchAll(/Promise\.all\(\s*\[([\s\S]*?)\]\s*\)/g)]
+  .filter(match => (match[1].match(/\brunAction\(/g) ?? []).length > 1);
+if (parallelActions.length) {
+  throw new Error(
+    "Acciones lanzadas en paralelo contra un backend de operación única: " +
+    parallelActions.length
+  );
+}
+
+// Snapshot polling must not rebuild module action buttons (focus loss).
+const snapshotRenderer = app.match(/function renderSnapshot\([\s\S]*?\n\}\n/)?.[0] ?? "";
+if (!snapshotRenderer)
+  throw new Error("No se encontró renderSnapshot en app.ts.");
+if (/\brenderModuleView\(/.test(snapshotRenderer)) {
+  throw new Error(
+    "renderSnapshot reconstruye las acciones del módulo en cada refresco."
+  );
+}
+
 console.log(
   `FRONTEND_CONTRACT_OK views=${new Set(views).size} developerViews=${developerViews.length} actionButtons=${actionButtons.length} literalButtons=${literalButtons.length}`
 );

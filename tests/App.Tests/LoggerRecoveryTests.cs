@@ -110,4 +110,20 @@ public sealed class LoggerRecoveryTests
 
         Assert.Empty(status.IncompleteOperations);
     }
+
+    [Fact]
+    public async Task AppLogger_TryWriteAfterDispose_ReturnsFalse()
+    {
+        using var dataRoot = new TestDataRoot();
+        var logPath = Path.Combine(dataRoot.Path, "Logs", "app.jsonl");
+        var logger = new AppLogger(logPath);
+        logger.Dispose();
+
+        var written = await logger.TryWriteAsync(
+            "test.disposed.log",
+            "FAILED");
+
+        Assert.False(written);
+    }
+
 }

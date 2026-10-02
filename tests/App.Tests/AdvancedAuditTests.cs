@@ -76,11 +76,15 @@ public sealed class AdvancedAuditTests
     [Fact]
     public void ThermalAudit_UsesNvidiaTemperatureWhenDriverExposesIt()
     {
+        var executable = ThermalEnergyService.ResolveNvidiaSmi();
+        if (executable is null)
+            return;
+
         using var probe = new System.Diagnostics.Process
         {
             StartInfo = new System.Diagnostics.ProcessStartInfo
             {
-                FileName = "nvidia-smi.exe",
+                FileName = executable,
                 Arguments = "--query-gpu=temperature.gpu --format=csv,noheader,nounits",
                 UseShellExecute = false,
                 CreateNoWindow = true,

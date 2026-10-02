@@ -176,10 +176,20 @@ public sealed class SystemSnapshotService(
         try
         {
             using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
-            if (baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending") is not null)
-                return true;
-            if (baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired") is not null)
-                return true;
+            // The snapshot is polled every few seconds: each key handle is
+            // released deterministically instead of waiting for finalization.
+            using (var servicing = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending"))
+            {
+                if (servicing is not null)
+                    return true;
+            }
+
+            using (var update = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"))
+            {
+                if (update is not null)
+                    return true;
+            }
+
             using var session = baseKey.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Session Manager");
             if (session?.GetValue("PendingFileRenameOperations") is not string[] pending ||
                 pending.Length == 0)

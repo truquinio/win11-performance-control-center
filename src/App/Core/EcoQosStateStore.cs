@@ -49,8 +49,14 @@ public sealed class EcoQosStateStore
                 return false;
             }
 
+            // Persist first: a baseline that only exists in memory would let
+            // a later apply proceed without a durable rollback snapshot.
+            var next = new Dictionary<int, EcoQosOriginalState>(_states)
+            {
+                [state.ProcessId] = state
+            };
+            Persist(next.Values);
             _states[state.ProcessId] = state;
-            Persist();
             return true;
         }
     }
@@ -65,8 +71,13 @@ public sealed class EcoQosStateStore
     {
         lock (_gate)
         {
-            if (_states.Remove(processId))
-                Persist();
+            if (!_states.ContainsKey(processId))
+                return;
+
+            var next = new Dictionary<int, EcoQosOriginalState>(_states);
+            next.Remove(processId);
+            Persist(next.Values);
+            _states.Remove(processId);
         }
     }
 
@@ -75,30 +86,54 @@ public sealed class EcoQosStateStore
         lock (_gate)
             return [.. _states.Values.OrderBy(item => item.Name)];
     }
-    private void Persist()
+
+    private void Persist(IEnumerable<EcoQosOriginalState> states)
     {
         var temp = _path + ".tmp";
-        var json = JsonSerializer.Serialize(
-            _states.Values.ToArray(),
+        var backup = _path + ".bak";
+        var json = JsonSerializer.SerializeToUtf8Bytes(
+            states.ToArray(),
             HostBridge.JsonOptions);
-        File.WriteAllText(temp, json);
+
+        using (var stream = new FileStream(
+                   temp,
+                   FileMode.Create,
+                   FileAccess.Write,
+                   FileShare.None))
+        {
+            stream.Write(json);
+            // The rename below is only crash-safe once the bytes are on disk.
+            stream.Flush(flushToDisk: true);
+        }
+
         File.Move(temp, _path, overwrite: true);
+        TryRefreshBackup(_path, backup);
     }
 
     private static Dictionary<int, EcoQosOriginalState> Load(string path)
     {
+        return TryLoad(path) ??
+            TryLoad(path + ".bak") ??
+            [];
+    }
+
+    private static Dictionary<int, EcoQosOriginalState>? TryLoad(string path)
+    {
         try
         {
             if (!File.Exists(path))
-                return [];
+                return null;
 
             var json = File.ReadAllText(path);
             var values = JsonSerializer.Deserialize<EcoQosOriginalState[]>(
                 json,
-                HostBridge.JsonOptions)
-                ?? [];
+                HostBridge.JsonOptions);
+
+            if (values is null)
+                return null;
 
             return values
+                .Where(IsUsable)
                 .GroupBy(item => item.ProcessId)
                 .ToDictionary(
                     group => group.Key,
@@ -106,15 +141,39 @@ public sealed class EcoQosStateStore
         }
         catch (IOException)
         {
-            return [];
+            return null;
         }
         catch (JsonException)
         {
-            return [];
+            return null;
         }
         catch (UnauthorizedAccessException)
         {
-            return [];
+            return null;
+        }
+    }
+
+    private static bool IsUsable(EcoQosOriginalState? item) =>
+        item is not null &&
+        item.ProcessId > 0 &&
+        !string.IsNullOrWhiteSpace(item.Name) &&
+        item.ProcessStartTime != default;
+
+    private static void TryRefreshBackup(
+        string source,
+        string backup)
+    {
+        try
+        {
+            File.Copy(source, backup, overwrite: true);
+        }
+        catch (IOException)
+        {
+            // Primary state is already durable; backup refresh is best-effort.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Local policy may block the secondary backup only.
         }
     }
 }

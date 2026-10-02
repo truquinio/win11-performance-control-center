@@ -104,11 +104,11 @@ public sealed class ProcessAnalysisService
         return new ProcessAnalysis(observed, selected);
     }
 
-    public void ValidateMemoryTrimSelection(
+    public IReadOnlyList<ValidatedProcessTarget> ValidateMemoryTrimSelection(
         IReadOnlyCollection<int> processIds) =>
         ValidateSelection(processIds, _memoryPreview, "MemoryTrim");
 
-    public void ValidateEcoQosSelection(
+    public IReadOnlyList<ValidatedProcessTarget> ValidateEcoQosSelection(
         IReadOnlyCollection<int> processIds) =>
         ValidateSelection(processIds, _ecoQosPreview, "EcoQoS");
 
@@ -132,7 +132,7 @@ public sealed class ProcessAnalysisService
         }
     }
 
-    private void ValidateSelection(
+    private IReadOnlyList<ValidatedProcessTarget> ValidateSelection(
         IReadOnlyCollection<int> processIds,
         CandidateSnapshot? preview,
         string operation)
@@ -151,6 +151,9 @@ public sealed class ProcessAnalysisService
                 $"{operation}: la previsualización expiró; analizá de nuevo.");
         }
 
+        var validated = new List<ValidatedProcessTarget>(
+            processIds.Count);
+
         foreach (var processId in processIds)
         {
             if (!snapshot.Identities.TryGetValue(
@@ -162,7 +165,13 @@ public sealed class ProcessAnalysisService
             }
 
             ValidateCurrentIdentity(processId, expected, operation);
+            validated.Add(new ValidatedProcessTarget(
+                processId,
+                expected.Name,
+                expected.StartTime));
         }
+
+        return validated;
     }
 
     private static void ValidateCurrentIdentity(

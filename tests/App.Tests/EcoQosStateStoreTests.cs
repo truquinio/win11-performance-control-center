@@ -58,6 +58,34 @@ public sealed class EcoQosStateStoreTests : IDisposable
         Assert.Equal((uint)2, saved.ControlMask);
     }
 
+
+    [Fact]
+    public void Load_FallsBackToBackupWhenPrimaryIsCorrupt()
+    {
+        var path = Path.Combine(_directory, "state.json");
+        var store = new EcoQosStateStore(path);
+        var state = new EcoQosOriginalState(
+            2468,
+            "recoverable-process",
+            DateTimeOffset.UtcNow.AddMinutes(-2),
+            3,
+            1,
+            DateTimeOffset.UtcNow);
+
+        Assert.True(store.SaveBaseline(state));
+        Assert.True(File.Exists(path + ".bak"));
+
+        File.WriteAllText(path, "{corrupt-json");
+
+        var recovered = new EcoQosStateStore(path);
+
+        Assert.True(recovered.TryGet(2468, out var restored));
+        Assert.Equal(state.Name, restored.Name);
+        Assert.Equal(state.ProcessStartTime, restored.ProcessStartTime);
+        Assert.Equal(state.ControlMask, restored.ControlMask);
+        Assert.Equal(state.StateMask, restored.StateMask);
+    }
+
     public void Dispose()
     {
         try

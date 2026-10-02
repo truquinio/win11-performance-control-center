@@ -58,6 +58,11 @@ public sealed record ProcessAnalysis(
     int ObservedProcesses,
     IReadOnlyList<ProcessCandidate> Candidates);
 
+public sealed record ValidatedProcessTarget(
+    int ProcessId,
+    string Name,
+    DateTimeOffset StartTime);
+
 public sealed record DriverIssue(
     string Name,
     uint ErrorCode,
@@ -155,9 +160,16 @@ public sealed record RecoveryOperation(
     string LastStatus,
     bool Incomplete);
 
+public sealed record RollbackTarget(
+    int ProcessId,
+    string Name,
+    DateTimeOffset CapturedAt,
+    bool Restorable);
+
 public sealed record RecoveryStatus(
     IReadOnlyList<RecoveryOperation> IncompleteOperations,
-    IReadOnlyList<string> RollbackSnapshots);
+    IReadOnlyList<string> RollbackSnapshots,
+    IReadOnlyList<RollbackTarget> EcoQosTargets);
 
 public enum ActionCategory
 {

@@ -44,4 +44,51 @@ public sealed class OperationCoordinatorTests
         Assert.Equal("IDLE", coordinator.State);
         Assert.Null(coordinator.ActiveAction);
     }
+
+    [Fact]
+    public void Begin_UnderParallelContention_NeverAllowsOverlap()
+    {
+        var coordinator = new OperationCoordinator();
+        var active = 0;
+        var maximumActive = 0;
+
+        Parallel.For(0, 64, index =>
+        {
+            try
+            {
+                using var lease = coordinator.Begin("stress-" + index);
+                var nowActive = Interlocked.Increment(ref active);
+                InterlockedExtensions.Max(ref maximumActive, nowActive);
+                Thread.Sleep(10);
+                Interlocked.Decrement(ref active);
+            }
+            catch (InvalidOperationException)
+            {
+                // Contention is expected; overlap is not.
+            }
+        });
+
+        Assert.InRange(maximumActive, 1, 1);
+        Assert.Equal("IDLE", coordinator.State);
+        Assert.Null(coordinator.ActiveAction);
+    }
+
+    private static class InterlockedExtensions
+    {
+        public static void Max(ref int target, int value)
+        {
+            while (true)
+            {
+                var current = Volatile.Read(ref target);
+                if (value <= current)
+                    return;
+                if (Interlocked.CompareExchange(
+                        ref target,
+                        value,
+                        current) == current)
+                    return;
+            }
+        }
+    }
+
 }

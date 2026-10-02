@@ -19,6 +19,6 @@ public sealed class PrivilegeBoundary
     {
         if (action.RequiresAdmin && !IsElevated)
             throw new InvalidOperationException(
-                "La acción requiere elevación UAC. El helper elevado todavía está deshabilitado en esta fase.");
+                "La acción requiere elevación UAC.");
     }
 }

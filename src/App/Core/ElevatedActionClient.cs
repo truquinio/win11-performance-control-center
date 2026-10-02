@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Pipes;
+using System.Text;
 using System.Text.Json;
 using Win11PerformanceControlCenter.App.Models;
 
@@ -27,11 +29,14 @@ public sealed class ElevatedActionClient
         }
 
         var token = Guid.NewGuid();
-        var directory = ElevatedActionProtocol.GetResultDirectory();
-        var resultPath = ElevatedActionProtocol.GetResultPath(token);
-        Directory.CreateDirectory(directory);
-        TryDelete(resultPath);
-        TryDelete(resultPath + ".tmp");
+        var pipeName = ElevatedActionProtocol.GetPipeName(token);
+        using var pipe = new NamedPipeServerStream(
+            pipeName,
+            PipeDirection.In,
+            1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+
         var startInfo = new ProcessStartInfo
         {
             FileName = executable,
@@ -50,7 +55,13 @@ public sealed class ElevatedActionClient
 
         try
         {
-            if (!process.Start())
+            // ShellExecute blocks until the UAC prompt is answered. Keeping
+            // that wait off the caller's thread leaves the window responsive
+            // while the secure desktop is showing.
+            var started = await Task.Run(
+                () => process.Start(),
+                cancellationToken);
+            if (!started)
                 throw new InvalidOperationException(
                     "Windows no pudo iniciar el helper elevado.");
         }
@@ -65,22 +76,45 @@ public sealed class ElevatedActionClient
             CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken);
         timeoutCts.CancelAfter(Timeout);
+
         try
         {
-            await process.WaitForExitAsync(timeoutCts.Token);
-            if (!File.Exists(resultPath))
+            var connectionTask = pipe.WaitForConnectionAsync(
+                timeoutCts.Token);
+            var exitTask = process.WaitForExitAsync(
+                timeoutCts.Token);
+
+            var first = await Task.WhenAny(
+                connectionTask,
+                exitTask);
+            if (first == exitTask &&
+                !connectionTask.IsCompletedSuccessfully)
             {
+                // A cancelled wait means the budget expired, not that the
+                // helper exited: surface that as the timeout it is.
+                await exitTask;
                 throw new InvalidOperationException(
-                    $"El helper elevado terminó sin resultado (exit {process.ExitCode}).");
+                    $"El helper elevado terminó sin conectar al canal IPC (exit {process.ExitCode}).");
             }
 
-            var json = await File.ReadAllTextAsync(
-                resultPath,
-                cancellationToken);
+            await connectionTask;
+
+            using var reader = new StreamReader(
+                pipe,
+                Encoding.UTF8,
+                detectEncodingFromByteOrderMarks: false,
+                bufferSize: 4096,
+                leaveOpen: true);
+            var json = await ReadLimitedAsync(
+                reader,
+                timeoutCts.Token);
+            await exitTask;
+
             var response = JsonSerializer.Deserialize<BridgeResponse>(
                 json,
                 HostBridge.JsonOptions) ?? throw new InvalidOperationException(
                     "Respuesta elevada inválida.");
+
             if (!string.Equals(
                     response.RequestId,
                     token.ToString("N"),
@@ -120,28 +154,32 @@ public sealed class ElevatedActionClient
             TryKill(process);
             throw;
         }
-        finally
-        {
-            TryDelete(resultPath);
-            TryDelete(resultPath + ".tmp");
-        }
     }
 
-    private static void TryDelete(string path)
+    private static async Task<string> ReadLimitedAsync(
+        StreamReader reader,
+        CancellationToken cancellationToken)
     {
-        try
+        const int MaxChars = 256 * 1024;
+        var buffer = new char[4096];
+        var builder = new StringBuilder();
+
+        while (true)
         {
-            if (File.Exists(path))
-                File.Delete(path);
+            var read = await reader.ReadAsync(
+                buffer.AsMemory(),
+                cancellationToken);
+            if (read == 0)
+                break;
+
+            if (builder.Length + read > MaxChars)
+                throw new InvalidOperationException(
+                    "La respuesta elevada excede el tamaño permitido.");
+
+            builder.Append(buffer, 0, read);
         }
-        catch (IOException)
-        {
-            // Cleanup of our own transient result is best-effort.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // The elevated helper can briefly retain the file handle.
-        }
+
+        return builder.ToString();
     }
 
     private static void TryKill(Process process)

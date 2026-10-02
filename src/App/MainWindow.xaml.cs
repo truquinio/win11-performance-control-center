@@ -12,7 +12,19 @@ namespace Win11PerformanceControlCenter.App;
 
 public partial class MainWindow : Window
 {
+    private static readonly HashSet<string> KnownUiStates =
+        new(StringComparer.Ordinal)
+        {
+            "IDLE",
+            "ANALYZING",
+            "OPTIMIZING",
+            "MAINTENANCE",
+            "REBOOT_REQUIRED",
+            "ERROR"
+        };
+
     private readonly HostBridge _bridge = HostBridge.CreateDefault();
+    private readonly List<DateTime> _rendererRecoveries = [];
 
     public MainWindow()
     {
@@ -42,16 +54,28 @@ public partial class MainWindow : Window
         ref bool handled)
     {
         const int WmGetMinMaxInfo = 0x0024;
+        const int WmSettingChange = 0x001A;
+        const int WmDisplayChange = 0x007E;
+        const int WmDpiChanged = 0x02E0;
+
         if (message == WmGetMinMaxInfo)
         {
             ApplyMonitorWorkingArea(hwnd, lParam);
             handled = true;
         }
+        else if (message is WmSettingChange or WmDisplayChange or WmDpiChanged)
+        {
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                if (IsLoaded && WindowState != WindowState.Minimized)
+                    ConstrainToWorkingArea();
+            });
+        }
 
         return IntPtr.Zero;
     }
 
-    private static void ApplyMonitorWorkingArea(
+    private void ApplyMonitorWorkingArea(
         IntPtr hwnd,
         IntPtr lParam)
     {
@@ -76,6 +100,21 @@ public partial class MainWindow : Window
         info.MaxSize.X = work.Right - work.Left;
         info.MaxSize.Y = work.Bottom - work.Top;
         info.MaxTrackSize = info.MaxSize;
+
+        // Handling this message replaces WPF's own processing, which is what
+        // normally turns MinWidth/MinHeight into the minimum tracking size.
+        // Without it the window could be resized below the layout minimum.
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var minWidth = double.IsFinite(MinWidth) ? MinWidth : 0d;
+        var minHeight = double.IsFinite(MinHeight) ? MinHeight : 0d;
+        info.MinTrackSize.X = Math.Clamp(
+            (int)Math.Ceiling(minWidth * dpi.DpiScaleX),
+            1,
+            Math.Max(1, info.MaxSize.X));
+        info.MinTrackSize.Y = Math.Clamp(
+            (int)Math.Ceiling(minHeight * dpi.DpiScaleY),
+            1,
+            Math.Max(1, info.MaxSize.Y));
 
         Marshal.StructureToPtr(info, lParam, false);
     }
@@ -112,25 +151,67 @@ public partial class MainWindow : Window
 
     private void ConstrainToWorkingArea()
     {
-        var workArea = SystemParameters.WorkArea;
+        var workArea = GetCurrentMonitorWorkArea();
         const double margin = 16d;
+        const double desiredMinWidth = 1024d;
+        const double desiredMinHeight = 640d;
 
-        var availableWidth = Math.Max(800d, workArea.Width - margin);
-        var availableHeight = Math.Max(560d, workArea.Height - margin);
+        var availableWidth = Math.Max(1d, workArea.Width - margin);
+        var availableHeight = Math.Max(1d, workArea.Height - margin);
 
-        MinWidth = Math.Min(MinWidth, availableWidth);
-        MinHeight = Math.Min(MinHeight, availableHeight);
-        MaxWidth = workArea.Width;
-        MaxHeight = workArea.Height;
+        MinWidth = Math.Min(desiredMinWidth, availableWidth);
+        MinHeight = Math.Min(desiredMinHeight, availableHeight);
+        MaxWidth = Math.Max(MinWidth, workArea.Width);
+        MaxHeight = Math.Max(MinHeight, workArea.Height);
 
         if (WindowState == WindowState.Normal)
         {
             Width = Math.Min(Math.Max(Width, MinWidth), availableWidth);
             Height = Math.Min(Math.Max(Height, MinHeight), availableHeight);
 
-            Left = workArea.Left + Math.Max(0d, (workArea.Width - Width) / 2d);
-            Top = workArea.Top + Math.Max(0d, (workArea.Height - Height) / 2d);
+            var minLeft = workArea.Left;
+            var maxLeft = workArea.Right - Width;
+            var minTop = workArea.Top;
+            var maxTop = workArea.Bottom - Height;
+
+            if (Left < minLeft || Left > maxLeft ||
+                Top < minTop || Top > maxTop)
+            {
+                Left = workArea.Left +
+                    Math.Max(0d, (workArea.Width - Width) / 2d);
+                Top = workArea.Top +
+                    Math.Max(0d, (workArea.Height - Height) / 2d);
+            }
         }
+    }
+
+    private Rect GetCurrentMonitorWorkArea()
+    {
+        if (PresentationSource.FromVisual(this) is not HwndSource source)
+            return SystemParameters.WorkArea;
+
+        const uint MonitorDefaultToNearest = 0x00000002;
+        var monitor = MonitorFromWindow(source.Handle, MonitorDefaultToNearest);
+        if (monitor == IntPtr.Zero)
+            return SystemParameters.WorkArea;
+
+        var info = new MonitorInfo
+        {
+            Size = Marshal.SizeOf<MonitorInfo>()
+        };
+        if (!GetMonitorInfo(monitor, ref info) ||
+            source.CompositionTarget is null)
+        {
+            return SystemParameters.WorkArea;
+        }
+
+        var fromDevice = source.CompositionTarget.TransformFromDevice;
+        var topLeft = fromDevice.Transform(
+            new Point(info.WorkArea.Left, info.WorkArea.Top));
+        var bottomRight = fromDevice.Transform(
+            new Point(info.WorkArea.Right, info.WorkArea.Bottom));
+
+        return new Rect(topLeft, bottomRight);
     }
 
     private async Task InitializeWebViewAsync()
@@ -160,6 +241,8 @@ public partial class MainWindow : Window
 
         var core = WebView.CoreWebView2;
         core.Settings.IsStatusBarEnabled = false;
+        core.Settings.AreHostObjectsAllowed = false;
+        core.Settings.IsWebMessageEnabled = true;
         // The local UI uses confirm() only for explicit WRITE acknowledgements.
         core.Settings.AreDefaultScriptDialogsEnabled = true;
 #if !DEBUG
@@ -175,6 +258,7 @@ public partial class MainWindow : Window
         core.NavigationStarting += OnNavigationStarting;
         core.NewWindowRequested += OnNewWindowRequested;
         core.WebMessageReceived += OnWebMessageReceived;
+        core.ProcessFailed += OnWebViewProcessFailed;
 
         WebView.Source = new Uri(
             "https://wpcc.local/index.html?surface=local");
@@ -202,6 +286,65 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private void OnWebViewProcessFailed(
+        object? sender,
+        CoreWebView2ProcessFailedEventArgs e)
+    {
+        switch (e.ProcessFailedKind)
+        {
+            case CoreWebView2ProcessFailedKind.RenderProcessExited:
+            case CoreWebView2ProcessFailedKind.RenderProcessUnresponsive:
+                RecoverRenderer();
+                break;
+            case CoreWebView2ProcessFailedKind.BrowserProcessExited:
+                // The whole WebView2 host is gone and cannot be reloaded.
+                MessageBox.Show(
+                    this,
+                    "El runtime WebView2 dejó de responder. La aplicación se cerrará; podés volver a abrirla.",
+                    "Win11 Performance Control Center",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                Close();
+                break;
+            default:
+                // Utility/GPU processes are restarted by WebView2 itself.
+                break;
+        }
+    }
+
+    private void RecoverRenderer()
+    {
+        // Without a reload the window would stay blank for the rest of the
+        // session. The cap stops a renderer that dies on load from looping.
+        var now = DateTime.UtcNow;
+        _rendererRecoveries.RemoveAll(time =>
+            now - time > TimeSpan.FromMinutes(1));
+        if (_rendererRecoveries.Count >= 3)
+        {
+            MessageBox.Show(
+                this,
+                "La interfaz falló repetidamente al cargar. La aplicación se cerrará.",
+                "Win11 Performance Control Center",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            Close();
+            return;
+        }
+
+        _rendererRecoveries.Add(now);
+        try
+        {
+            WebView.CoreWebView2?.Reload();
+        }
+        catch (Exception ex) when (
+            ex is InvalidOperationException or
+            ObjectDisposedException or
+            COMException)
+        {
+            Close();
+        }
+    }
+
     private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         if (!IsTrustedLocalUri(e.Source))
@@ -212,8 +355,8 @@ public partial class MainWindow : Window
             if (TryHandleUiMessage(e.WebMessageAsJson))
                 return;
 
-            var response = await _bridge.HandleAsync(e.WebMessageAsJson);
-            var json = JsonSerializer.Serialize(response, HostBridge.JsonOptions);
+            var json = await _bridge.HandleSerializedAsync(
+                e.WebMessageAsJson);
             WebView.CoreWebView2?.PostWebMessageAsJson(json);
         }
         catch (ObjectDisposedException)
@@ -224,6 +367,10 @@ public partial class MainWindow : Window
         {
             // The WebView can be unavailable while a long-running action completes.
         }
+        catch (COMException)
+        {
+            // The WebView2 process went away before the response was posted.
+        }
     }
 
     private bool TryHandleUiMessage(string json)
@@ -232,7 +379,9 @@ public partial class MainWindow : Window
         {
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
-            if (!root.TryGetProperty("type", out var typeNode) ||
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("type", out var typeNode) ||
+                typeNode.ValueKind != JsonValueKind.String ||
                 !string.Equals(
                     typeNode.GetString(),
                     "ui-state",
@@ -241,7 +390,8 @@ public partial class MainWindow : Window
                 return false;
             }
 
-            var state = root.TryGetProperty("state", out var stateNode)
+            var state = root.TryGetProperty("state", out var stateNode) &&
+                        stateNode.ValueKind == JsonValueKind.String
                 ? stateNode.GetString()
                 : null;
 
@@ -249,6 +399,10 @@ public partial class MainWindow : Window
                 return true;
 
             var normalized = state.Trim().ToUpperInvariant();
+            // The title bar only mirrors the documented operation states.
+            if (!KnownUiStates.Contains(normalized))
+                return true;
+
             TitleStateText.Text = "Estado: " + normalized;
 
             var (foreground, background, border) = normalized switch

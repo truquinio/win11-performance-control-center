@@ -1,3 +1,4 @@
+using System.IO;
 using Microsoft.Win32;
 using Win11PerformanceControlCenter.App.Models;
 
@@ -78,6 +79,10 @@ public sealed class PrivacyAuditService
             return new RegistryReadResult(false, false, null);
         }
         catch (System.Security.SecurityException)
+        {
+            return new RegistryReadResult(false, false, null);
+        }
+        catch (IOException)
         {
             return new RegistryReadResult(false, false, null);
         }

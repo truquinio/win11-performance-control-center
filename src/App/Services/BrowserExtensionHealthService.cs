@@ -299,7 +299,8 @@ public sealed class BrowserExtensionHealthService(
         if (document is null)
             return null;
 
-        if (!document.RootElement.TryGetProperty("extensions", out var extensions) ||
+        if (document.RootElement.ValueKind != JsonValueKind.Object ||
+            !document.RootElement.TryGetProperty("extensions", out var extensions) ||
             extensions.ValueKind != JsonValueKind.Object ||
             !extensions.TryGetProperty("ui", out var ui) ||
             ui.ValueKind != JsonValueKind.Object ||
@@ -329,7 +330,11 @@ public sealed class BrowserExtensionHealthService(
         if (document is null)
             return result;
 
-        if (!document.RootElement.TryGetProperty("extensions", out var extensions) ||
+        // Edge rewrites these files while running and they can be truncated
+        // or replaced by another JSON shape; anything unexpected is no data.
+        if (document.RootElement.ValueKind != JsonValueKind.Object ||
+            !document.RootElement.TryGetProperty("extensions", out var extensions) ||
+            extensions.ValueKind != JsonValueKind.Object ||
             !extensions.TryGetProperty("settings", out var settings) ||
             settings.ValueKind != JsonValueKind.Object)
         {
@@ -586,12 +591,14 @@ public sealed class BrowserExtensionHealthService(
     }
 
     private static string? TryGetString(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object &&
         element.TryGetProperty(property, out var value) &&
         value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
 
     private static int? TryGetInt32(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object &&
         element.TryGetProperty(property, out var value) &&
         value.ValueKind == JsonValueKind.Number &&
         value.TryGetInt32(out var number)
