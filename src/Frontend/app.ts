@@ -486,7 +486,8 @@ function formatBytes(value: number, decimals = 1): string {
   if (!Number.isFinite(value) || value < 0) return "No disponible";
   if (value === 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
-  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+  // Values below one byte would otherwise produce a negative unit index.
+  const index = Math.max(0, Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1));
   return (value / 1024 ** index).toFixed(index === 0 ? 0 : decimals) + " " + units[index];
 }
 
@@ -918,6 +919,7 @@ function createResultTable(
   const head = table.createTHead().insertRow();
   for (const header of headers) {
     const cell = document.createElement("th");
+    cell.scope = "col";
     cell.textContent = header;
     head.append(cell);
   }
@@ -1014,8 +1016,9 @@ function createProcessSelection(
   wrap.className = "result-table-wrap";
   const table = document.createElement("table");
   const head = table.createTHead().insertRow();
-  for (const header of ["", "PID", "Proceso", "Working set"]) {
+  for (const header of ["Seleccionar", "PID", "Proceso", "Working set"]) {
     const cell = document.createElement("th");
+    cell.scope = "col";
     cell.textContent = header;
     head.append(cell);
   }
@@ -1677,6 +1680,8 @@ function toast(title: string, message: string, kind: "success" | "error" | "info
   const host = byId("toast-host");
   const element = document.createElement("div");
   element.className = "toast " + kind;
+  // Failures interrupt a screen reader; routine feedback waits its turn.
+  element.setAttribute("role", kind === "error" ? "alert" : "status");
   const strong = document.createElement("strong");
   strong.textContent = title;
   const body = document.createElement("div");
@@ -1753,14 +1758,30 @@ function refreshTemperature(): Promise<void> {
   });
 }
 
+let snapshotFailing = false;
+let baselineStarted = false;
+
 async function refreshSnapshot(silent = false): Promise<void> {
   try {
     const snapshot = await provider.snapshot();
+    snapshotFailing = false;
     renderSnapshot(snapshot);
     if (!silent) pushActivity("Estado actualizado", "Métricas locales renovadas.", "ok");
   } catch (error) {
     setGlobalState("ERROR");
-    toast("No se pudo actualizar", error instanceof Error ? error.message : String(error), "error");
+    // The periodic refresh reports an outage once, not every five seconds.
+    if (!silent || !snapshotFailing)
+      toast("No se pudo actualizar", error instanceof Error ? error.message : String(error), "error");
+    snapshotFailing = true;
+  }
+}
+
+async function ensureCatalog(): Promise<void> {
+  if (currentCatalog.length > 0) return;
+  try {
+    renderCatalog(await provider.catalog());
+  } catch {
+    // Retried on the next refresh; the snapshot path reports the outage.
   }
 }
 
@@ -1808,6 +1829,9 @@ async function runAction(
   }
 
   actionInFlight = true;
+  // A result belongs to the module it was requested from. If the user has
+  // moved to another view by the time it arrives, it must not appear there.
+  const originView = activeView;
   const originalNodes = button
     ? Array.from(button.childNodes).map(node => node.cloneNode(true))
     : [];
@@ -1823,7 +1847,7 @@ async function runAction(
   try {
     while (backgroundWork) await backgroundWork;
     const result = await provider.runAction(id, parameters);
-    renderActionResult(id, result);
+    if (activeView === originView) renderActionResult(id, result);
     pushActivity(id, result.message, result.success ? "ok" : "warn");
     toast(result.success ? "Acción completada" : "Acción con advertencias", result.message, result.success ? "success" : "info");
     const estimated = result.data?.estimatedBytes;
@@ -1932,12 +1956,36 @@ async function boot(): Promise<void> {
   });
 
   try {
-    const [snapshot, actions] = await Promise.all([provider.snapshot(), provider.catalog()]);
-    renderSnapshot(snapshot);
-    renderCatalog(actions);
-    await refreshBaselineHealth();
-    if (initialMode === "developer") {
-      await Promise.all([refreshReliability(), refreshTemperature()]);
+    // The two initial reads are independent: a snapshot that fails once
+    // (slow provider, transient Win32 error) must not leave the session
+    // without its catalog or without the periodic refresh that recovers it.
+    const [snapshot, actions] = await Promise.allSettled([provider.snapshot(), provider.catalog()]);
+    if (actions.status === "fulfilled") renderCatalog(actions.value);
+    if (snapshot.status === "fulfilled") {
+      renderSnapshot(snapshot.value);
+    } else {
+      snapshotFailing = true;
+      setGlobalState("ERROR");
+      toast(
+        "Error de inicio",
+        snapshot.reason instanceof Error ? snapshot.reason.message : String(snapshot.reason),
+        "error");
+    }
+    if (actions.status === "rejected" && snapshot.status === "fulfilled") {
+      toast(
+        "Error de inicio",
+        actions.reason instanceof Error ? actions.reason.message : String(actions.reason),
+        "error");
+    }
+    // With no answer from the provider, queuing actions behind it would
+    // only stall the start for their full timeouts; the periodic refresh
+    // runs the baseline as soon as a snapshot succeeds.
+    if (!snapshotFailing) {
+      baselineStarted = true;
+      await refreshBaselineHealth();
+      if (initialMode === "developer") {
+        await Promise.all([refreshReliability(), refreshTemperature()]);
+      }
     }
 
     if (provider.surface === "demo") {
@@ -1952,24 +2000,35 @@ async function boot(): Promise<void> {
       );
     }
 
-    pushActivity("Aplicación iniciada", provider.surface === "local" ? "Backend local conectado." : "Datos simulados; no se accede al PC.", "ok");
-
-    window.setInterval(() => {
-      if (document.visibilityState === "visible")
-        void refreshSnapshot(true);
-    }, 5000);
-
-    window.setInterval(() => {
-      if (document.visibilityState === "visible" &&
-          document.body.dataset.mode === "developer")
-        void refreshTemperature();
-    }, 15000);
+    if (snapshotFailing) {
+      pushActivity("Aplicación iniciada", "El proveedor de datos no respondió; se reintenta automáticamente.", "warn");
+    } else {
+      pushActivity("Aplicación iniciada", provider.surface === "local" ? "Backend local conectado." : "Datos simulados; no se accede al PC.", "ok");
+    }
 
     workspace?.scrollTo({ top: 0, left: 0, behavior: "auto" });
   } catch (error) {
     setGlobalState("ERROR");
     toast("Error de inicio", error instanceof Error ? error.message : String(error), "error");
   }
+
+  // Installed even after a failed start: this is what brings a degraded
+  // session back once the provider answers again.
+  window.setInterval(() => {
+    if (document.visibilityState !== "visible") return;
+    void ensureCatalog();
+    void refreshSnapshot(true).then(() => {
+      if (snapshotFailing || baselineStarted) return;
+      baselineStarted = true;
+      void refreshBaselineHealth();
+    });
+  }, 5000);
+
+  window.setInterval(() => {
+    if (document.visibilityState === "visible" &&
+        document.body.dataset.mode === "developer")
+      void refreshTemperature();
+  }, 15000);
 }
 
 void boot();

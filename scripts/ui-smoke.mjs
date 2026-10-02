@@ -218,6 +218,46 @@ const expression = String.raw`
   }
   if (moduleNav && moduleNav.getAttribute("aria-current") !== "page")
     errors.push("La navegación activa no expone aria-current");
+
+  // A result belongs to the module that requested it: leaving the module
+  // while the action is still running must not show it somewhere else.
+  const resultPanel = document.querySelector("#module-result-panel");
+  const resultHidden = () => resultPanel?.classList.contains("is-hidden");
+  const slowAction = document.querySelector("#module-actions button:not([disabled])");
+  const otherNav = [...document.querySelectorAll(".nav-item")]
+    .filter(visible)
+    .find(node => node.dataset.view === "cleanup");
+  if (!slowAction || !otherNav || !resultPanel) {
+    errors.push("No se pudo preparar la prueba de resultado fuera de módulo");
+  } else {
+    slowAction.click();
+    otherNav.click();
+    await wait(1400);
+    if (!resultHidden())
+      errors.push("El resultado de un módulo apareció en otro módulo");
+
+    document.querySelector("#module-actions button:not([disabled])")?.click();
+    for (let i = 0; i < 120 && resultHidden(); i++) await wait(25);
+    if (resultHidden())
+      errors.push("El resultado no se mostró en su propio módulo");
+
+    const headers = [...document.querySelectorAll("#module-result-content th")];
+    if (!headers.length ||
+        headers.some(cell => cell.scope !== "col" || !cell.textContent.trim()))
+      errors.push("Tabla de resultados sin encabezados de columna accesibles");
+
+    const toasts = [...document.querySelectorAll("#toast-host .toast")];
+    if (!toasts.length ||
+        toasts.some(node => !["status", "alert"].includes(node.getAttribute("role"))))
+      errors.push("Toast sin rol accesible");
+    await wait(400);
+  }
+
+  if (!document.querySelector("nav[aria-label]"))
+    errors.push("Navegación principal sin etiqueta accesible");
+  if (document.querySelector("svg:not([aria-hidden='true']):not([aria-label]):not([role])"))
+    errors.push("SVG decorativo expuesto a lectores de pantalla");
+
   document.querySelector('[data-view="dashboard"]')?.click();
   await wait(20);
 
@@ -245,6 +285,125 @@ if (!result) throw new Error("UI smoke no devolvió resultado.");
 if (exceptions.length) result.errors.push(...exceptions);
 if (result.errors.length)
   throw new Error("UI_SMOKE_FAIL\n" + result.errors.join("\n"));
+
+// Degraded start: the same frontend, now behind a fake local bridge whose
+// first snapshot and first catalog request fail. The session must recover
+// on its own through the periodic refresh instead of staying empty.
+const fakeBridge = String.raw`
+(() => {
+  const listeners = [];
+  const seen = { snapshot: 0, catalog: 0 };
+  const requests = [];
+  const reply = (requestId, ok, result, error) => setTimeout(() => {
+    for (const listener of listeners)
+      listener({ data: { requestId, ok, result, error } });
+  }, 5);
+  const snapshot = () => ({
+    capturedAt: new Date().toISOString(),
+    cpuPercent: 37,
+    memoryTotalBytes: 16 * 1024 ** 3,
+    memoryUsedBytes: 8 * 1024 ** 3,
+    memoryAvailableBytes: 8 * 1024 ** 3,
+    diskDrive: "C:",
+    diskTotalBytes: 500 * 1024 ** 3,
+    diskFreeBytes: 100 * 1024 ** 3,
+    network: null,
+    integrityStatus: "NOT_EVALUATED",
+    driverStatus: "NOT_EVALUATED",
+    activationStatus: "NOT_EVALUATED",
+    rebootRequired: null,
+    uptimeSeconds: 60,
+    operationState: "IDLE"
+  });
+  const catalog = [{
+    id: "drivers.analyze", title: "Analizar drivers", description: "Prueba",
+    category: "Drivers", risk: "SAFE", requiresAdmin: false,
+    connectivity: "OFFLINE", reversible: false, mode: "READ"
+  }];
+  const host = window.chrome ?? {};
+  host.webview = {
+    addEventListener(type, listener) {
+      if (type === "message") listeners.push(listener);
+    },
+    postMessage(message) {
+      if (!message || message.type !== "request") return;
+      requests.push(message.method + (message.payload?.id ? ":" + message.payload.id : ""));
+      if (message.method === "system.snapshot") {
+        seen.snapshot++;
+        return seen.snapshot === 1
+          ? reply(message.requestId, false, null, "Fallo inyectado de snapshot")
+          : reply(message.requestId, true, snapshot());
+      }
+      if (message.method === "actions.catalog") {
+        seen.catalog++;
+        return seen.catalog === 1
+          ? reply(message.requestId, false, null, "Fallo inyectado de catálogo")
+          : reply(message.requestId, true, catalog);
+      }
+      if (message.method === "system.reliability")
+        return reply(message.requestId, true, []);
+      return reply(message.requestId, true, {
+        success: true, dryRun: false, message: "ok",
+        data: { status: "OK", items: [] }
+      });
+    }
+  };
+  if (!window.chrome) window.chrome = host;
+  window.__wpccFakeBridge = { requests };
+})();
+`;
+await call("Page.enable");
+await call("Page.addScriptToEvaluateOnNewDocument", { source: fakeBridge });
+await call("Page.navigate", { url: `http://127.0.0.1:${appPort}/?mode=compact` });
+// Let the previous document's execution context be replaced first.
+await sleep(1000);
+
+const degradedExpression = String.raw`
+(async () => {
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const errors = [];
+  const fake = () => window.__wpccFakeBridge;
+  for (let i = 0; i < 40 && !(fake() && document.body.classList.contains("local")); i++)
+    await wait(50);
+  if (!fake() || !document.body.classList.contains("local"))
+    return { errors: ["El puente local simulado no se cargó"], requests: [] };
+
+  await wait(600);
+  if (document.querySelector("#cpu-value")?.textContent?.trim() !== "—")
+    errors.push("El arranque degradado no partió de un snapshot fallido");
+
+  const recovered = () =>
+    document.querySelector("#cpu-value")?.textContent?.trim() === "37%" &&
+    document.querySelectorAll("#catalog-grid .catalog-item").length === 1 &&
+    fake().requests.includes("actions.run:drivers.analyze");
+  for (let i = 0; i < 180 && !recovered(); i++) await wait(50);
+
+  if (document.querySelector("#cpu-value")?.textContent?.trim() !== "37%")
+    errors.push("El snapshot no se recuperó tras un fallo de arranque");
+  if (document.querySelectorAll("#catalog-grid .catalog-item").length !== 1)
+    errors.push("El catálogo no se recuperó tras un fallo de arranque");
+  if (!fake().requests.includes("actions.run:drivers.analyze"))
+    errors.push("La línea base de salud no se ejecutó tras la recuperación");
+  if (document.querySelectorAll("#toast-host .toast").length > 2)
+    errors.push("El arranque degradado acumuló avisos repetidos");
+
+  return { errors, requests: fake().requests };
+})()
+`;
+const degradedEvaluated = await call("Runtime.evaluate", {
+  expression: degradedExpression,
+  awaitPromise: true,
+  returnByValue: true
+});
+const degraded = degradedEvaluated.result?.value;
+if (!degraded) throw new Error("UI smoke degradado no devolvió resultado.");
+if (exceptions.length) degraded.errors.push(...exceptions);
+if (degraded.errors.length)
+  throw new Error("UI_SMOKE_DEGRADED_FAIL\n" + degraded.errors.join("\n"));
+
+console.log(
+  `UI_SMOKE_DEGRADED_OK requests=${degraded.requests.length} recovered=snapshot,catalog,baseline`
+);
 
 console.log(
   `UI_SMOKE_OK developerButtons=${result.developerButtons} compactButtons=${result.compactButtons} dashboardActions=${result.actions} moduleButtons=${result.moduleButtonsSeen} buttons=${result.literalButtons}`

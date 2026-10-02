@@ -384,3 +384,15 @@ textarea:focus-visible{
     animation-iteration-count:1!important;
   }
 }
+/* Windows contrast themes replace backgrounds, which erases every meter
+   and status dot drawn only with a fill colour. */
+@media (forced-colors: active){
+  .metric-bar,.storage-bar{border:1px solid CanvasText}
+  .metric-bar i,.storage-bar i,#storage-bar,.dot,.activity-dot,.badge i{
+    forced-color-adjust:none;
+    background:Highlight!important;
+  }
+  .sparkline polyline{stroke:Highlight}
+  .nav-item.active,.btn,.badge,.toast,.panel,.metric-card{border:1px solid CanvasText}
+  button:focus-visible,input:focus-visible{outline:2px solid Highlight}
+}
