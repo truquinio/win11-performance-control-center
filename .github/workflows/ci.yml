@@ -29,29 +29,6 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Build static demo
-        run: npm run build:demo
-
-      - name: Restore
-        run: dotnet restore Win11PerformanceControlCenter.slnx --nologo
-
-      - name: Build Release
-        run: dotnet build Win11PerformanceControlCenter.slnx -c Release --no-restore --nologo --verbosity minimal -warnaserror
-
-      - name: Test
-        run: dotnet test tests\App.Tests\App.Tests.csproj -c Release --no-build --nologo --verbosity minimal
-
-      - name: Whitespace format gate
-        run: dotnet format Win11PerformanceControlCenter.slnx whitespace --verify-no-changes --no-restore
-
-      - name: Code-style gate
-        run: dotnet format Win11PerformanceControlCenter.slnx style --verify-no-changes --severity warn --no-restore
-
-      - name: Analyzer gate
-        run: dotnet format Win11PerformanceControlCenter.slnx analyzers --verify-no-changes --severity warn --no-restore
-
-      - name: NuGet vulnerability audit
-        run: dotnet list Win11PerformanceControlCenter.slnx package --vulnerable --include-transitive
-
-      - name: NPM production audit
-        run: npm audit --omit=dev
+      - name: Run canonical verification gate
+        shell: pwsh
+        run: .\scripts\verify.ps1

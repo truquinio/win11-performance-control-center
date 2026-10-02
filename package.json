@@ -11,6 +11,7 @@
     "test:ui-smoke": "npm run build:demo && node scripts/ui-smoke.mjs",
     "test:package-contract": "node scripts/package-contract.mjs",
     "test:resource-contract": "node scripts/resource-contract.mjs",
+    "test:ci-contract": "node scripts/ci-contract.mjs",
     "watch:frontend": "tsc --watch"
   },
   "devDependencies": {
