@@ -78,10 +78,14 @@ async function cleanup(socket) {
 let socket;
 try {
 let target;
-for (let i = 0; i < 40; i++) {
+// A cold browser on a busy CI runner can take several seconds to expose the
+// debugger and may list other pages first; only the app's own page counts.
+const appOrigin = `http://127.0.0.1:${appPort}/`;
+for (let i = 0; i < 300; i++) {
   try {
     const pages = await (await fetch(`http://127.0.0.1:${debugPort}/json`)).json();
-    target = pages.find(item => item.type === "page");
+    target = pages.find(item =>
+      item.type === "page" && String(item.url ?? "").startsWith(appOrigin));
     if (target?.webSocketDebuggerUrl) break;
   } catch {}
   await sleep(100);
@@ -112,7 +116,44 @@ const call = (method, params = {}) => new Promise((resolve, reject) => {
   socket.send(JSON.stringify({ id, method, params }));
 });
 
+// Assertions against a document that has not finished loading report a wall
+// of unrelated failures, so readiness is awaited instead of assumed.
+async function waitForPage(predicate, label, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const probe = await call("Runtime.evaluate", {
+        expression: predicate,
+        returnByValue: true
+      });
+      if (probe.result?.value === true) return;
+    } catch {
+      // The execution context is replaced while a navigation commits.
+    }
+    await sleep(100);
+  }
+  let state = "sin contexto";
+  try {
+    const probe = await call("Runtime.evaluate", {
+      expression:
+        `location.href + " · " + document.readyState + " · body=" + document.body?.className`,
+      returnByValue: true
+    });
+    state = String(probe.result?.value ?? state);
+  } catch {
+    // Keep the generic description.
+  }
+  throw new Error(
+    "UI_SMOKE_FAIL la página no estuvo lista: " + label + " (" + state + ")" +
+    (exceptions.length ? "\n" + exceptions.join("\n") : ""));
+}
+
 await call("Runtime.enable");
+await waitForPage(
+  `document.readyState === "complete" &&
+   document.body.classList.contains("demo") &&
+   document.querySelectorAll("#catalog-grid .catalog-item").length > 0`,
+  "demo");
 await sleep(1200);
 const expression = String.raw`
 (async () => {
@@ -230,14 +271,20 @@ const expression = String.raw`
   if (!slowAction || !otherNav || !resultPanel) {
     errors.push("No se pudo preparar la prueba de resultado fuera de módulo");
   } else {
+    const activityBefore = document.querySelector("#activity-list")?.textContent;
     slowAction.click();
     otherNav.click();
-    await wait(1400);
+    // Completion is observed, not timed: the activity entry is written when
+    // the action returns, shortly before the in-flight flag is released.
+    for (let i = 0; i < 400 &&
+         document.querySelector("#activity-list")?.textContent === activityBefore; i++)
+      await wait(25);
+    await wait(700);
     if (!resultHidden())
       errors.push("El resultado de un módulo apareció en otro módulo");
 
     document.querySelector("#module-actions button:not([disabled])")?.click();
-    for (let i = 0; i < 120 && resultHidden(); i++) await wait(25);
+    for (let i = 0; i < 400 && resultHidden(); i++) await wait(25);
     if (resultHidden())
       errors.push("El resultado no se mostró en su propio módulo");
 
@@ -355,21 +402,23 @@ const fakeBridge = String.raw`
 await call("Page.enable");
 await call("Page.addScriptToEvaluateOnNewDocument", { source: fakeBridge });
 await call("Page.navigate", { url: `http://127.0.0.1:${appPort}/?mode=compact` });
-// Let the previous document's execution context be replaced first.
-await sleep(1000);
+await waitForPage(
+  `document.readyState === "complete" &&
+   Boolean(window.__wpccFakeBridge) &&
+   document.body.classList.contains("local")`,
+  "arranque degradado");
 
 const degradedExpression = String.raw`
 (async () => {
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   const errors = [];
   const fake = () => window.__wpccFakeBridge;
-  for (let i = 0; i < 40 && !(fake() && document.body.classList.contains("local")); i++)
-    await wait(50);
-  if (!fake() || !document.body.classList.contains("local"))
-    return { errors: ["El puente local simulado no se cargó"], requests: [] };
-
-  await wait(600);
-  if (document.querySelector("#cpu-value")?.textContent?.trim() !== "—")
+  if (!fake().requests.includes("system.snapshot") ||
+      !fake().requests.includes("actions.catalog"))
+    await wait(600);
+  // The injected failures answer first; a later refresh is what recovers.
+  if (fake().requests.filter(item => item === "system.snapshot").length === 1 &&
+      document.querySelector("#cpu-value")?.textContent?.trim() !== "—")
     errors.push("El arranque degradado no partió de un snapshot fallido");
 
   const recovered = () =>
