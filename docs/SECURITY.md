@@ -24,7 +24,7 @@ Every action declares:
 WRITE operations require explicit user confirmation. EcoQoS stores process-instance rollback state and validates process start time so a reused PID cannot inherit an old rollback snapshot.
 
 ## UAC
-The main process is not always-admin. `ElevatedActionClient` starts a constrained helper through Windows `runas`; the helper revalidates the Action Catalog and its own elevation, runs only the requested read-only action and returns the result over a one-shot, current-user-only named pipe whose name is derived from a random token. Parameterised actions are never forwarded to the elevated helper. The interactive Windows consent dialog is intentionally not automated.
+The main process is not always-admin. `ElevatedActionClient` starts a constrained helper through Windows `runas`; the helper revalidates the Action Catalog and its own elevation, runs only the requested read-only action and returns the result over a one-shot, current-user-only named pipe whose name is derived from a random token. Parameterised actions are never forwarded to the elevated helper. The interactive Windows consent dialog is intentionally not automated. User cancellation is reported separately, and execution blocks from Group Policy/AppLocker/WDAC/code-integrity policy are surfaced explicitly and are never bypassed.
 
 ## WebView2
 The desktop surface accepts messages only from the mapped local HTTPS host. External navigation and new windows are blocked, browser permission requests are denied, and downloads are cancelled by default. The local UI does not need camera, microphone, geolocation, notifications or download privileges.
