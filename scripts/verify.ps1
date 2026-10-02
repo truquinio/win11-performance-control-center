@@ -36,6 +36,10 @@ Invoke-Step "CI parity contract" { npm run test:ci-contract }
 
 Invoke-Step "WebView security contract" { npm run test:webview-security }
 
+Invoke-Step "Visual QA isolation contract" {
+    powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\visual-qa-contract.ps1"
+}
+
 Invoke-Step "Release build" {
     & $dotnet build ".\\Win11PerformanceControlCenter.slnx" -c $Configuration --nologo --verbosity minimal -warnaserror
 }

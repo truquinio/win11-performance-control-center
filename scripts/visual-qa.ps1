@@ -31,7 +31,21 @@ try {
         [string]$Port,
         '--bind','127.0.0.1'
     ) -WorkingDirectory $demo -PassThru -WindowStyle Hidden
-    Start-Sleep -Milliseconds 900
+    Start-Sleep -Milliseconds 500
+    $server.Refresh()
+    if ($server.HasExited) {
+        throw "Visual QA server could not bind to 127.0.0.1:$Port."
+    }
+
+    try {
+        $probe = Invoke-WebRequest "http://127.0.0.1:$Port/" -UseBasicParsing -TimeoutSec 3
+    }
+    catch {
+        throw "Visual QA server did not become reachable on 127.0.0.1:$Port."
+    }
+    if ($probe.Content -notmatch "Win11 Performance Control Center") {
+        throw "Visual QA port $Port is serving unexpected content."
+    }
 
     foreach ($mode in @('compact','developer')) {
         $output = Join-Path $artifactDir ("$mode-$Width`x$Height.png")
