@@ -8,6 +8,9 @@ const app = fs.readFileSync(path.join(root, "src", "Frontend", "app.ts"), "utf8"
 const backendCatalog = fs.readFileSync(
   path.join(root, "src", "App", "Core", "ActionCatalog.cs"),
   "utf8");
+const backendExecutor = fs.readFileSync(
+  path.join(root, "src", "App", "Core", "ActionExecutor.cs"),
+  "utf8");
 
 const views = [...html.matchAll(/data-view="([^"]+)"/g)].map(match => match[1]);
 const definitionBlock = app.match(/const moduleDefinitions:[\s\S]*?= \{([\s\S]*?)\n\};/)?.[1] ?? "";
@@ -54,6 +57,28 @@ const backendActions = new Set(
   [...backendCatalog.matchAll(/new ActionDefinition\("([^"]+)"/g)]
     .map(match => match[1])
 );
+const executorSwitch = backendExecutor.match(
+  /return action\.Id switch\s*\{([\s\S]*?)_ => throw/
+)?.[1];
+if (!executorSwitch)
+  throw new Error("No se pudo localizar ExecuteAllowedAsync en ActionExecutor.");
+
+const executorActions = new Set(
+  [...executorSwitch.matchAll(/"([^"]+)"\s*=>/g)]
+    .map(match => match[1])
+);
+const catalogWithoutExecutor = [...backendActions]
+  .filter(action => !executorActions.has(action));
+const executorWithoutCatalog = [...executorActions]
+  .filter(action => !backendActions.has(action));
+if (catalogWithoutExecutor.length || executorWithoutCatalog.length) {
+  throw new Error(
+    "ActionCatalog/ActionExecutor desalineados. " +
+    "Sin implementación: " + (catalogWithoutExecutor.join(", ") || "ninguno") +
+    " · Sin catálogo: " + (executorWithoutCatalog.join(", ") || "ninguno")
+  );
+}
+
 const frontendOnly = [...demoActions].filter(action => !backendActions.has(action));
 const backendOnly = [...backendActions].filter(action => !demoActions.has(action));
 if (frontendOnly.length || backendOnly.length) {
@@ -82,7 +107,7 @@ const inertButtons = literalButtons.filter(attrs => {
   if (/class="[^"]*action-trigger[^"]*"/.test(attrs) &&
       /data-action="[^"]+"/.test(attrs)) return false;
   const id = attrs.match(/id="([^"]+)"/)?.[1];
-  return !["diagnostic-btn", "mode-toggle"].includes(id ?? "");
+  return !["diagnostic-btn", "refresh-btn", "mode-toggle"].includes(id ?? "");
 });
 if (inertButtons.length) {
   throw new Error(
@@ -91,7 +116,7 @@ if (inertButtons.length) {
   );
 }
 
-for (const controlId of ["diagnostic-btn", "mode-toggle"]) {
+for (const controlId of ["diagnostic-btn", "refresh-btn", "mode-toggle"]) {
   const quoted = `"${controlId}"`;
   if (!app.includes(quoted))
     throw new Error("Control sin binding en app.ts: " + controlId);

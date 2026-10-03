@@ -852,6 +852,7 @@ function renderModuleView(view: string): void {
 
     const button = document.createElement("button");
     button.className = "btn btn-primary";
+    button.dataset.action = action.id;
     const hasRequiredParameters = Boolean(
       action.parameters?.some(parameter => parameter.required));
     button.textContent = hasRequiredParameters && action.mode === "WRITE"
@@ -1847,7 +1848,6 @@ async function runAction(
   try {
     while (backgroundWork) await backgroundWork;
     const result = await provider.runAction(id, parameters);
-    if (activeView === originView) renderActionResult(id, result);
     pushActivity(id, result.message, result.success ? "ok" : "warn");
     toast(result.success ? "Acción completada" : "Acción con advertencias", result.message, result.success ? "success" : "info");
     const estimated = result.data?.estimatedBytes;
@@ -1870,6 +1870,11 @@ async function runAction(
     if (id === "thermal.audit") applyTemperatureResult(result);
     if (id === "system.reliability.analyze" || id === "system.health.scan") await refreshReliability();
     await refreshSnapshot(true);
+    // Interactive follow-up controls (MemoryTrim/EcoQoS/rollback) must only
+    // become visible once this action is fully finished. Rendering earlier
+    // exposes clickable controls while actionInFlight is still true and a
+    // fast click is rejected as "Operación en curso".
+    if (activeView === originView) renderActionResult(id, result);
   } catch (error) {
     setGlobalState("ERROR");
     const message = error instanceof Error ? error.message : String(error);

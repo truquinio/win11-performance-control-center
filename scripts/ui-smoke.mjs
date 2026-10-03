@@ -104,6 +104,13 @@ socket.addEventListener("message", event => {
   const message = JSON.parse(event.data);
   if (message.method === "Runtime.exceptionThrown")
     exceptions.push(message.params?.exceptionDetails?.text ?? "JS exception");
+  if (message.method === "Runtime.consoleAPICalled") {
+    const values = (message.params?.args ?? [])
+      .map(arg => arg.value ?? arg.description ?? "")
+      .join(" ");
+    if (values.startsWith("SMOKE_ACTION"))
+      console.log(values);
+  }
   if (!message.id) return;
   const waiter = pending.get(message.id);
   if (!waiter) return;
@@ -188,6 +195,7 @@ const expression = String.raw`
 
   const developerButtons = [...document.querySelectorAll(".developer-nav")].filter(visible);
   let moduleButtonsSeen = 0;
+  let moduleActionsExecuted = 0;
   for (const button of developerButtons) {
     button.click();
     await wait(15);
@@ -198,15 +206,105 @@ const expression = String.raw`
       errors.push("Módulo no visible: " + button.textContent.trim());
     if (!document.querySelector("#module-title")?.textContent?.trim())
       errors.push("Módulo sin título: " + button.textContent.trim());
+
     const moduleButtons = [...document.querySelectorAll("#module-actions button")];
     moduleButtonsSeen += moduleButtons.length;
     for (const actionButton of moduleButtons) {
-      if (actionButton.disabled && !actionButton.title)
-        errors.push("Acción deshabilitada sin explicación: " + actionButton.textContent.trim());
-      if (!actionButton.disabled && !actionButton.textContent.trim())
+      const label = actionButton.textContent.trim();
+      if (actionButton.disabled) {
+        if (!actionButton.title)
+          errors.push("Acción deshabilitada sin explicación: " + label);
+        continue;
+      }
+      if (!label) {
         errors.push("Acción de módulo sin etiqueta: " + button.textContent.trim());
+        continue;
+      }
+
+      const resultPanel = document.querySelector("#module-result-panel");
+      resultPanel?.classList.add("is-hidden");
+      console.log("SMOKE_ACTION", actionButton.dataset.action || label);
+      actionButton.click();
+      for (let i = 0; i < 160 && actionButton.disabled; i++) await wait(25);
+      if (actionButton.disabled) {
+        errors.push("Acción de módulo quedó bloqueada: " + label);
+        continue;
+      }
+      for (let i = 0; i < 40 &&
+           resultPanel?.classList.contains("is-hidden"); i++) await wait(25);
+      if (resultPanel?.classList.contains("is-hidden"))
+        errors.push("Acción de módulo sin resultado visible: " + label);
+      if (!document.querySelector("#module-result-title")?.textContent?.trim())
+        errors.push("Resultado de módulo sin título: " + label);
+      moduleActionsExecuted++;
     }
   }
+
+  let writeFlowsExecuted = 0;
+  window.confirm = () => true;
+
+  async function runSelectionFlow(view, analyzeId, expectedWriteTitle, expectRollback) {
+    const nav = developerButtons.find(node => node.dataset.view === view);
+    if (!nav) {
+      errors.push("Falta navegación para flujo WRITE: " + view);
+      return;
+    }
+
+    nav.click();
+    await wait(20);
+    const analyzeButton = document.querySelector(
+      '#module-actions button[data-action="' + analyzeId + '"]');
+    if (!analyzeButton || analyzeButton.disabled) {
+      errors.push("Análisis previo no disponible: " + analyzeId);
+      return;
+    }
+
+    analyzeButton.click();
+    for (let i = 0; i < 120 &&
+         !document.querySelector("#module-result-content input[type=checkbox]"); i++)
+      await wait(25);
+
+    const checkbox = document.querySelector(
+      "#module-result-content input[type=checkbox]");
+    const applyButton = document.querySelector(
+      "#module-result-content button.btn-primary");
+    if (!checkbox || !applyButton) {
+      errors.push("Flujo WRITE sin selección/aplicar: " + analyzeId);
+      return;
+    }
+
+    checkbox.checked = true;
+    applyButton.click();
+    for (let i = 0; i < 120 &&
+         document.querySelector("#module-result-title")?.textContent?.trim() !== expectedWriteTitle; i++)
+      await wait(25);
+
+    if (document.querySelector("#module-result-title")?.textContent?.trim() !== expectedWriteTitle) {
+      errors.push("WRITE no mostró resultado: " + expectedWriteTitle);
+      return;
+    }
+    writeFlowsExecuted++;
+
+    if (expectRollback) {
+      const rollbackButton = [...document.querySelectorAll("#module-result-content button")]
+        .find(node => node.textContent.trim() === "Restaurar EcoQoS");
+      if (!rollbackButton) {
+        errors.push("EcoQoS aplicado sin botón de rollback");
+        return;
+      }
+      rollbackButton.click();
+      for (let i = 0; i < 120 &&
+           document.querySelector("#module-result-title")?.textContent?.trim() !== "Restaurar EcoQoS"; i++)
+        await wait(25);
+      if (document.querySelector("#module-result-title")?.textContent?.trim() !== "Restaurar EcoQoS")
+        errors.push("Rollback EcoQoS no mostró resultado");
+      else
+        writeFlowsExecuted++;
+    }
+  }
+
+  await runSelectionFlow("memory", "memory.trim.preview", "MemoryTrim seleccionado", false);
+  await runSelectionFlow("cpu", "cpu.ecoqos.analyze", "Aplicar EcoQoS seleccionado", true);
 
   document.querySelector('[data-view="dashboard"]')?.click();
   await wait(20);
@@ -218,6 +316,29 @@ const expression = String.raw`
     if (button.disabled) errors.push("Botón quedó bloqueado: " + button.dataset.action);
     const after = document.querySelector("#activity-list")?.textContent;
     if (before === after) errors.push("Sin feedback de actividad: " + button.dataset.action);
+  }
+
+  const refresh = document.querySelector("#refresh-btn");
+  if (!refresh) {
+    errors.push("Falta botón Actualizar");
+  } else {
+    refresh.click();
+    await wait(400);
+    if (!document.querySelector("#cpu-value")?.textContent?.trim())
+      errors.push("Actualizar dejó el dashboard sin métricas");
+  }
+
+  const diagnosticButton = document.querySelector("#diagnostic-btn");
+  if (!diagnosticButton) {
+    errors.push("Falta Diagnóstico completo");
+  } else {
+    const beforeDiagnostic = document.querySelector("#activity-list")?.textContent;
+    diagnosticButton.click();
+    await wait(1800);
+    if (diagnosticButton.disabled)
+      errors.push("Diagnóstico completo quedó bloqueado");
+    if (beforeDiagnostic === document.querySelector("#activity-list")?.textContent)
+      errors.push("Diagnóstico completo no generó actividad");
   }
 
   const more = document.querySelector(".link-btn[data-view='tools']");
@@ -318,6 +439,8 @@ const expression = String.raw`
     compactButtons: [...document.querySelectorAll(".nav-item")].filter(visible).length,
     actions: actions.length,
     moduleButtonsSeen,
+    moduleActionsExecuted,
+    writeFlowsExecuted,
     literalButtons: document.querySelectorAll("button").length
   };
 })()
@@ -455,7 +578,7 @@ console.log(
 );
 
 console.log(
-  `UI_SMOKE_OK developerButtons=${result.developerButtons} compactButtons=${result.compactButtons} dashboardActions=${result.actions} moduleButtons=${result.moduleButtonsSeen} buttons=${result.literalButtons}`
+  `UI_SMOKE_OK developerButtons=${result.developerButtons} compactButtons=${result.compactButtons} dashboardActions=${result.actions} moduleButtons=${result.moduleButtonsSeen} moduleActionsExecuted=${result.moduleActionsExecuted} writeFlows=${result.writeFlowsExecuted} buttons=${result.literalButtons}`
 );
 
 } finally {
