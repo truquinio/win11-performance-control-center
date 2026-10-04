@@ -38,7 +38,19 @@ El flujo conceptual es:
 
 La captura utiliza datos de demostración y no expone información de un equipo real.
 
-## ✨ Áreas funcionales
+## ▶️ Explorar la demostración
+
+Abre la [demo visual](https://truquinio.github.io/win11-performance-control-center/) y revisa el dashboard y la arquitectura. Es una presentación estática: los controles de mantenimiento del producto completo no ejecutan acciones sobre tu ordenador desde esta web.
+
+Para verla localmente, desde la raíz:
+
+~~~bash
+python -m http.server 8000
+~~~
+
+Abre `http://localhost:8000/`.
+
+## ✨ Áreas del producto completo
 
 - CPU, procesos y EcoQoS;
 - presión de memoria y MemoryTrim;
@@ -93,7 +105,7 @@ La edición completa desarrolla estas capas con controles adicionales, contratos
 ### Incluido
 
 - documentación pública;
-- captura real del producto;
+- captura de la interfaz con datos de demostración;
 - arquitectura de alto nivel;
 - modelo conceptual de seguridad;
 - landing estática de portfolio.
