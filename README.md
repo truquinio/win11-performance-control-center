@@ -6,11 +6,11 @@
 
 Aplicación de escritorio para diagnóstico, mantenimiento controlado y análisis de Windows 11.
 
-![Windows 11](https://img.shields.io/badge/Windows-11-0078D4?style=flat&logo=windows11&logoColor=white)
-![.NET](https://img.shields.io/badge/.NET-10-512BD4?style=flat&logo=dotnet&logoColor=white)
-![WPF](https://img.shields.io/badge/WPF-Desktop-0C54C2?style=flat)
-![WebView2](https://img.shields.io/badge/WebView2-Edge-0A84FF?style=flat&logo=microsoftedge&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-Frontend-3178C6?style=flat&logo=typescript&logoColor=white)
+![Windows 11](https://img.shields.io/badge/Windows-11-0078D4?style=flat-square)
+![.NET](https://img.shields.io/badge/.NET-10-512BD4?style=flat-square)
+![WPF](https://img.shields.io/badge/WPF-Desktop-0C54C2?style=flat-square)
+![WebView2](https://img.shields.io/badge/WebView2-Edge-0A84FF?style=flat-square)
+![TypeScript](https://img.shields.io/badge/TypeScript-Frontend-3178C6?style=flat-square)
 [![Pages](https://github.com/truquinio/win11-performance-control-center/actions/workflows/pages.yml/badge.svg)](https://github.com/truquinio/win11-performance-control-center/actions/workflows/pages.yml)
 
 [**Portfolio demo**](https://truquinio.github.io/win11-performance-control-center/) ·
