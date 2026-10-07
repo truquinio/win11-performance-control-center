@@ -701,7 +701,7 @@ class DemoProvider implements Provider {
             reason: "Equipo inactivo."
           },
           fixedReadOnlyScope: [
-            "system.health.snapshot",
+            "system.health.scan",
             "disk.volumes.audit",
             "drivers.analyze",
             "system.crash.analyze"
