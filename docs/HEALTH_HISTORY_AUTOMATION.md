@@ -58,6 +58,6 @@ The safe maintenance batch can run only when:
 2. Workload Guard reports `IDLE` or explicit `MAINTENANCE`;
 3. D: is not below the critical storage guard.
 
-The current fixed batch performs only diagnostics for system health, volumes, drivers, crash evidence, USB, Edge extension health, services and Run/RunOnce startup entries.
+The current fixed batch performs only diagnostics for system health, volumes, drivers, crash evidence, USB, Edge extension health, services, Run/RunOnce startup entries and scheduled tasks.
 
 No UAC action, cleanup, reset, service change, device restart, startup mutation or other WRITE is part of the automation batch.
