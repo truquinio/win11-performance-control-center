@@ -46,6 +46,9 @@ public sealed class HostBridge : IDisposable
         string? logPath = null;
         string? statePath = null;
         string? storageWatchStatePath = null;
+        string? serviceStartupStatePath = null;
+        string? powerPlanStatePath = null;
+        string? pageFileStatePath = null;
         string? evaluationRoot = null;
 
         if (!string.IsNullOrWhiteSpace(dataRoot))
@@ -54,6 +57,9 @@ public sealed class HostBridge : IDisposable
             logPath = Path.Combine(root, "Logs", "app.jsonl");
             statePath = Path.Combine(root, "State", "ecoqos.json");
             storageWatchStatePath = Path.Combine(root, "State", "storage-watch.json");
+            serviceStartupStatePath = Path.Combine(root, "State", "service-startup.json");
+            powerPlanStatePath = Path.Combine(root, "State", "power-plan.json");
+            pageFileStatePath = Path.Combine(root, "State", "pagefile.json");
             evaluationRoot = root;
         }
 
@@ -87,6 +93,14 @@ public sealed class HostBridge : IDisposable
         var storageWatch = new StorageWatchService(
             storageWatchStatePath,
             evaluationRoot);
+        var serviceStartup = new ServiceStartupRemediationService(
+            serviceStartupStatePath,
+            evaluationRoot is not null);
+        var systemRemediation = new SystemRemediationService();
+        var powerPlanTuning = new PowerPlanTuningService(
+            powerPlanStatePath);
+        var pageFileTuning = new PageFileTuningService(
+            pageFileStatePath);
         var processes = new ProcessAnalysisService();
         var ecoQosState = new EcoQosStateStore(statePath);
         var tuning = new ProcessTuningService(ecoQosState);
@@ -136,6 +150,10 @@ public sealed class HostBridge : IDisposable
             reliability,
             storage,
             storageWatch,
+            serviceStartup,
+            systemRemediation,
+            powerPlanTuning,
+            pageFileTuning,
             processes,
             tuning,
             pageFile,

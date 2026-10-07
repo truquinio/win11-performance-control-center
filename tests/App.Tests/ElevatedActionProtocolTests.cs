@@ -27,6 +27,57 @@ public sealed class ElevatedActionProtocolTests
         Assert.Equal(token, parsedToken);
     }
 
+    [Fact]
+    public void TryParse_AcceptsBoundedTypedParameters()
+    {
+        var token = Guid.NewGuid();
+        var encoded = Convert.ToBase64String(
+            System.Text.Encoding.UTF8.GetBytes(
+                "{\"serviceName\":\"DemoSvc\",\"confirmed\":true}"));
+        var args = new[]
+        {
+            ElevatedActionProtocol.ActionFlag,
+            "startup.service.setmode",
+            ElevatedActionProtocol.TokenFlag,
+            token.ToString("N"),
+            ElevatedActionProtocol.ParametersFlag,
+            encoded
+        };
+
+        var accepted = ElevatedActionProtocol.TryParse(
+            args,
+            out var actionId,
+            out var parsedToken,
+            out var parameters);
+
+        Assert.True(accepted);
+        Assert.Equal("startup.service.setmode", actionId);
+        Assert.Equal(token, parsedToken);
+        Assert.Equal(encoded, parameters);
+    }
+
+    [Fact]
+    public void TryParse_RejectsOversizedElevatedParameters()
+    {
+        var token = Guid.NewGuid();
+        var args = new[]
+        {
+            ElevatedActionProtocol.ActionFlag,
+            "startup.service.setmode",
+            ElevatedActionProtocol.TokenFlag,
+            token.ToString("N"),
+            ElevatedActionProtocol.ParametersFlag,
+            new string('A',
+                ElevatedActionProtocol.MaxEncodedParametersLength + 1)
+        };
+
+        Assert.False(ElevatedActionProtocol.TryParse(
+            args,
+            out _,
+            out _,
+            out _));
+    }
+
     [Theory]
     [InlineData("--elevated-action", "system.integrity.check")]
     [InlineData("--elevated-action", "system.integrity.check", "--result-token", "not-a-guid")]

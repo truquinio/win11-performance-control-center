@@ -199,3 +199,8 @@ La app audita todos los volúmenes fijos, mantiene un baseline local de espacio 
 ## Edge extension remediation
 
 La vista de integridad distingue residuos inactivos de extensiones realmente rotas. El estado DATA_WITHOUT_INSTALLATION no se presenta como un proceso ni como un fallo grave: son datos locales de extensiones ya desinstaladas. La app puede previsualizarlos y, con Edge cerrado y confirmación explícita, moverlos a una cuarentena reversible. Nunca edita Preferences / Secure Preferences ni elimina automáticamente extensiones instaladas.
+
+
+## Actionability
+
+La app sigue el patrón detectar -> explicar -> proponer -> confirmar -> ejecutar -> verificar -> rollback. Las acciones administrativas usan UAC con IDs allowlisted y parámetros tipados; no se expone una shell arbitraria. Véase docs/ACTIONABILITY.md.

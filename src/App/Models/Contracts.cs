@@ -121,7 +121,9 @@ public sealed record PageFileEntry(
     string Name,
     ulong AllocatedMb,
     ulong CurrentUsageMb,
-    ulong PeakUsageMb);
+    ulong PeakUsageMb,
+    ulong? InitialSizeMb = null,
+    ulong? MaximumSizeMb = null);
 
 public sealed record PageFileAnalysis(
     bool? AutomaticallyManaged,

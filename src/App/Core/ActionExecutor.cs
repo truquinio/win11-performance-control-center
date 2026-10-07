@@ -15,6 +15,10 @@ public sealed class ActionExecutor(
     ReliabilityService reliabilityService,
     StorageAnalysisService storageService,
     StorageWatchService storageWatchService,
+    ServiceStartupRemediationService serviceStartupRemediationService,
+    SystemRemediationService systemRemediationService,
+    PowerPlanTuningService powerPlanTuningService,
+    PageFileTuningService pageFileTuningService,
     ProcessAnalysisService processService,
     ProcessTuningService processTuningService,
     PageFileService pageFileService,
@@ -82,14 +86,9 @@ public sealed class ActionExecutor(
                     boundary = "per-action",
                     action.RequiresAdmin
                 }, operationId);
-                if (parameters is { ValueKind: JsonValueKind.Object } supplied &&
-                    supplied.EnumerateObject().Any())
-                {
-                    throw new InvalidOperationException(
-                        "Las acciones elevadas con parámetros no están habilitadas en esta build.");
-                }
-
-                result = await elevatedActionClient.ExecuteAsync(action);
+                result = await elevatedActionClient.ExecuteAsync(
+                    action,
+                    parameters);
                 ApplyElevatedOutcome(action.Id, result);
             }
             else
@@ -181,7 +180,8 @@ public sealed class ActionExecutor(
             var valid = definition.Type switch
             {
                 ActionParameterType.STRING =>
-                    node.ValueKind == JsonValueKind.String,
+                    node.ValueKind == JsonValueKind.String &&
+                    node.GetString() is { Length: > 0 and <= 256 },
                 ActionParameterType.INTEGER =>
                     node.ValueKind == JsonValueKind.Number &&
                     node.TryGetInt32(out _),
@@ -247,11 +247,14 @@ public sealed class ActionExecutor(
         {
             "system.health.scan" => await HealthScanAsync(),
             "system.integrity.check" => await IntegrityCheckAsync(),
+            "system.integrity.repair" => await IntegrityRepairAsync(parameters),
             "system.reliability.analyze" => await ReliabilityAsync(),
             "memory.analyze" => await MemoryAsync(),
             "memory.trim.preview" => await Task.Run(MemoryTrimPreview),
             "memory.trim" => await MemoryTrimAsync(parameters),
             "memory.pagefile.analyze" => await PageFileAsync(),
+            "memory.pagefile.capped" => await PageFileCappedAsync(parameters),
+            "memory.pagefile.restore" => await PageFileRestoreAsync(parameters),
             "cpu.ecoqos.analyze" => await Task.Run(EcoQoSAnalyze),
             "cpu.ecoqos.apply" => await EcoQoSApplyAsync(parameters),
             "cpu.ecoqos.restore" => await EcoQoSRestoreAsync(parameters),
@@ -262,10 +265,13 @@ public sealed class ActionExecutor(
             "disk.volumes.audit" => await StorageVolumesAuditAsync(),
             "disk.storage.watch" => await StorageWatchAsync(),
             "disk.hotspots.scan" => await StorageHotspotsAsync(),
-            "disk.hibernate.status" => await HibernateAsync(false),
-            "disk.hibernate.reduce" => await HibernateAsync(true),
+            "disk.hibernate.status" => await HibernateAsync(false, null),
+            "disk.hibernate.reduce" => await HibernateAsync(true, parameters),
             "network.test" => await NetworkAsync(),
+            "network.flushdns" => await NetworkFlushDnsAsync(parameters),
+            "network.winsock.reset" => await NetworkWinsockResetAsync(parameters),
             "drivers.analyze" => await DriversAsync(),
+            "drivers.rescan" => await DriversRescanAsync(parameters),
             "system.activation.analyze" => await ActivationAsync(),
             "browsers.inventory" => await Task.Run(BrowserInventory),
             "browsers.extensions.health" => await Task.Run(BrowserExtensionHealth),
@@ -273,16 +279,25 @@ public sealed class ActionExecutor(
             "browsers.extensions.orphans.quarantine" => await BrowserExtensionOrphansQuarantineAsync(parameters),
             "browsers.extensions.orphans.restore" => await BrowserExtensionOrphansRestoreAsync(parameters),
             "multimedia.inventory" => await MultimediaAsync(),
+            "multimedia.audio.restart" => await AudioRestartAsync(parameters),
             "startup.audit" => await StartupAuditAsync(),
+            "startup.services.preview" => await ServicesPreviewAsync(),
+            "startup.service.setmode" => await ServiceSetModeAsync(parameters),
+            "startup.service.restore" => await ServiceRestoreAsync(parameters),
             "windows.update.audit" => await Task.Run(WindowsUpdateAudit),
+            "windows.update.services.restart" => await WindowsUpdateServicesRestartAsync(parameters),
             "apps.inventory" => await Task.Run(InstalledAppsInventory),
             "privacy.audit" => await Task.Run(PrivacyAudit),
             "developer.audit" => await Task.Run(DeveloperAudit),
             "lab.reliability.status" => await Task.Run(ReliabilityLabStatus),
             "thermal.audit" => await Task.Run(ThermalAudit),
+            "thermal.power.balanced" => await PowerPlanBalancedAsync(parameters),
+            "thermal.power.performance" => await PowerPlanPerformanceAsync(parameters),
+            "thermal.power.restore" => await PowerPlanRestoreAsync(parameters),
             "boot.audit" => await Task.Run(BootAudit),
             "sleepresume.audit" => await Task.Run(SleepResumeAudit),
             "explorer.audit" => await Task.Run(ExplorerAudit),
+            "explorer.restart" => await ExplorerRestartAsync(parameters),
             "backup.status" => await Task.Run(() => BackupStatus(operationId)),
             _ => throw new InvalidOperationException("Action ID no implementada.")
         };
@@ -337,6 +352,295 @@ public sealed class ActionExecutor(
             new { result.Status, result.ExitCode, durationMs = (long)result.Duration.TotalMilliseconds, result.Output });
     }
 
+    private async Task<ActionResult> IntegrityRepairAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(
+            parameters,
+            "Confirma la reparación DISM + SFC.");
+        var repair = await systemRemediationService.RepairIntegrityAsync();
+        var verification = await integrityService.CheckHealthAsync();
+        healthState.SetIntegrity(verification.Status);
+
+        var success = repair.Success && verification.Status == "OK";
+        return new ActionResult(
+            success,
+            false,
+            success
+                ? "Integridad reparada y verificada: DISM + SFC completados y CheckHealth informa OK."
+                : $"Reparación de integridad finalizada con estado {repair.Status}; verificación: {verification.Status}.",
+            new
+            {
+                repair.Status,
+                repair.RebootRequired,
+                steps = repair.Steps,
+                verification = new
+                {
+                    verification.Status,
+                    verification.ExitCode,
+                    durationMs =
+                        (long)verification.Duration.TotalMilliseconds
+                }
+            });
+    }
+
+    private async Task<ActionResult> NetworkFlushDnsAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(parameters, "Confirma el vaciado de caché DNS.");
+        var result = await systemRemediationService.FlushDnsAsync();
+        return RemediationActionResult(
+            result,
+            result.Success
+                ? "Red: caché DNS vaciada correctamente."
+                : "Red: no se pudo vaciar la caché DNS.");
+    }
+
+    private async Task<ActionResult> NetworkWinsockResetAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(parameters, "Confirma el reset de Winsock.");
+        var result = await systemRemediationService.ResetWinsockAsync();
+        return RemediationActionResult(
+            result,
+            result.Success
+                ? "Winsock restablecido. Reinicia Windows para completar el cambio."
+                : "Winsock no pudo restablecerse.");
+    }
+
+    private async Task<ActionResult> DriversRescanAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(parameters, "Confirma el reescaneo Plug and Play.");
+        var result = await systemRemediationService.RescanDevicesAsync();
+        var verification = await driverService.AnalyzeAsync();
+        healthState.SetDrivers(verification.Status);
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Success
+                ? verification.ProblemCount == 0
+                    ? "Hardware reescaneado. Windows ya no reporta dispositivos con código de problema."
+                    : $"Hardware reescaneado; siguen apareciendo {verification.ProblemCount} dispositivo(s) con problema."
+                : "El reescaneo de hardware falló.",
+            new
+            {
+                result.Status,
+                result.RebootRequired,
+                steps = result.Steps,
+                remainingProblems = verification.ProblemCount,
+                verificationStatus = verification.Status,
+                verification.Problems
+            });
+    }
+
+    private async Task<ActionResult> AudioRestartAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(parameters, "Confirma el reinicio de Windows Audio.");
+        var result = await systemRemediationService.RestartAudioAsync();
+        var verification = await multimediaService.AnalyzeAsync();
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Success
+                ? "Windows Audio reiniciado y el inventario multimedia volvió a responder."
+                : "No se pudo reiniciar Windows Audio.",
+            new
+            {
+                result.Status,
+                steps = result.Steps,
+                devices = verification.Devices
+            });
+    }
+
+    private async Task<ActionResult> ServicesPreviewAsync()
+    {
+        var preview = await serviceStartupRemediationService.PreviewAsync();
+        return new ActionResult(
+            true,
+            true,
+            $"Servicios automáticos: {preview.EligibleCount} revisable(s), {preview.ProtectedCount} protegido(s). No se modificó ninguno.",
+            new
+            {
+                preview.AutomaticCount,
+                preview.EligibleCount,
+                preview.ProtectedCount,
+                services = preview.Services,
+                note = "Cambiar a Manual no detiene el servicio actual; afecta el próximo arranque. Disabled debe usarse solo con conocimiento del servicio."
+            });
+    }
+
+    private async Task<ActionResult> ServiceSetModeAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(parameters, "Confirma el cambio de inicio del servicio.");
+        var serviceName = GetRequiredString(parameters, "serviceName");
+        var targetMode = GetRequiredString(parameters, "targetMode");
+        var result = await serviceStartupRemediationService.ChangeModeAsync(
+            serviceName,
+            targetMode);
+
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Success
+                ? $"Servicio {result.ServiceName}: inicio {result.BeforeMode} → {result.AfterMode}. El proceso actual no fue forzado a detenerse."
+                : $"Servicio {result.ServiceName}: no se pudo verificar el nuevo modo.",
+            new
+            {
+                result.ServiceName,
+                result.BeforeMode,
+                result.AfterMode,
+                result.CurrentState,
+                result.RestoreAvailable,
+                result.Status
+            });
+    }
+
+    private async Task<ActionResult> ServiceRestoreAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(parameters, "Confirma el rollback del servicio.");
+        var serviceName = GetRequiredString(parameters, "serviceName");
+        var result = await serviceStartupRemediationService.RestoreAsync(
+            serviceName);
+
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Status == "NO_SNAPSHOT"
+                ? $"Servicio {serviceName}: no hay snapshot de inicio guardado."
+                : result.Success
+                    ? $"Servicio {serviceName}: modo de inicio restaurado a {result.AfterMode}."
+                    : $"Servicio {serviceName}: rollback no verificado.",
+            new
+            {
+                result.ServiceName,
+                result.BeforeMode,
+                result.AfterMode,
+                result.CurrentState,
+                result.RestoreAvailable,
+                result.Status
+            });
+    }
+
+    private async Task<ActionResult> WindowsUpdateServicesRestartAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(
+            parameters,
+            "Confirma el reinicio de BITS y Windows Update.");
+        var result =
+            await systemRemediationService.RestartWindowsUpdateServicesAsync();
+        var verification = windowsUpdateAuditService.Analyze();
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Success
+                ? "Servicios de Windows Update reiniciados. No se borró SoftwareDistribution ni el historial."
+                : "El reinicio de servicios de Windows Update quedó incompleto.",
+            new
+            {
+                result.Status,
+                steps = result.Steps,
+                recentEvents = verification.Items.Take(10).ToArray()
+            });
+    }
+
+    private async Task<ActionResult> PowerPlanBalancedAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(parameters, "Confirma el cambio al plan Equilibrado.");
+        var result = await powerPlanTuningService.SetBalancedAsync();
+        return PowerPlanActionResult(result, "Equilibrado");
+    }
+
+    private async Task<ActionResult> PowerPlanPerformanceAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(parameters, "Confirma el cambio a Alto rendimiento.");
+        var result = await powerPlanTuningService.SetPerformanceAsync();
+        return PowerPlanActionResult(result, "Alto rendimiento");
+    }
+
+    private async Task<ActionResult> PowerPlanRestoreAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(parameters, "Confirma el rollback del plan de energía.");
+        var result = await powerPlanTuningService.RestoreAsync();
+        return PowerPlanActionResult(result, "plan anterior");
+    }
+
+    private async Task<ActionResult> ExplorerRestartAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(parameters, "Confirma el reinicio de Explorer.");
+        var result = await systemRemediationService.RestartExplorerAsync();
+        var verification = explorerAuditService.Analyze();
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Success
+                ? "Explorer reiniciado y verificado."
+                : "Explorer no pudo reiniciarse o verificarse.",
+            new
+            {
+                result.Status,
+                verificationStatus = verification.Status,
+                items = verification.Items
+            });
+    }
+
+    private static ActionResult RemediationActionResult(
+        SystemRemediationResult result,
+        string message) =>
+        new(
+            result.Success,
+            false,
+            message,
+            new
+            {
+                result.Status,
+                result.RebootRequired,
+                steps = result.Steps
+            });
+
+    private static ActionResult PowerPlanActionResult(
+        PowerPlanChangeResult result,
+        string label) =>
+        new(
+            result.Success,
+            false,
+            result.Status == "NO_SNAPSHOT"
+                ? "No hay un plan anterior guardado por la app para restaurar."
+                : result.Success
+                    ? $"Plan de energía aplicado/restaurado: {label}."
+                    : $"No se pudo verificar el cambio de energía ({result.Status}).",
+            new
+            {
+                result.Status,
+                result.BeforeGuid,
+                result.AfterGuid,
+                result.RestoreAvailable
+            });
+
+    private static string GetRequiredString(
+        JsonElement? parameters,
+        string name)
+    {
+        if (parameters is not { ValueKind: JsonValueKind.Object } args ||
+            !args.TryGetProperty(name, out var value) ||
+            value.ValueKind != JsonValueKind.String ||
+            string.IsNullOrWhiteSpace(value.GetString()))
+        {
+            throw new InvalidOperationException(
+                "Falta parámetro obligatorio: " + name);
+        }
+
+        return value.GetString()!;
+    }
+
     private async Task<ActionResult> ReliabilityAsync()
     {
         var events = await reliabilityService.GetRecentAsync();
@@ -375,6 +679,64 @@ public sealed class ActionExecutor(
             {
                 automaticallyManaged = analysis.AutomaticallyManaged,
                 entries = analysis.Entries
+            });
+    }
+
+    private async Task<ActionResult> PageFileCappedAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(
+            parameters,
+            "Confirma el perfil C: 512 MB + D: 4–8 GB.");
+        var result = await pageFileTuningService.ApplyCappedProfileAsync();
+        var verification = await pageFileService.AnalyzeAsync();
+
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Status == "ALREADY_CAPPED"
+                ? "Pagefile: ya está en el perfil recomendado C: 512 MB + D: 4–8 GB. No se cambió nada."
+                : result.Success
+                    ? "Pagefile configurado: C: 512 MB + D: 4 GB inicial / 8 GB máximo. Reinicia para aplicar completamente."
+                    : $"Pagefile: no se pudo verificar el perfil limitado ({result.Status}).",
+            new
+            {
+                result.Status,
+                result.BeforeAutomatic,
+                result.AfterAutomatic,
+                result.RestoreAvailable,
+                result.RebootRequired,
+                verification.AutomaticallyManaged,
+                entries = verification.Entries
+            });
+    }
+
+    private async Task<ActionResult> PageFileRestoreAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(
+            parameters,
+            "Confirma el rollback del pagefile.");
+        var result = await pageFileTuningService.RestoreAsync();
+        var verification = await pageFileService.AnalyzeAsync();
+
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Status == "NO_SNAPSHOT"
+                ? "Pagefile: no hay configuración previa guardada por la app."
+                : result.Success
+                    ? "Pagefile: configuración previa restaurada. Reinicia para completar el rollback."
+                    : $"Pagefile: rollback no verificado ({result.Status}).",
+            new
+            {
+                result.Status,
+                result.BeforeAutomatic,
+                result.AfterAutomatic,
+                result.RestoreAvailable,
+                result.RebootRequired,
+                verification.AutomaticallyManaged,
+                entries = verification.Entries
             });
     }
 
@@ -637,12 +999,19 @@ public sealed class ActionExecutor(
             });
     }
 
-    private static async Task<ActionResult> HibernateAsync(bool reduce)
+    private static async Task<ActionResult> HibernateAsync(
+        bool reduce,
+        JsonElement? parameters)
     {
+        if (reduce)
+            RequireConfirmed(parameters, "Confirma la reducción de hibernación.");
+
         // The elevated runner validates administrative privileges for writes.
         var psi = new ProcessStartInfo
         {
-            FileName = "powercfg.exe",
+            FileName = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "powercfg.exe"),
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,

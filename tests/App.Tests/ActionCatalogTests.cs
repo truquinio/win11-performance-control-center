@@ -68,6 +68,22 @@ public sealed class ActionCatalogTests
         }
     }
 
+    [Fact]
+    public void EveryWriteAction_RequiresExplicitConfirmation()
+    {
+        foreach (var action in _catalog.All.Where(
+                     action => action.Mode == ActionMode.WRITE))
+        {
+            Assert.NotNull(action.Parameters);
+            Assert.Contains(
+                action.Parameters!,
+                parameter =>
+                    parameter.Name == "confirmed" &&
+                    parameter.Type == ActionParameterType.BOOLEAN &&
+                    parameter.Required);
+        }
+    }
+
     [Theory]
     [InlineData("unknown.action")]
     [InlineData("disk.scan && extra")]

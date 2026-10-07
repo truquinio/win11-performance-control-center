@@ -11,6 +11,10 @@ public sealed class PageFileService
         {
             bool? automaticallyManaged = null;
             var entries = new List<PageFileEntry>();
+            var settings = new Dictionary<
+                string,
+                (ulong InitialMb, ulong MaximumMb)>(
+                    StringComparer.OrdinalIgnoreCase);
 
             try
             {
@@ -45,6 +49,38 @@ public sealed class PageFileService
 
             try
             {
+                using var settingSearcher = new ManagementObjectSearcher(
+                    "SELECT Name, InitialSize, MaximumSize FROM Win32_PageFileSetting");
+                using var settingResults = settingSearcher.Get();
+                foreach (var raw in settingResults)
+                {
+                    using (raw)
+                    {
+                        if (raw is not ManagementObject item)
+                            continue;
+
+                        var name = Convert.ToString(item["Name"]);
+                        if (string.IsNullOrWhiteSpace(name))
+                            continue;
+
+                        settings[name] = (
+                            ToUInt64(item["InitialSize"]),
+                            ToUInt64(item["MaximumSize"]));
+                    }
+                }
+            }
+            catch (ManagementException)
+            {
+            }
+            catch (COMException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+
+            try
+            {
                 using var usageSearcher = new ManagementObjectSearcher(
                     "SELECT Name, AllocatedBaseSize, CurrentUsage, PeakUsage FROM Win32_PageFileUsage");
 
@@ -56,11 +92,23 @@ public sealed class PageFileService
                         if (raw is not ManagementObject item)
                             continue;
 
+                        var name =
+                            Convert.ToString(item["Name"]) ?? "Unknown";
+                        settings.TryGetValue(
+                            name,
+                            out var configured);
+
                         entries.Add(new PageFileEntry(
-                            Convert.ToString(item["Name"]) ?? "Unknown",
+                            name,
                             ToUInt64(item["AllocatedBaseSize"]),
                             ToUInt64(item["CurrentUsage"]),
-                            ToUInt64(item["PeakUsage"])));
+                            ToUInt64(item["PeakUsage"]),
+                            settings.ContainsKey(name)
+                                ? configured.InitialMb
+                                : null,
+                            settings.ContainsKey(name)
+                                ? configured.MaximumMb
+                                : null));
                     }
                 }
             }

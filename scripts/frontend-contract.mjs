@@ -125,16 +125,36 @@ for (const controlId of ["diagnostic-btn", "refresh-btn", "mode-toggle"]) {
 // The backend coordinator runs one action at a time, so firing several
 // actions in parallel always makes all but the first fail.
 const actionTimeoutMatch = app.match(
-  /const timeoutMs = (\d+);/
+  /const defaultActionTimeoutMs = (\d+);/
 );
 if (!actionTimeoutMatch) {
-  throw new Error("No se pudo verificar el timeout de actions.run.");
+  throw new Error("No se pudo verificar el timeout base de actions.run.");
 }
 const actionTimeoutFloor = Number(actionTimeoutMatch[1]);
 if (actionTimeoutFloor < 270000) {
   throw new Error(
     "El timeout del frontend expira antes que el presupuesto máximo del backend: " +
     actionTimeoutFloor + " ms"
+  );
+}
+
+const repairTimeoutMatch = app.match(
+  /const integrityRepairTimeoutMs = (\d+) \* (\d+) \* (\d+);/
+);
+if (!repairTimeoutMatch ||
+    !app.includes('id === "system.integrity.repair"')) {
+  throw new Error(
+    "No se pudo verificar el presupuesto extendido de la reparación de integridad."
+  );
+}
+const repairTimeoutMs =
+  Number(repairTimeoutMatch[1]) *
+  Number(repairTimeoutMatch[2]) *
+  Number(repairTimeoutMatch[3]);
+if (repairTimeoutMs < 55 * 60 * 1000) {
+  throw new Error(
+    "El timeout de reparación de integridad es menor al presupuesto del helper elevado: " +
+    repairTimeoutMs + " ms"
   );
 }
 
