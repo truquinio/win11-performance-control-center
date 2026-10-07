@@ -10,6 +10,19 @@ public sealed class ActionCatalog
     {
         var actions = new[]
         {
+            new ActionDefinition("system.actionplan.preview", "Construir plan de acción",
+                "Combina señales rápidas del equipo y propone qué revisar o ejecutar, sin aplicar cambios automáticamente.", ActionCategory.System, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
+            new ActionDefinition("system.workload.status", "Estado PC en uso",
+                "Indica si las tareas pesadas están permitidas según modo, inactividad y presión de D:.", ActionCategory.System, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
+            new ActionDefinition("system.workload.inuse", "Proteger PC en uso",
+                "Fuerza modo PC EN USO: bloquea tareas pesadas o disruptivas hasta cambiar el modo.", ActionCategory.System, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, true, ActionMode.WRITE,
+                [new ActionParameterDefinition("confirmed", ActionParameterType.BOOLEAN, true, "Confirmación explícita")]),
+            new ActionDefinition("system.workload.auto", "Volver a modo automático",
+                "Permite que la app decida si puede hacer mantenimiento según el tiempo de inactividad.", ActionCategory.System, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, true, ActionMode.WRITE,
+                [new ActionParameterDefinition("confirmed", ActionParameterType.BOOLEAN, true, "Confirmación explícita")]),
+            new ActionDefinition("system.workload.maintenance", "Permitir mantenimiento",
+                "Habilita tareas pesadas de forma explícita. D: por debajo del 3% sigue bloqueando operaciones pesadas.", ActionCategory.System, ActionRisk.CAUTION, false, ConnectivityRequirement.OFFLINE, true, ActionMode.WRITE,
+                [new ActionParameterDefinition("confirmed", ActionParameterType.BOOLEAN, true, "Confirmación explícita")]),
             new ActionDefinition("system.health.scan", "Diagnóstico del sistema",
                 "Obtiene una línea base segura del equipo.", ActionCategory.System, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
             new ActionDefinition("system.integrity.check", "Comprobar integridad de Windows",
@@ -138,7 +151,9 @@ public sealed class ActionCatalog
                 "Reinicia explorer.exe y verifica que vuelva a responder. Las ventanas del Explorador pueden cerrarse.", ActionCategory.Explorer, ActionRisk.CAUTION, false, ConnectivityRequirement.OFFLINE, false, ActionMode.WRITE,
                 [new ActionParameterDefinition("confirmed", ActionParameterType.BOOLEAN, true, "Confirmación explícita")]),
             new ActionDefinition("backup.status", "Estado de backup y rollback",
-                "Detecta operaciones incompletas y snapshots de rollback mantenidos por la app.", ActionCategory.Backup, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ)
+                "Detecta operaciones incompletas y snapshots de rollback mantenidos por la app.", ActionCategory.Backup, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
+            new ActionDefinition("backup.rollback.center", "Rollback Center",
+                "Reúne cambios reversibles de EcoQoS, servicios, pagefile, energía y Edge en una sola vista.", ActionCategory.Backup, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ)
         };
 
         _actions = actions.ToDictionary(action => action.Id, StringComparer.OrdinalIgnoreCase);
