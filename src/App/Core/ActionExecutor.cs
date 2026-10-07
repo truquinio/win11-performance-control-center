@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Diagnostics;
 using Win11PerformanceControlCenter.App.Models;
 using Win11PerformanceControlCenter.App.Services;
 
@@ -253,6 +254,10 @@ public sealed class ActionExecutor(
             "cpu.ecoqos.restore" => await EcoQoSRestoreAsync(parameters),
             "disk.scan" => await StorageAsync(false),
             "disk.cleanup.safe" => await StorageAsync(true),
+            "disk.cleanup.execute" => await StorageCleanupAsync(parameters),
+            "disk.appdata.rank" => await AppDataRankAsync(),
+            "disk.hibernate.status" => await HibernateAsync(false),
+            "disk.hibernate.reduce" => await HibernateAsync(true),
             "network.test" => await NetworkAsync(),
             "drivers.analyze" => await DriversAsync(),
             "system.activation.analyze" => await ActivationAsync(),
@@ -521,6 +526,67 @@ public sealed class ActionExecutor(
                 estimatedBytes = estimate.EstimatedBytes,
                 categories = estimate.Categories
             });
+    }
+
+    private async Task<ActionResult> StorageCleanupAsync(JsonElement? parameters)
+    {
+        if (parameters is not { ValueKind: JsonValueKind.Object } args ||
+            !args.TryGetProperty("confirmed", out var flag) ||
+            flag.ValueKind != JsonValueKind.True)
+            throw new InvalidOperationException("Confirmá la limpieza después de previsualizarla.");
+        var summary = await storageService.CleanupSafeAsync();
+        return new ActionResult(summary.FailedFiles == 0, false,
+            $"Limpieza: {summary.DeletedFiles} archivos eliminados, {summary.DeletedBytes / 1048576d:F1} MiB liberados. " +
+            $"Errores: {summary.FailedFiles}; categorías omitidas: {summary.SkippedCategories.Count}.",
+            new
+            {
+                summary.DeletedBytes,
+                summary.DeletedFiles,
+                summary.FailedFiles,
+                summary.SkippedCategories
+            });
+    }
+
+    private async Task<ActionResult> AppDataRankAsync()
+    {
+        var folders = await storageService.RankLocalAsync();
+        return new ActionResult(true, false,
+            $"Ranking de AppData\\Local: {folders.Count} carpetas, solo lectura.",
+            new { folders, readOnly = true });
+    }
+
+    private static async Task<ActionResult> HibernateAsync(bool reduce)
+    {
+        // The elevated runner validates administrative privileges for writes.
+        var psi = new ProcessStartInfo
+        {
+            FileName = "powercfg.exe",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        psi.ArgumentList.Add(reduce ? "/h" : "/a");
+        if (reduce) { psi.ArgumentList.Add("/type"); psi.ArgumentList.Add("reduced"); }
+        using var process = Process.Start(psi) ??
+            throw new InvalidOperationException("No se pudo ejecutar powercfg.exe.");
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+        var output = process.StandardOutput.ReadToEndAsync(deadline.Token);
+        var error = process.StandardError.ReadToEndAsync(deadline.Token);
+        try { await process.WaitForExitAsync(deadline.Token); }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited) process.Kill();
+            throw new TimeoutException("powercfg excedió el plazo de 25 segundos.");
+        }
+        var stdout = await output;
+        var stderr = await error;
+        var success = process.ExitCode == 0;
+        return new ActionResult(success, false, reduce
+            ? (success ? "Hibernación reducida aplicada. Inicio rápido disponible; hibernación completa deshabilitada."
+                : "No se pudo reducir la hibernación.")
+            : "Estado de suspensión consultado sin modificar Windows.",
+            new { exitCode = process.ExitCode, output = stdout, error = stderr });
     }
 
     private async Task<ActionResult> NetworkAsync()
