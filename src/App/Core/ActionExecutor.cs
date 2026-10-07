@@ -14,6 +14,7 @@ public sealed class ActionExecutor(
     SystemSnapshotService snapshotService,
     ReliabilityService reliabilityService,
     StorageAnalysisService storageService,
+    StorageWatchService storageWatchService,
     ProcessAnalysisService processService,
     ProcessTuningService processTuningService,
     PageFileService pageFileService,
@@ -257,6 +258,9 @@ public sealed class ActionExecutor(
             "disk.cleanup.safe" => await StorageAsync(true),
             "disk.cleanup.execute" => await StorageCleanupAsync(parameters),
             "disk.appdata.rank" => await AppDataRankAsync(),
+            "disk.volumes.audit" => await StorageVolumesAuditAsync(),
+            "disk.storage.watch" => await StorageWatchAsync(),
+            "disk.hotspots.scan" => await StorageHotspotsAsync(),
             "disk.hibernate.status" => await HibernateAsync(false),
             "disk.hibernate.reduce" => await HibernateAsync(true),
             "network.test" => await NetworkAsync(),
@@ -563,6 +567,68 @@ public sealed class ActionExecutor(
                 rank.Complete,
                 rank.DiscoveredFolders,
                 rank.ElapsedMilliseconds,
+                readOnly = true
+            });
+    }
+
+    private async Task<ActionResult> StorageVolumesAuditAsync()
+    {
+        var audit = await storageWatchService.AuditAsync();
+        return new ActionResult(
+            true,
+            false,
+            audit.WarningCount == 0
+                ? $"Volúmenes: {audit.Volumes.Count} unidades fijas sin presión de espacio."
+                : $"Volúmenes: {audit.WarningCount} unidad(es) requieren atención por espacio libre.",
+            new
+            {
+                audit.CapturedAt,
+                audit.WarningCount,
+                volumes = audit.Volumes,
+                readOnly = true
+            });
+    }
+
+    private async Task<ActionResult> StorageWatchAsync()
+    {
+        var report = await storageWatchService.WatchAsync();
+        return new ActionResult(
+            true,
+            false,
+            report.BaselineCreated
+                ? $"Storage Watch: baseline creado para {report.Volumes.Count} volumen(es)."
+                : report.AlertCount == 0
+                    ? $"Storage Watch: sin crecimiento anormal en {report.Volumes.Count} volumen(es)."
+                    : $"Storage Watch: {report.AlertCount} alerta(s) de espacio o crecimiento.",
+            new
+            {
+                report.CapturedAt,
+                report.PreviousCapturedAt,
+                report.BaselineCreated,
+                report.AlertCount,
+                volumes = report.Volumes,
+                stateIsAppLocalOnly = true
+            });
+    }
+
+    private async Task<ActionResult> StorageHotspotsAsync()
+    {
+        var report = await storageWatchService.ScanLowSpaceHotspotsAsync();
+        return new ActionResult(
+            true,
+            false,
+            report.Volumes.Count == 0
+                ? "Hotspots: ninguna unidad fija está por debajo del umbral de vigilancia (15%)."
+                : report.Partial
+                    ? $"Hotspots: escaneo parcial y acotado en {report.Volumes.Count} unidad(es); no se borró nada."
+                    : $"Hotspots: escaneo completado en {report.Volumes.Count} unidad(es); no se borró nada.",
+            new
+            {
+                report.CapturedAt,
+                report.BudgetSeconds,
+                report.ElapsedMilliseconds,
+                report.Partial,
+                volumes = report.Volumes,
                 readOnly = true
             });
     }

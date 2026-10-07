@@ -189,3 +189,8 @@ En **Limpieza**: `Analizar almacenamiento` muestra estimaciones; `Limpieza segur
 **No se borran automáticamente**: Claude Extensions, servidores MCP, carpetas de apps instaladas (incluido WinGet Packages), WhatsApp, sesiones, cookies, contraseñas, historial de trabajo, repositorios, documentos, descargas, modelos de IA o temporales de Windows sin revisión adicional. El resultado es una estimación; una caché en uso puede no liberarse.
 
 `Ranking de AppData Local` analiza tamaños por carpeta sin borrar archivos. `Estado de hibernación` consulta powercfg; `Hibernación reducida` solicita confirmación y UAC. Esta última opción mantiene Inicio rápido, pero **deshabilita la hibernación completa**. No se cambia automáticamente el archivo de paginación ni se usa DISM /ResetBase.
+
+
+## Multi-drive Storage Watch
+
+La app audita todos los volúmenes fijos, mantiene un baseline local de espacio libre y puede detectar pérdidas anormales entre capturas. El escaneo de hotspots solo se activa en unidades por debajo del 15% libre y está estrictamente acotado por tiempo. Véase docs/STORAGE_WATCH.md.

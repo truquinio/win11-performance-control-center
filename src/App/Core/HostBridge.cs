@@ -45,12 +45,16 @@ public sealed class HostBridge : IDisposable
     {
         string? logPath = null;
         string? statePath = null;
+        string? storageWatchStatePath = null;
+        string? evaluationRoot = null;
 
         if (!string.IsNullOrWhiteSpace(dataRoot))
         {
             var root = Path.GetFullPath(dataRoot);
             logPath = Path.Combine(root, "Logs", "app.jsonl");
             statePath = Path.Combine(root, "State", "ecoqos.json");
+            storageWatchStatePath = Path.Combine(root, "State", "storage-watch.json");
+            evaluationRoot = root;
         }
 
         var coordinator = new OperationCoordinator();
@@ -59,7 +63,30 @@ public sealed class HostBridge : IDisposable
         var healthState = new SystemHealthStateStore();
         var snapshot = new SystemSnapshotService(coordinator, healthState);
         var reliability = new ReliabilityService();
-        var storage = new StorageAnalysisService();
+        StorageAnalysisService storage;
+        if (evaluationRoot is null)
+        {
+            storage = new StorageAnalysisService();
+        }
+        else
+        {
+            var storageFixture = Path.Combine(
+                evaluationRoot,
+                "StorageFixture");
+            Directory.CreateDirectory(storageFixture);
+            storage = new StorageAnalysisService(
+                [
+                    new StorageAnalysisService.CacheTarget(
+                        "eval.bridge-temp",
+                        "Bridge storage fixture",
+                        storageFixture)
+                ],
+                _ => false,
+                evaluationRoot);
+        }
+        var storageWatch = new StorageWatchService(
+            storageWatchStatePath,
+            evaluationRoot);
         var processes = new ProcessAnalysisService();
         var ecoQosState = new EcoQosStateStore(statePath);
         var tuning = new ProcessTuningService(ecoQosState);
@@ -89,6 +116,7 @@ public sealed class HostBridge : IDisposable
             snapshot,
             reliability,
             storage,
+            storageWatch,
             processes,
             tuning,
             pageFile,
