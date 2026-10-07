@@ -33,13 +33,16 @@ public sealed class OutcomeAuditService
             ["startup.service.restore"] = new("POSTCHECK", "Relee StartMode después del rollback.", false),
             ["startup.entry.disable"] = new("POSTCHECK", "Comprueba ausencia del valor Run/RunOnce y conserva snapshot.", true),
             ["startup.entry.restore"] = new("POSTCHECK", "Comprueba el valor exacto después del rollback.", false),
+            ["startup.task.disable"] = new("POSTCHECK", "Deshabilita la tarea exacta y verifica estado Disabled; snapshot previo disponible.", true),
+            ["startup.task.restore"] = new("POSTCHECK", "Vuelve a habilitar la tarea exacta y verifica el estado posterior.", false),
             ["windows.update.services.restart"] = new("POSTCHECK", "Reinicia servicios y vuelve a auditar Windows Update.", false),
             ["thermal.power.balanced"] = new("POSTCHECK", "Lee el plan activo después del cambio.", true),
             ["thermal.power.performance"] = new("POSTCHECK", "Lee el plan activo después del cambio.", true),
             ["thermal.power.restore"] = new("POSTCHECK", "Lee el plan activo después del rollback.", false),
             ["explorer.restart"] = new("POSTCHECK", "Comprueba que explorer.exe vuelva a existir y responder.", false),
             ["maintenance.policy.readonly"] = new("DIRECT_VERIFIED", "Política app-owned persistida y releída; no modifica Windows.", true),
-            ["maintenance.policy.off"] = new("DIRECT_VERIFIED", "Política app-owned persistida y releída; no modifica Windows.", true)
+            ["maintenance.policy.off"] = new("DIRECT_VERIFIED", "Política app-owned persistida y releída; no modifica Windows.", true),
+            ["diagnostics.bundle.create"] = new("DIRECT_VERIFIED", "Crea un ZIP local sanitizado y verifica que el archivo exista antes de informar éxito.", false)
         };
 
     private static readonly HashSet<string> TerminalStatuses =
