@@ -10,10 +10,68 @@ namespace Win11PerformanceControlCenter.App.Services;
 public sealed class StorageAnalysisService
 {
     private static readonly TimeSpan MinimumCandidateAge = TimeSpan.FromDays(7);
+    private static readonly TimeSpan AppDataRankBudget = TimeSpan.FromSeconds(8);
+    private static readonly string[] ProtectedDirectoryNames =
+    [
+        "Claude Extensions",
+        "WhatsApp",
+        ".git",
+        ".venv",
+        "workspaceStorage",
+        "Local Storage"
+    ];
+    private static readonly string[] ProtectedPathFragments =
+    [
+        @"\WinGet\Packages\",
+        @"\AppData\Local\Programs\",
+        @"\AppData\Local\Packages\"
+    ];
 
-    private sealed record CacheTarget(
+    private readonly IReadOnlyList<CacheTarget> targets;
+    private readonly Func<string?, bool> processRunning;
+    private readonly Func<CacheTarget, string, bool> targetPolicy;
+    private readonly string localAppDataRoot;
+
+    internal sealed record CacheTarget(
         string Id, string Label, string Path, string Risk = "SAFE",
         string? ProcessName = null);
+
+    public StorageAnalysisService()
+        : this(
+            Targets(),
+            IsRunning,
+            IsProductionApprovedTarget,
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData))
+    {
+    }
+
+    internal StorageAnalysisService(
+        IReadOnlyList<CacheTarget> targets,
+        Func<string?, bool> processRunning,
+        string evaluationRoot)
+        : this(
+            targets,
+            processRunning,
+            (target, path) =>
+                IsUnderRoot(path, evaluationRoot) &&
+                target.Id.StartsWith("eval.", StringComparison.Ordinal),
+            evaluationRoot)
+    {
+    }
+
+    private StorageAnalysisService(
+        IReadOnlyList<CacheTarget> targets,
+        Func<string?, bool> processRunning,
+        Func<CacheTarget, string, bool> targetPolicy,
+        string localAppDataRoot)
+    {
+        this.targets = targets ?? throw new ArgumentNullException(nameof(targets));
+        this.processRunning = processRunning ?? throw new ArgumentNullException(nameof(processRunning));
+        this.targetPolicy = targetPolicy ?? throw new ArgumentNullException(nameof(targetPolicy));
+        this.localAppDataRoot = string.IsNullOrWhiteSpace(localAppDataRoot)
+            ? throw new ArgumentException("AppData root requerido.", nameof(localAppDataRoot))
+            : Path.GetFullPath(localAppDataRoot);
+    }
 
     private static IReadOnlyList<CacheTarget> Targets()
     {
@@ -57,11 +115,21 @@ public sealed class StorageAnalysisService
     {
         var categories = new List<StorageCategory>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var target in Targets())
+        foreach (var target in targets)
         {
             var path = SafeRoot(target.Path);
-            if (path is null || !seen.Add(path)) continue;
-            var running = IsRunning(target.ProcessName);
+            if (path is null || !seen.Add(path))
+                continue;
+            if (!targetPolicy(target, path))
+            {
+                categories.Add(new StorageCategory(
+                    target.Id,
+                    target.Label,
+                    0,
+                    "POLICY_BLOCKED"));
+                continue;
+            }
+            var running = processRunning(target.ProcessName);
             categories.Add(new StorageCategory(target.Id, target.Label,
                 running ? 0 : Traverse(path, delete: false).bytes,
                 running ? "EN_USO" : target.Risk));
@@ -78,13 +146,25 @@ public sealed class StorageAnalysisService
         int failedFiles = 0;
         var skipped = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var target in Targets())
+        foreach (var target in targets)
         {
             // CAUTION targets (e.g. Windows Temp) are never auto-deleted.
-            if (target.Risk != "SAFE") continue;
+            if (target.Risk != "SAFE")
+                continue;
             var path = SafeRoot(target.Path);
-            if (path is null || !seen.Add(path)) continue;
-            if (IsRunning(target.ProcessName))
+            if (path is null || !seen.Add(path))
+                continue;
+            if (!targetPolicy(target, path))
+            {
+                skipped.Add(target.Label + ": bloqueado por política");
+                continue;
+            }
+            if (IsProtectedPath(path))
+            {
+                skipped.Add(target.Label + ": ruta protegida");
+                continue;
+            }
+            if (processRunning(target.ProcessName))
             {
                 skipped.Add(target.Label + ": aplicación en ejecución");
                 continue;
@@ -99,41 +179,84 @@ public sealed class StorageAnalysisService
 
     // Full AppData\\Local ranking: READ ONLY. Deliberately separate from the
     // cleanup allowlist; large program/runtime folders are never delete targets.
-    public Task<IReadOnlyList<AppDataFolderUsage>> RankLocalAsync(int limit = 25) => Task.Run(() =>
+    public Task<AppDataRankResult> RankLocalAsync(int limit = 25) => Task.Run(() =>
     {
-        var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var result = new List<AppDataFolderUsage>();
+        var stopwatch = Stopwatch.StartNew();
+        var complete = true;
+        var discoveredFolders = 0;
+
         try
         {
-            foreach (var folder in Directory.EnumerateDirectories(root))
+            var folders = Directory.EnumerateDirectories(localAppDataRoot).ToArray();
+            discoveredFolders = folders.Length;
+
+            foreach (var folder in folders)
             {
+                if (stopwatch.Elapsed >= AppDataRankBudget)
+                {
+                    complete = false;
+                    break;
+                }
+
                 var full = SafeRoot(folder);
-                if (full is null) continue;
-                result.Add(new AppDataFolderUsage(Path.GetFileName(full),
-                    CountAllBytes(full)));
+                if (full is null)
+                    continue;
+
+                var counted = CountAllBytes(full, stopwatch);
+                result.Add(new AppDataFolderUsage(
+                    Path.GetFileName(full),
+                    counted.bytes,
+                    counted.complete));
+
+                if (!counted.complete)
+                {
+                    complete = false;
+                    break;
+                }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException)
-        { /* Preserve partial results. */ }
-        return (IReadOnlyList<AppDataFolderUsage>)result.OrderByDescending(f => f.Bytes)
-            .Take(Math.Clamp(limit, 1, 50)).ToList();
+        {
+            complete = false;
+        }
+
+        stopwatch.Stop();
+        return new AppDataRankResult(
+            result.OrderByDescending(f => f.Bytes)
+                .Take(Math.Clamp(limit, 1, 50))
+                .ToList(),
+            complete,
+            discoveredFolders,
+            stopwatch.ElapsedMilliseconds);
     });
 
-    private static long CountAllBytes(string root)
+    private static (long bytes, bool complete) CountAllBytes(
+        string root,
+        Stopwatch stopwatch)
     {
         long total = 0;
         var pending = new Stack<string>();
         pending.Push(root);
+
         while (pending.Count > 0)
         {
+            if (stopwatch.Elapsed >= AppDataRankBudget)
+                return (total, false);
+
             try
             {
                 foreach (var entry in Directory.EnumerateFileSystemEntries(pending.Pop()))
                 {
+                    if (stopwatch.Elapsed >= AppDataRankBudget)
+                        return (total, false);
+
                     try
                     {
                         var attrs = File.GetAttributes(entry);
-                        if ((attrs & FileAttributes.ReparsePoint) != 0) continue;
+                        if ((attrs & FileAttributes.ReparsePoint) != 0)
+                            continue;
+
                         if ((attrs & FileAttributes.Directory) != 0)
                         {
                             pending.Push(entry);
@@ -141,19 +264,140 @@ public sealed class StorageAnalysisService
                         else
                         {
                             var size = new FileInfo(entry).Length;
-                            total = total > long.MaxValue - size ? long.MaxValue : total + size;
+                            total = total > long.MaxValue - size
+                                ? long.MaxValue
+                                : total + size;
                         }
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
                         SecurityException or FileNotFoundException or DirectoryNotFoundException)
-                    { }
+                    {
+                    }
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or
                 SecurityException or DirectoryNotFoundException)
-            { }
+            {
+            }
         }
-        return total;
+
+        return (total, true);
+    }
+
+    internal static bool IsProtectedPath(string path)
+    {
+        string normalized;
+        try
+        {
+            normalized = Path.GetFullPath(path)
+                .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+                .TrimEnd(Path.DirectorySeparatorChar);
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException or
+            NotSupportedException or SecurityException)
+        {
+            return true;
+        }
+
+        var segments = normalized.Split(
+            Path.DirectorySeparatorChar,
+            StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Any(segment =>
+            ProtectedDirectoryNames.Contains(
+                segment,
+                StringComparer.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        var wrapped = Path.DirectorySeparatorChar +
+            normalized.Trim(Path.DirectorySeparatorChar) +
+            Path.DirectorySeparatorChar;
+        return ProtectedPathFragments.Any(fragment =>
+            wrapped.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+    }
+
+    internal static bool IsProductionApprovedTarget(
+        CacheTarget target,
+        string normalizedPath)
+    {
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var code = Path.Combine(roaming, "Code");
+        var windir = Environment.GetEnvironmentVariable("WINDIR");
+
+        var expected = target.Id switch
+        {
+            "temp.user" => Path.GetTempPath(),
+            "cache.npm" => Path.Combine(local, "npm-cache"),
+            "cache.pip" => Path.Combine(local, "pip", "Cache"),
+            "cache.uv" => Path.Combine(local, "uv", "cache"),
+            "cache.nuget" => Path.Combine(local, "NuGet", "v3-cache"),
+            "cache.electron" => Path.Combine(local, "electron", "Cache"),
+            "cache.d3d" => Path.Combine(local, "D3DSCache"),
+            "cache.squirrel" => Path.Combine(local, "SquirrelTemp"),
+            "vscode.vsix" => Path.Combine(code, "CachedExtensionVSIXs"),
+            "vscode.cache" => Path.Combine(code, "Cache"),
+            "vscode.cacheddata" => Path.Combine(code, "CachedData"),
+            "vscode.codecache" => Path.Combine(code, "Code Cache"),
+            "vscode.gpucache" => Path.Combine(code, "GPUCache"),
+            "vscode.logs" => Path.Combine(code, "logs"),
+            "spotify.browsercache" => Path.Combine(local, "Spotify", "Browser", "Cache"),
+            "spotify.codecache" => Path.Combine(local, "Spotify", "Browser", "Code Cache"),
+            "spotify.gpucache" => Path.Combine(local, "Spotify", "Browser", "GPUCache"),
+            "spotify.shader" => Path.Combine(local, "Spotify", "GrShaderCache"),
+            "edge.cache" => Path.Combine(local, "Microsoft", "Edge", "User Data", "Default", "Cache"),
+            "edge.codecache" => Path.Combine(local, "Microsoft", "Edge", "User Data", "Default", "Code Cache"),
+            "edge.gpucache" => Path.Combine(local, "Microsoft", "Edge", "User Data", "Default", "GPUCache"),
+            "temp.windows" when !string.IsNullOrWhiteSpace(windir) =>
+                Path.Combine(windir, "Temp"),
+            _ => null
+        };
+
+        return expected is not null && SamePath(normalizedPath, expected);
+    }
+
+    private static bool SamePath(string first, string second)
+    {
+        try
+        {
+            return string.Equals(
+                Path.GetFullPath(first).TrimEnd(Path.DirectorySeparatorChar),
+                Path.GetFullPath(second).TrimEnd(Path.DirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException or
+            NotSupportedException or SecurityException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsUnderRoot(string path, string root)
+    {
+        try
+        {
+            var normalizedPath = Path.GetFullPath(path)
+                .TrimEnd(Path.DirectorySeparatorChar);
+            var normalizedRoot = Path.GetFullPath(root)
+                .TrimEnd(Path.DirectorySeparatorChar);
+            if (string.Equals(
+                normalizedPath,
+                normalizedRoot,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return normalizedPath.StartsWith(
+                normalizedRoot + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException or
+            NotSupportedException or SecurityException)
+        {
+            return false;
+        }
     }
 
     private static bool IsRunning(string? name)
@@ -199,6 +443,9 @@ public sealed class StorageAnalysisService
                 {
                     try
                     {
+                        if (IsProtectedPath(entry))
+                            continue;
+
                         var attr = File.GetAttributes(entry);
                         if ((attr & (FileAttributes.ReparsePoint | FileAttributes.System)) != 0)
                             continue;
@@ -238,4 +485,13 @@ public sealed record StorageCleanupSummary(
     long DeletedBytes, int DeletedFiles, int FailedFiles,
     IReadOnlyList<string> SkippedCategories);
 
-public sealed record AppDataFolderUsage(string Name, long Bytes);
+public sealed record AppDataFolderUsage(
+    string Name,
+    long Bytes,
+    bool Complete);
+
+public sealed record AppDataRankResult(
+    IReadOnlyList<AppDataFolderUsage> Folders,
+    bool Complete,
+    int DiscoveredFolders,
+    long ElapsedMilliseconds);

@@ -22,4 +22,10 @@
     <ProjectReference Include="..\..\src\App\Win11PerformanceControlCenter.App.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\..\evals\regressions\*.json"
+          Link="evals\regressions\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

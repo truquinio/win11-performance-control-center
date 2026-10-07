@@ -176,6 +176,12 @@ No hay una licencia de reutilización declarada en el repositorio en este moment
 
 **by [truquinio](https://github.com/truquinio)** · [LinkedIn](https://www.linkedin.com/in/federico-trucco/)
 
+
+
+## Real-World Reliability Lab
+
+Además de unit/integration/fault/UI tests, el proyecto mantiene evals/ con regresiones derivadas de incidentes reales. Estos escenarios se ejecutan sobre fixtures temporales y califican el estado final, no solo el retorno de una función. La primera regresión histórica impide que la limpieza vuelva a destruir Claude Extensions / Windows-MCP. Véase docs/REAL_WORLD_RELIABILITY.md.
+
 ## Limpieza conservadora de C: (octubre 2026)
 
 En **Limpieza**: `Analizar almacenamiento` muestra estimaciones; `Limpieza segura` previsualiza; solo después queda habilitado `Eliminar cachés regenerables`, que exige confirmación. Se eliminan únicamente archivos con al menos siete días en ubicaciones expresamente permitidas: TEMP de usuario; cachés de npm/pip/uv/NuGet/Electron/D3D/Squirrel; cachés y paquetes VSIX descargados de VS Code; cachés web/código/gráficos de Spotify y Edge cuando están cerrados. Se omiten aplicaciones abiertas, puntos de reanálisis y ficheros protegidos. La ejecución registra bytes/archivos eliminados, fallos y categorías omitidas.

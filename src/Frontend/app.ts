@@ -453,6 +453,7 @@ const demoCatalog: ActionDefinition[] = [
   { id: "apps.inventory", title: "Inventario de aplicaciones", description: "Enumera aplicaciones instaladas.", category: "Apps", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "privacy.audit", title: "Auditar privacidad", description: "Lee configuraciones seleccionadas sin modificarlas.", category: "Privacy", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "developer.audit", title: "Auditar developer tooling", description: "Detecta toolchains y versiones.", category: "Developer", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "lab.reliability.status", title: "Reliability Lab", description: "Verifica regresiones históricas y barreras de seguridad sin tocar el Windows real.", category: "Developer", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "thermal.audit", title: "Auditar energía y temperaturas", description: "Lee plan de energía y sensores disponibles.", category: "Thermal", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "boot.audit", title: "Auditar arranque", description: "Lee eventos de rendimiento de arranque.", category: "Boot", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "sleepresume.audit", title: "Auditar suspensión/reanudación", description: "Construye timeline de sleep/resume.", category: "SleepResume", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
@@ -650,6 +651,12 @@ const moduleDefinitions: Record<string, {
     description: "Toolchains, versiones y señales relevantes para desarrollo.",
     actionIds: ["developer.audit"]
   },
+  "reliability-lab": {
+    kicker: "REAL-WORLD RELIABILITY",
+    title: "Reliability Lab",
+    description: "Regresiones históricas, outcome checks y barreras fail-closed. Los escenarios destructivos nunca se ejecutan sobre el Windows real.",
+    actionIds: ["lab.reliability.status"]
+  },
   thermal: {
     kicker: "ENERGÍA / TEMPERATURAS",
     title: "Energía y sensores",
@@ -792,6 +799,12 @@ function getModuleSummary(
         ["Evidencia", String(currentReliabilityEvents.length), "Eventos relevantes cargados"],
         ["Reinicio", snapshot.rebootRequired === null ? "Sin determinar" : snapshot.rebootRequired ? "Pendiente" : "No requerido", "Estado de Windows"],
         ["Modo", "Read-only", "Sin cambios automáticos"]
+      ];
+    case "reliability-lab":
+      return [
+        ["Método", "Outcome-first", "Estado final, no solo exit code"],
+        ["Evals", "Fixtures / CI", "Nunca destructivos sobre el Windows real"],
+        ["Política", "Fail-closed", "Targets desconocidos se bloquean"]
       ];
     case "tools":
       return [
@@ -1980,7 +1993,7 @@ async function boot(): Promise<void> {
 
     if (!developer &&
         ["browsers", "multimedia", "memory", "cpu", "startup", "integrity", "drivers",
-         "windows-update", "apps", "privacy", "developer", "thermal", "diagnostics",
+         "windows-update", "apps", "privacy", "developer", "reliability-lab", "thermal", "diagnostics",
          "activation", "backup", "history"].includes(activeView)) {
       showView("dashboard");
     }

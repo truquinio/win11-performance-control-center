@@ -68,6 +68,8 @@ public sealed class ActionCatalog
                 "Lee una selección documentada de configuraciones de privacidad sin juzgarlas ni modificarlas.", ActionCategory.Privacy, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
             new ActionDefinition("developer.audit", "Auditar developer tooling",
                 "Detecta toolchains comunes y sus versiones desde PATH.", ActionCategory.Developer, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
+            new ActionDefinition("lab.reliability.status", "Reliability Lab",
+                "Verifica regresiones históricas y barreras de seguridad sin ejecutar escenarios destructivos sobre el Windows real.", ActionCategory.Developer, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
             new ActionDefinition("thermal.audit", "Auditar energía y temperaturas",
                 "Lee el plan de energía activo y sensores ACPI disponibles.", ActionCategory.Thermal, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
             new ActionDefinition("boot.audit", "Auditar arranque",

@@ -1,0 +1,20 @@
+{
+  "id": "running-app-skips-cache",
+  "kind": "destructive_safety",
+  "description": "When the owning application is running, its cleanup target is skipped rather than forcing the process closed or deleting files underneath it.",
+  "targetRelativePath": "active-cache",
+  "processName": "SyntheticApp",
+  "processRunning": true,
+  "expectedDeletedFiles": 0,
+  "expectedFailedFiles": 0,
+  "expectedSkippedCategories": 1,
+  "runTwice": false,
+  "files": [
+    {
+      "path": "active-cache/old-cache.bin",
+      "ageDays": 30,
+      "sizeBytes": 128,
+      "expect": "preserved"
+    }
+  ]
+}

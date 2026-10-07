@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Diagnostics;
+using System.IO;
 using Win11PerformanceControlCenter.App.Models;
 using Win11PerformanceControlCenter.App.Services;
 
@@ -269,6 +270,7 @@ public sealed class ActionExecutor(
             "apps.inventory" => await Task.Run(InstalledAppsInventory),
             "privacy.audit" => await Task.Run(PrivacyAudit),
             "developer.audit" => await Task.Run(DeveloperAudit),
+            "lab.reliability.status" => await Task.Run(ReliabilityLabStatus),
             "thermal.audit" => await Task.Run(ThermalAudit),
             "boot.audit" => await Task.Run(BootAudit),
             "sleepresume.audit" => await Task.Run(SleepResumeAudit),
@@ -549,10 +551,20 @@ public sealed class ActionExecutor(
 
     private async Task<ActionResult> AppDataRankAsync()
     {
-        var folders = await storageService.RankLocalAsync();
+        var rank = await storageService.RankLocalAsync();
+        var scope = rank.Complete
+            ? "completo"
+            : "parcial (límite de tiempo alcanzado)";
         return new ActionResult(true, false,
-            $"Ranking de AppData\\Local: {folders.Count} carpetas, solo lectura.",
-            new { folders, readOnly = true });
+            $"Ranking {scope} de AppData\\Local: {rank.Folders.Count} carpetas mostradas en {rank.ElapsedMilliseconds} ms.",
+            new
+            {
+                folders = rank.Folders,
+                rank.Complete,
+                rank.DiscoveredFolders,
+                rank.ElapsedMilliseconds,
+                readOnly = true
+            });
     }
 
     private static async Task<ActionResult> HibernateAsync(bool reduce)
@@ -699,6 +711,134 @@ public sealed class ActionExecutor(
         AuditResultToAction(
             "Privacidad",
             privacyAuditService.Analyze());
+
+    private static ActionResult ReliabilityLabStatus()
+    {
+        var directory = Path.Combine(
+            AppContext.BaseDirectory,
+            "evals",
+            "regressions");
+        var required = new[]
+        {
+            "claude-mcp-survives-cleanup",
+            "running-app-skips-cache",
+            "recent-vs-old-cache"
+        };
+
+        var scenarios = new List<object>();
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var invalidJsonCount = 0;
+
+        if (Directory.Exists(directory))
+        {
+            foreach (var file in Directory.EnumerateFiles(directory, "*.json")
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    using var document = JsonDocument.Parse(File.ReadAllText(file));
+                    var root = document.RootElement;
+                    var id = root.TryGetProperty("id", out var idNode)
+                        ? idNode.GetString()
+                        : null;
+                    var kind = root.TryGetProperty("kind", out var kindNode)
+                        ? kindNode.GetString()
+                        : null;
+                    var description = root.TryGetProperty("description", out var descriptionNode)
+                        ? descriptionNode.GetString()
+                        : null;
+
+                    if (!string.IsNullOrWhiteSpace(id))
+                        ids.Add(id);
+
+                    scenarios.Add(new
+                    {
+                        id = id ?? Path.GetFileNameWithoutExtension(file),
+                        kind = kind ?? "UNKNOWN",
+                        description = description ?? "Sin descripción",
+                        file = Path.GetFileName(file)
+                    });
+                }
+                catch (JsonException)
+                {
+                    invalidJsonCount++;
+                    scenarios.Add(new
+                    {
+                        id = Path.GetFileNameWithoutExtension(file),
+                        kind = "INVALID_JSON",
+                        description = "Manifest inválido",
+                        file = Path.GetFileName(file)
+                    });
+                }
+            }
+        }
+
+        var missing = required
+            .Where(id => !ids.Contains(id))
+            .ToArray();
+
+        var local = Environment.GetFolderPath(
+            Environment.SpecialFolder.LocalApplicationData);
+        var guardChecks = new[]
+        {
+            new
+            {
+                name = "Claude Extensions",
+                protectedPath = StorageAnalysisService.IsProtectedPath(
+                    Path.Combine(local, "Claude", "Claude Extensions"))
+            },
+            new
+            {
+                name = ".venv",
+                protectedPath = StorageAnalysisService.IsProtectedPath(
+                    Path.Combine(local, "Synthetic", ".venv"))
+            },
+            new
+            {
+                name = "WhatsApp",
+                protectedPath = StorageAnalysisService.IsProtectedPath(
+                    Path.Combine(local, "Synthetic", "WhatsApp"))
+            }
+        };
+
+        var broadTarget = new StorageAnalysisService.CacheTarget(
+            "future.broad-cleanup",
+            "Target amplio desconocido",
+            local);
+        var broadTargetBlocked =
+            !StorageAnalysisService.IsProductionApprovedTarget(
+                broadTarget,
+                local);
+
+        var allGuardsPass =
+            guardChecks.All(check => check.protectedPath) &&
+            broadTargetBlocked;
+        var manifestsValid =
+            scenarios.Count >= required.Length &&
+            missing.Length == 0 &&
+            invalidJsonCount == 0;
+        var success = allGuardsPass && manifestsValid;
+
+        return new ActionResult(
+            success,
+            false,
+            success
+                ? $"Reliability Lab OK: {scenarios.Count} regresiones empaquetadas y barreras críticas activas."
+                : $"Reliability Lab WARNING: faltan {missing.Length} regresiones o alguna barrera crítica no está activa.",
+            new
+            {
+                status = success ? "OK" : "WARNING",
+                regressionScenarioCount = scenarios.Count,
+                requiredScenarioCount = required.Length,
+                invalidManifestCount = invalidJsonCount,
+                missingScenarios = missing,
+                runtimeGuards = guardChecks,
+                broadUnknownTargetBlocked = broadTargetBlocked,
+                scenarios,
+                destructiveEvalsRunHere = false,
+                note = "Los evals destructivos se ejecutan únicamente sobre fixtures/CI, Sandbox o VM disposable."
+            });
+    }
 
     private ActionResult DeveloperAudit() =>
         AuditResultToAction(
