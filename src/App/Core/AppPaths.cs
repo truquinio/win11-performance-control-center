@@ -30,6 +30,8 @@ public static class AppPaths
         Path.Combine(State, "pagefile.json");
     public static string WorkloadModeState =>
         Path.Combine(State, "workload-mode.json");
+    public static string StartupEntryState =>
+        Path.Combine(State, "startup-entries.json");
 
     public static void EnsureDirectories()
     {

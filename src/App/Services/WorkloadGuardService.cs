@@ -16,6 +16,7 @@ public sealed class WorkloadGuardService
             "disk.hotspots.scan",
             "network.winsock.reset",
             "drivers.rescan",
+            "drivers.usb.restart",
             "multimedia.audio.restart",
             "windows.update.services.restart",
             "explorer.restart"
