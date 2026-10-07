@@ -47,6 +47,7 @@ public sealed class HostBridge : IDisposable
         string? statePath = null;
         string? storageWatchStatePath = null;
         string? serviceStartupStatePath = null;
+        string? startupEntryStatePath = null;
         string? powerPlanStatePath = null;
         string? pageFileStatePath = null;
         string? workloadModeStatePath = null;
@@ -59,6 +60,7 @@ public sealed class HostBridge : IDisposable
             statePath = Path.Combine(root, "State", "ecoqos.json");
             storageWatchStatePath = Path.Combine(root, "State", "storage-watch.json");
             serviceStartupStatePath = Path.Combine(root, "State", "service-startup.json");
+            startupEntryStatePath = Path.Combine(root, "State", "startup-entries.json");
             powerPlanStatePath = Path.Combine(root, "State", "power-plan.json");
             pageFileStatePath = Path.Combine(root, "State", "pagefile.json");
             workloadModeStatePath = Path.Combine(root, "State", "workload-mode.json");
@@ -71,6 +73,7 @@ public sealed class HostBridge : IDisposable
         var healthState = new SystemHealthStateStore();
         var snapshot = new SystemSnapshotService(coordinator, healthState);
         var reliability = new ReliabilityService();
+        var crashIntelligence = new CrashIntelligenceService(reliability);
         StorageAnalysisService storage;
         if (evaluationRoot is null)
         {
@@ -98,6 +101,9 @@ public sealed class HostBridge : IDisposable
         var serviceStartup = new ServiceStartupRemediationService(
             serviceStartupStatePath,
             evaluationRoot is not null);
+        var startupEntries = new StartupEntryRemediationService(
+            startupEntryStatePath,
+            evaluationRoot is not null);
         var systemRemediation = new SystemRemediationService();
         var powerPlanTuning = new PowerPlanTuningService(
             powerPlanStatePath);
@@ -112,6 +118,8 @@ public sealed class HostBridge : IDisposable
         var pageFile = new PageFileService();
         var integrity = new IntegrityService();
         var drivers = new DriverService();
+        var usbDiagnostics = new UsbDiagnosticsService(
+            evaluationRoot is not null);
         var activation = new ActivationService();
         var browsers = new BrowserInventoryService();
         string? edgeUserDataRoot = null;
@@ -149,6 +157,7 @@ public sealed class HostBridge : IDisposable
             pageFileStatePath,
             powerPlanStatePath,
             serviceStartupStatePath,
+            startupEntryStatePath,
             edgeQuarantineRoot);
         var actionPlan = new ActionPlanService(
             catalog,
@@ -168,9 +177,11 @@ public sealed class HostBridge : IDisposable
             privilege,
             snapshot,
             reliability,
+            crashIntelligence,
             storage,
             storageWatch,
             serviceStartup,
+            startupEntries,
             systemRemediation,
             powerPlanTuning,
             pageFileTuning,
@@ -179,6 +190,7 @@ public sealed class HostBridge : IDisposable
             pageFile,
             integrity,
             drivers,
+            usbDiagnostics,
             activation,
             browsers,
             browserExtensions,
