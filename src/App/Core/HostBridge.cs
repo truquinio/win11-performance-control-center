@@ -106,11 +106,18 @@ public sealed class HostBridge : IDisposable
         var storageWatch = new StorageWatchService(
             storageWatchStatePath,
             evaluationRoot);
-        var healthHistory = new HealthHistoryService(
-            snapshot,
-            storageWatch,
-            reliability,
-            healthHistoryStatePath);
+        var healthHistory = evaluationRoot is null
+            ? new HealthHistoryService(
+                snapshot,
+                storageWatch,
+                reliability,
+                healthHistoryStatePath)
+            : new HealthHistoryService(
+                healthHistoryStatePath!,
+                snapshot.CaptureAsync,
+                storageWatch.AuditAsync,
+                _ => Task.FromResult<
+                    IReadOnlyList<Models.ReliabilityEventDto>>([]));
         var serviceStartup = new ServiceStartupRemediationService(
             serviceStartupStatePath,
             evaluationRoot is not null);
