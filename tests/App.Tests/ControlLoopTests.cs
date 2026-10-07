@@ -113,7 +113,9 @@ public sealed class ControlLoopTests
             "disk.hotspots.scan");
 
         Assert.False(blocked.Success);
-        var data = Assert.IsType<JsonElement>(blocked.Data);
+        var data = JsonSerializer.SerializeToElement(
+            blocked.Data,
+            HostBridge.JsonOptions);
         Assert.True(data.GetProperty("blocked").GetBoolean());
         Assert.False(
             data.GetProperty("workload")
@@ -137,8 +139,8 @@ public sealed class ControlLoopTests
 
         Assert.True(plan.Success);
         Assert.True(rollback.Success);
-        Assert.IsType<JsonElement>(plan.Data);
-        Assert.IsType<JsonElement>(rollback.Data);
+        Assert.IsType<ActionPlanReport>(plan.Data);
+        Assert.IsType<RollbackCenterReport>(rollback.Data);
     }
 
     private static async Task<ActionResult> RunAsync(
