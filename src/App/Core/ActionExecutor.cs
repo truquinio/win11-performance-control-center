@@ -13,9 +13,11 @@ public sealed class ActionExecutor(
     PrivilegeBoundary privilege,
     SystemSnapshotService snapshotService,
     ReliabilityService reliabilityService,
+    CrashIntelligenceService crashIntelligenceService,
     StorageAnalysisService storageService,
     StorageWatchService storageWatchService,
     ServiceStartupRemediationService serviceStartupRemediationService,
+    StartupEntryRemediationService startupEntryRemediationService,
     SystemRemediationService systemRemediationService,
     PowerPlanTuningService powerPlanTuningService,
     PageFileTuningService pageFileTuningService,
@@ -24,6 +26,7 @@ public sealed class ActionExecutor(
     PageFileService pageFileService,
     IntegrityService integrityService,
     DriverService driverService,
+    UsbDiagnosticsService usbDiagnosticsService,
     ActivationService activationService,
     BrowserInventoryService browserService,
     BrowserExtensionHealthService browserExtensionHealthService,
@@ -281,6 +284,7 @@ public sealed class ActionExecutor(
             "system.integrity.check" => await IntegrityCheckAsync(),
             "system.integrity.repair" => await IntegrityRepairAsync(parameters),
             "system.reliability.analyze" => await ReliabilityAsync(),
+            "system.crash.analyze" => await CrashIntelligenceAsync(),
             "memory.analyze" => await MemoryAsync(),
             "memory.trim.preview" => await Task.Run(MemoryTrimPreview),
             "memory.trim" => await MemoryTrimAsync(parameters),
@@ -304,6 +308,8 @@ public sealed class ActionExecutor(
             "network.winsock.reset" => await NetworkWinsockResetAsync(parameters),
             "drivers.analyze" => await DriversAsync(),
             "drivers.rescan" => await DriversRescanAsync(parameters),
+            "drivers.usb.analyze" => await UsbAnalyzeAsync(),
+            "drivers.usb.restart" => await UsbRestartAsync(parameters),
             "system.activation.analyze" => await ActivationAsync(),
             "browsers.inventory" => await Task.Run(BrowserInventory),
             "browsers.extensions.health" => await Task.Run(BrowserExtensionHealth),
@@ -316,6 +322,9 @@ public sealed class ActionExecutor(
             "startup.services.preview" => await ServicesPreviewAsync(),
             "startup.service.setmode" => await ServiceSetModeAsync(parameters),
             "startup.service.restore" => await ServiceRestoreAsync(parameters),
+            "startup.entries.preview" => await StartupEntriesPreviewAsync(),
+            "startup.entry.disable" => await StartupEntryDisableAsync(parameters),
+            "startup.entry.restore" => await StartupEntryRestoreAsync(parameters),
             "windows.update.audit" => await Task.Run(WindowsUpdateAudit),
             "windows.update.services.restart" => await WindowsUpdateServicesRestartAsync(parameters),
             "apps.inventory" => await Task.Run(InstalledAppsInventory),
@@ -598,6 +607,62 @@ public sealed class ActionExecutor(
             });
     }
 
+    private async Task<ActionResult> StartupEntriesPreviewAsync()
+    {
+        var preview = await startupEntryRemediationService.PreviewAsync();
+        return new ActionResult(
+            true,
+            true,
+            $"Autoarranque Run/RunOnce: {preview.EligibleCount} revisable(s), {preview.ProtectedCount} protegido(s), {preview.DisabledByAppCount} con rollback.",
+            new
+            {
+                preview.RegisteredCount,
+                preview.EligibleCount,
+                preview.ProtectedCount,
+                preview.DisabledByAppCount,
+                entries = preview.Entries,
+                note = "Deshabilitar una entrada impide su próximo autoarranque; no fuerza el cierre del proceso actual."
+            });
+    }
+
+    private async Task<ActionResult> StartupEntryDisableAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(
+            parameters,
+            "Confirma la desactivación de la entrada de autoarranque.");
+        var entryId = GetRequiredString(parameters, "entryId");
+        var result = await startupEntryRemediationService.DisableAsync(
+            entryId);
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Success
+                ? $"Autoarranque {result.Name}: deshabilitado con rollback disponible. El proceso actual no fue cerrado."
+                : $"Autoarranque {result.Name}: no se pudo verificar la desactivación.",
+            result);
+    }
+
+    private async Task<ActionResult> StartupEntryRestoreAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(
+            parameters,
+            "Confirma el rollback de la entrada de autoarranque.");
+        var entryId = GetRequiredString(parameters, "entryId");
+        var result = await startupEntryRemediationService.RestoreAsync(
+            entryId);
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Status == "NO_SNAPSHOT"
+                ? "Autoarranque: no existe snapshot para esa entrada."
+                : result.Success
+                    ? $"Autoarranque {result.Name}: restaurado y verificado."
+                    : $"Autoarranque {result.Name}: rollback no verificado.",
+            result);
+    }
+
     private async Task<ActionResult> WindowsUpdateServicesRestartAsync(
         JsonElement? parameters)
     {
@@ -722,6 +787,18 @@ public sealed class ActionExecutor(
             false,
             $"Reliability Analyzer completado: {events.Count} eventos relevantes en la ventana analizada.",
             new { events });
+    }
+
+    private async Task<ActionResult> CrashIntelligenceAsync()
+    {
+        var report = await crashIntelligenceService.AnalyzeAsync();
+        return new ActionResult(
+            true,
+            false,
+            report.Insights.Count == 0
+                ? "Crash Intelligence: no se agruparon patrones accionables en la ventana analizada."
+                : $"Crash Intelligence: {report.Insights.Count} patrón(es), {report.HighSeverityCount} de prioridad alta.",
+            report);
     }
 
     private async Task<ActionResult> MemoryAsync()
@@ -1139,6 +1216,39 @@ public sealed class ActionExecutor(
                 _ => "Drivers: no se pudo determinar el estado mediante WMI."
             },
             new { analysis.Status, analysis.ProblemCount, analysis.Problems });
+    }
+
+    private async Task<ActionResult> UsbAnalyzeAsync()
+    {
+        var report = await usbDiagnosticsService.AnalyzeAsync();
+        return new ActionResult(
+            true,
+            false,
+            report.ProblemCount == 0
+                ? $"USB: {report.DeviceCount} dispositivo(s) observados sin códigos de problema."
+                : $"USB: {report.ProblemCount} dispositivo(s) con problema; {report.RestartEligibleCount} elegible(s) para reinicio controlado.",
+            report);
+    }
+
+    private async Task<ActionResult> UsbRestartAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(
+            parameters,
+            "Confirma el reinicio del dispositivo USB seleccionado.");
+        var deviceInstanceId = GetRequiredString(
+            parameters,
+            "deviceInstanceId");
+        var result = await usbDiagnosticsService.RestartAsync(
+            deviceInstanceId);
+
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Success
+                ? "USB: dispositivo reiniciado y verificado sin código de problema."
+                : $"USB: reinicio no verificado ({result.Status}).",
+            result);
     }
 
     private async Task<ActionResult> ActivationAsync()
