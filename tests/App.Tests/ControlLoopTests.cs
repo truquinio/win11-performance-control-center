@@ -146,15 +146,20 @@ public sealed class ControlLoopTests
         string actionId,
         object? parameters = null)
     {
+        var payload = new Dictionary<string, object?>
+        {
+            ["id"] = actionId
+        };
+        if (parameters is not null)
+            payload["parameters"] = parameters;
+
         var request = JsonSerializer.Serialize(
             new
             {
                 type = "request",
                 requestId = Guid.NewGuid().ToString("N"),
                 method = "actions.run",
-                payload = parameters is null
-                    ? new { id = actionId }
-                    : new { id = actionId, parameters }
+                payload
             },
             HostBridge.JsonOptions);
 
