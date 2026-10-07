@@ -49,6 +49,7 @@ public sealed class HostBridge : IDisposable
         string? serviceStartupStatePath = null;
         string? powerPlanStatePath = null;
         string? pageFileStatePath = null;
+        string? workloadModeStatePath = null;
         string? evaluationRoot = null;
 
         if (!string.IsNullOrWhiteSpace(dataRoot))
@@ -60,6 +61,7 @@ public sealed class HostBridge : IDisposable
             serviceStartupStatePath = Path.Combine(root, "State", "service-startup.json");
             powerPlanStatePath = Path.Combine(root, "State", "power-plan.json");
             pageFileStatePath = Path.Combine(root, "State", "pagefile.json");
+            workloadModeStatePath = Path.Combine(root, "State", "workload-mode.json");
             evaluationRoot = root;
         }
 
@@ -101,6 +103,9 @@ public sealed class HostBridge : IDisposable
             powerPlanStatePath);
         var pageFileTuning = new PageFileTuningService(
             pageFileStatePath);
+        var workloadGuard = new WorkloadGuardService(
+            workloadModeStatePath,
+            evaluationRoot is not null);
         var processes = new ProcessAnalysisService();
         var ecoQosState = new EcoQosStateStore(statePath);
         var tuning = new ProcessTuningService(ecoQosState);
@@ -139,6 +144,21 @@ public sealed class HostBridge : IDisposable
         var bootSleep = new BootSleepAuditService();
         var explorer = new ExplorerAuditService();
         var recovery = new OperationRecoveryService(ecoQosState, logPath);
+        var rollbackCenter = new RollbackCenterService(
+            recovery,
+            pageFileStatePath,
+            powerPlanStatePath,
+            serviceStartupStatePath,
+            edgeQuarantineRoot);
+        var actionPlan = new ActionPlanService(
+            catalog,
+            snapshot,
+            storageWatch,
+            pageFile,
+            serviceStartup,
+            browserExtensionRemediation,
+            rollbackCenter,
+            workloadGuard);
         var privilege = new PrivilegeBoundary();
         var elevatedActions = new ElevatedActionClient();
         var executor = new ActionExecutor(
@@ -173,6 +193,9 @@ public sealed class HostBridge : IDisposable
             bootSleep,
             explorer,
             recovery,
+            rollbackCenter,
+            actionPlan,
+            workloadGuard,
             healthState,
             elevatedActions);
 

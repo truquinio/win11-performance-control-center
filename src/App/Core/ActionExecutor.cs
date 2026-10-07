@@ -38,6 +38,9 @@ public sealed class ActionExecutor(
     BootSleepAuditService bootSleepAuditService,
     ExplorerAuditService explorerAuditService,
     OperationRecoveryService operationRecoveryService,
+    RollbackCenterService rollbackCenterService,
+    ActionPlanService actionPlanService,
+    WorkloadGuardService workloadGuardService,
     SystemHealthStateStore healthState,
     ElevatedActionClient elevatedActionClient)
 {
@@ -51,6 +54,30 @@ public sealed class ActionExecutor(
     {
         var action = catalog.GetRequired(id);
         ValidateParameters(action, parameters);
+
+        if (workloadGuardService.ShouldBlock(id))
+        {
+            var guard = workloadGuardService.GetStatus();
+            await logger.TryWriteAsync(id, "REJECTED", new
+            {
+                reason = "WORKLOAD_GUARD",
+                guard.ConfiguredMode,
+                guard.EffectiveMode,
+                guard.IdleSeconds,
+                guard.DFreePercent,
+                guard.HeavyActionsAllowed
+            });
+            return new ActionResult(
+                false,
+                false,
+                "Acción diferida por modo PC en uso. Cambia a MANTENIMIENTO cuando quieras permitir tareas pesadas o disruptivas.",
+                new
+                {
+                    blocked = true,
+                    workload = guard
+                });
+        }
+
         var operationId = Guid.NewGuid().ToString("N");
 
         using var lease = coordinator.Begin(
@@ -245,6 +272,11 @@ public sealed class ActionExecutor(
     {
         return action.Id switch
         {
+            "system.actionplan.preview" => await ActionPlanAsync(operationId),
+            "system.workload.status" => await Task.Run(WorkloadStatus),
+            "system.workload.inuse" => await Task.Run(() => SetWorkloadMode("IN_USE", parameters)),
+            "system.workload.auto" => await Task.Run(() => SetWorkloadMode("AUTO", parameters)),
+            "system.workload.maintenance" => await Task.Run(() => SetWorkloadMode("MAINTENANCE", parameters)),
             "system.health.scan" => await HealthScanAsync(),
             "system.integrity.check" => await IntegrityCheckAsync(),
             "system.integrity.repair" => await IntegrityRepairAsync(parameters),
@@ -299,8 +331,49 @@ public sealed class ActionExecutor(
             "explorer.audit" => await Task.Run(ExplorerAudit),
             "explorer.restart" => await ExplorerRestartAsync(parameters),
             "backup.status" => await Task.Run(() => BackupStatus(operationId)),
+            "backup.rollback.center" => await Task.Run(() => RollbackCenter(operationId)),
             _ => throw new InvalidOperationException("Action ID no implementada.")
         };
+    }
+
+    private async Task<ActionResult> ActionPlanAsync(
+        string operationId)
+    {
+        var report = await actionPlanService.BuildAsync(operationId);
+        return new ActionResult(
+            true,
+            false,
+            report.Items.Count == 0
+                ? "Plan de acción: no se detectaron tareas prioritarias con las señales rápidas disponibles."
+                : $"Plan de acción: {report.ActionableCount} acción(es) sugeridas; {report.DeferredCount} diferida(s) por modo de uso.",
+            report);
+    }
+
+    private ActionResult WorkloadStatus()
+    {
+        var status = workloadGuardService.GetStatus();
+        return new ActionResult(
+            true,
+            false,
+            status.HeavyActionsAllowed
+                ? $"Modo {status.EffectiveMode}: mantenimiento pesado permitido."
+                : $"Modo {status.EffectiveMode}: mantenimiento pesado protegido.",
+            status);
+    }
+
+    private ActionResult SetWorkloadMode(
+        string mode,
+        JsonElement? parameters)
+    {
+        RequireConfirmed(
+            parameters,
+            "Confirma el cambio de modo de mantenimiento.");
+        var status = workloadGuardService.SetMode(mode);
+        return new ActionResult(
+            true,
+            false,
+            $"Modo de mantenimiento configurado como {status.ConfiguredMode}. {status.Reason}",
+            status);
     }
 
     private async Task<ActionResult> HealthScanAsync()
@@ -1425,6 +1498,19 @@ public sealed class ActionExecutor(
                 rollbackSnapshots = status.RollbackSnapshots,
                 ecoQosTargets = status.EcoQosTargets
             });
+    }
+
+    private ActionResult RollbackCenter(
+        string operationId)
+    {
+        var report = rollbackCenterService.Analyze(operationId);
+        return new ActionResult(
+            true,
+            false,
+            report.Entries.Count == 0
+                ? "Rollback Center: no hay cambios reversibles pendientes."
+                : $"Rollback Center: {report.Entries.Count} cambio(s) con rollback disponible.",
+            report);
     }
 
     private static ActionResult AuditResultToAction(
