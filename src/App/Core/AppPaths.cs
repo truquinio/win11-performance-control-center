@@ -32,6 +32,10 @@ public static class AppPaths
         Path.Combine(State, "workload-mode.json");
     public static string StartupEntryState =>
         Path.Combine(State, "startup-entries.json");
+    public static string HealthHistoryState =>
+        Path.Combine(State, "health-history.json");
+    public static string MaintenancePolicyState =>
+        Path.Combine(State, "maintenance-policy.json");
 
     public static void EnsureDirectories()
     {
