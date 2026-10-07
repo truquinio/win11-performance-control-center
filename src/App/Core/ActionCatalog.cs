@@ -12,6 +12,10 @@ public sealed class ActionCatalog
         {
             new ActionDefinition("system.actionplan.preview", "Construir plan de acción",
                 "Combina señales rápidas del equipo y propone qué revisar o ejecutar, sin aplicar cambios automáticamente.", ActionCategory.System, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
+            new ActionDefinition("system.healthscore.analyze", "Health Score y baseline",
+                "Captura una línea base local, calcula un score explicable y muestra los factores que descuentan puntos.", ActionCategory.System, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
+            new ActionDefinition("system.changes.analyze", "Qué cambió",
+                "Compara las dos últimas líneas base y muestra solo cambios materiales de salud, memoria, discos, red y estados.", ActionCategory.System, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
             new ActionDefinition("system.workload.status", "Estado PC en uso",
                 "Indica si las tareas pesadas están permitidas según modo, inactividad y presión de D:.", ActionCategory.System, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
             new ActionDefinition("system.workload.inuse", "Proteger PC en uso",
@@ -145,6 +149,8 @@ public sealed class ActionCatalog
                 "Detecta toolchains comunes y sus versiones desde PATH.", ActionCategory.Developer, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
             new ActionDefinition("lab.reliability.status", "Reliability Lab",
                 "Verifica regresiones históricas y barreras de seguridad sin ejecutar escenarios destructivos sobre el Windows real.", ActionCategory.Developer, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
+            new ActionDefinition("lab.outcomes.status", "Outcome coverage",
+                "Audita qué acciones WRITE tienen post-check, rollback, efecto transitorio o reinicio pendiente y cruza evidencia del log.", ActionCategory.Developer, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
             new ActionDefinition("thermal.audit", "Auditar energía y temperaturas",
                 "Lee el plan de energía activo y sensores ACPI disponibles.", ActionCategory.Thermal, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
             new ActionDefinition("thermal.power.balanced", "Usar plan Equilibrado",
@@ -168,7 +174,17 @@ public sealed class ActionCatalog
             new ActionDefinition("backup.status", "Estado de backup y rollback",
                 "Detecta operaciones incompletas y snapshots de rollback mantenidos por la app.", ActionCategory.Backup, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
             new ActionDefinition("backup.rollback.center", "Rollback Center",
-                "Reúne cambios reversibles de EcoQoS, servicios, pagefile, energía y Edge en una sola vista.", ActionCategory.Backup, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ)
+                "Reúne cambios reversibles de EcoQoS, servicios, pagefile, energía, autoarranque y Edge en una sola vista.", ActionCategory.Backup, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
+            new ActionDefinition("maintenance.policy.status", "Estado de automatización segura",
+                "Muestra la política de mantenimiento read-only. Por defecto está OFF.", ActionCategory.System, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
+            new ActionDefinition("maintenance.policy.readonly", "Activar mantenimiento read-only en reposo",
+                "Habilita un lote fijo de diagnósticos solo cuando el equipo está inactivo o en MANTENIMIENTO. Nunca habilita WRITE.", ActionCategory.System, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, true, ActionMode.WRITE,
+                [new ActionParameterDefinition("confirmed", ActionParameterType.BOOLEAN, true, "Confirmación explícita")]),
+            new ActionDefinition("maintenance.policy.off", "Desactivar automatización",
+                "Vuelve a OFF. Ningún lote de mantenimiento podrá ejecutarse mientras esté desactivado.", ActionCategory.System, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, true, ActionMode.WRITE,
+                [new ActionParameterDefinition("confirmed", ActionParameterType.BOOLEAN, true, "Confirmación explícita")]),
+            new ActionDefinition("maintenance.safe.run", "Ejecutar lote read-only",
+                "Ejecuta el conjunto fijo de diagnósticos seguros si la política está habilitada y el PC no está en uso. No contiene acciones WRITE.", ActionCategory.System, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ)
         };
 
         _actions = actions.ToDictionary(action => action.Id, StringComparer.OrdinalIgnoreCase);
