@@ -178,17 +178,17 @@ public sealed class DiagnosticBundleService
                 "drivers-usb.json",
                 new
                 {
-                    drivers.Status,
-                    drivers.ProblemCount,
+                    driverStatus = drivers.Status,
+                    driverProblemCount = drivers.ProblemCount,
                     driverProblems = drivers.Problems.Select(item => new
                     {
                         item.Name,
                         item.ErrorCode,
                         item.Manufacturer
                     }),
-                    usb.DeviceCount,
-                    usb.ProblemCount,
-                    usb.RestartEligibleCount,
+                    usbDeviceCount = usb.DeviceCount,
+                    usbProblemCount = usb.ProblemCount,
+                    usbRestartEligibleCount = usb.RestartEligibleCount,
                     usbDevices = usb.Devices.Select(item => new
                     {
                         item.Name,
@@ -226,9 +226,9 @@ public sealed class DiagnosticBundleService
                 "startup.json",
                 new
                 {
-                    services.AutomaticCount,
-                    services.EligibleCount,
-                    services.ProtectedCount,
+                    automaticServiceCount = services.AutomaticCount,
+                    eligibleServiceCount = services.EligibleCount,
+                    protectedServiceCount = services.ProtectedCount,
                     services = services.Services.Select(item => new
                     {
                         item.ServiceName,
@@ -241,10 +241,10 @@ public sealed class DiagnosticBundleService
                         item.DependentServiceCount,
                         dependents = item.Dependents
                     }),
-                    tasks.TaskCount,
-                    tasks.EligibleCount,
-                    tasks.ProtectedCount,
-                    tasks.RestoreAvailableCount,
+                    scheduledTaskCount = tasks.TaskCount,
+                    eligibleTaskCount = tasks.EligibleCount,
+                    protectedTaskCount = tasks.ProtectedCount,
+                    taskRestoreAvailableCount = tasks.RestoreAvailableCount,
                     scheduledTasks = tasks.Tasks.Select(item => new
                     {
                         item.FullName,
