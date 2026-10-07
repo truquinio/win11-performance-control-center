@@ -243,7 +243,7 @@ public sealed class WindowsEvidenceService
                         "Registry",
                         "IFEO Debugger · " + name,
                         "ATTENTION",
-                        @"HKLM\" + subKey + "\" + name,
+                        @"HKLM\" + subKey + @"\" + name,
                         Compact(debugger)));
                 }
                 catch (Exception ex) when (ex is
@@ -354,7 +354,7 @@ public sealed class WindowsEvidenceService
             "COM",
             clsid + " · " + serverKey,
             "MISSING_TARGET",
-            $"HKCR\CLSID\{clsid}\{serverKey} · {view}",
+            $@"HKCR\CLSID\{clsid}\{serverKey} · {view}",
             Compact(resolved)));
     }
 
