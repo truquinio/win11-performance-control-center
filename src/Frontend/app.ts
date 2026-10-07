@@ -377,6 +377,118 @@ class DemoProvider implements Provider {
       };
     }
 
+    if (id === "system.crash.analyze") {
+      return {
+        success: true,
+        dryRun: false,
+        message: "DEMO: Crash Intelligence agrupó patrones de evidencia.",
+        data: {
+          eventsRead: 6,
+          highSeverityCount: 1,
+          mediumSeverityCount: 1,
+          insights: [
+            {
+              category: "Estabilidad",
+              severity: "HIGH",
+              title: "Apagados o reinicios no limpios",
+              occurrences: 2,
+              latestAt: new Date().toISOString(),
+              recommendedActionId: "system.health.scan",
+              rationale: "El evento confirma un cierre no limpio, pero no determina la causa.",
+              latestEvidence: "DEMO Kernel-Power"
+            },
+            {
+              category: "Aplicaciones",
+              severity: "MEDIUM",
+              title: "Aplicaciones sin responder",
+              occurrences: 1,
+              latestAt: new Date().toISOString(),
+              recommendedActionId: "memory.analyze",
+              rationale: "Se requiere contexto antes de reparar.",
+              latestEvidence: "DEMO Application Hang"
+            }
+          ]
+        }
+      };
+    }
+
+    if (id === "drivers.usb.analyze") {
+      return {
+        success: true,
+        dryRun: false,
+        message: "DEMO: 1 USB con problema y elegible para reinicio controlado.",
+        data: {
+          deviceCount: 2,
+          problemCount: 1,
+          restartEligibleCount: 1,
+          devices: [
+            {
+              deviceInstanceId: "USB\\VID_1234&PID_5678\\DEMO",
+              name: "Demo USB Camera",
+              manufacturer: "Demo Vendor",
+              pnpClass: "Camera",
+              service: "usbvideo",
+              problemCode: 43,
+              status: "Error",
+              restartEligible: true,
+              reason: "Dispositivo USB con problema y fuera de categorías protegidas."
+            },
+            {
+              deviceInstanceId: "USB\\ROOT_HUB30\\DEMO",
+              name: "USB Root Hub (USB 3.0)",
+              manufacturer: "Microsoft",
+              pnpClass: "USB",
+              service: "USBHUB3",
+              problemCode: 0,
+              status: "OK",
+              restartEligible: false,
+              reason: "Sin código de problema."
+            }
+          ]
+        }
+      };
+    }
+
+    if (id === "startup.entries.preview") {
+      return {
+        success: true,
+        dryRun: true,
+        message: "DEMO: autoarranque clasificado con rollback.",
+        data: {
+          registeredCount: 2,
+          eligibleCount: 1,
+          protectedCount: 1,
+          disabledByAppCount: 0,
+          entries: [
+            {
+              entryId: "0123456789ABCDEF01234567",
+              name: "DemoVendor",
+              command: "C:\\Program Files\\DemoVendor\\agent.exe --background",
+              location: "HKCU\\Run",
+              scope: "HKCU",
+              view: "Registry64",
+              enabled: true,
+              protected: false,
+              reason: "Entrada de terceros revisable.",
+              restoreAvailable: false
+            },
+            {
+              entryId: "89ABCDEF0123456789ABCDEF",
+              name: "PM2",
+              command: "node.exe pm2 resurrect",
+              location: "HKCU\\Run",
+              scope: "HKCU",
+              view: "Registry64",
+              enabled: true,
+              protected: true,
+              reason: "Protegido por política local.",
+              restoreAvailable: false
+            }
+          ]
+        }
+      };
+    }
+
     if (id === "network.test") {
       return {
         success: true,
@@ -576,6 +688,7 @@ const demoCatalog: ActionDefinition[] = [
   { id: "system.integrity.check", title: "Comprobar integridad de Windows", description: "Ejecuta DISM /CheckHealth en modo lectura.", category: "System", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "system.integrity.repair", title: "Reparar integridad de Windows", description: "Ejecuta DISM /RestoreHealth + SFC y verifica.", category: "System", risk: "CAUTION", requiresAdmin: true, connectivity: "OPTIONAL_ONLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "system.reliability.analyze", title: "Reliability Analyzer", description: "Correlaciona eventos de arranque y apagado.", category: "Reliability", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "system.crash.analyze", title: "Crash Intelligence", description: "Agrupa fallos, hangs, WHEA y apagados no limpios sin inventar causas.", category: "Reliability", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "memory.analyze", title: "Analizar memoria", description: "Mide presión y uso de RAM.", category: "Memory", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "memory.trim.preview", title: "Previsualizar MemoryTrim", description: "Identifica working sets altos sin modificar memoria.", category: "Memory", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "DRY_RUN" },
   { id: "memory.trim", title: "MemoryTrim seleccionado", description: "Recorta working sets sólo de procesos seleccionados.", category: "Memory", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "processIds", type: "INTEGER_ARRAY", required: true, description: "PIDs seleccionados" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
@@ -599,6 +712,8 @@ const demoCatalog: ActionDefinition[] = [
   { id: "network.winsock.reset", title: "Restablecer Winsock", description: "Restablece Winsock; puede requerir reinicio.", category: "Network", risk: "EXPLICIT_CONFIRMATION", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "drivers.analyze", title: "Analizar drivers", description: "Detecta dispositivos con códigos de problema.", category: "Drivers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "drivers.rescan", title: "Reescanear hardware", description: "Pide a Plug and Play que vuelva a detectar dispositivos.", category: "Drivers", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "drivers.usb.analyze", title: "USB Repair Center", description: "Clasifica USB con problemas y cuáles pueden reiniciarse de forma controlada.", category: "Drivers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "drivers.usb.restart", title: "Reiniciar dispositivo USB", description: "Reinicia solo el USB seleccionado y elegible.", category: "Drivers", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "deviceInstanceId", type: "STRING", required: true, description: "Instance ID seleccionado" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "system.activation.analyze", title: "Comprobar activación", description: "Lee el estado de licencia de Windows.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "browsers.inventory", title: "Inventario de navegadores", description: "Detecta navegadores y perfiles locales.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "browsers.extensions.health", title: "Integridad de extensiones Edge", description: "Explica qué está correcto, qué son residuos y qué requiere reparación.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
@@ -611,6 +726,9 @@ const demoCatalog: ActionDefinition[] = [
   { id: "startup.services.preview", title: "Revisar servicios automáticos", description: "Clasifica servicios protegidos y revisables.", category: "Startup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "startup.service.setmode", title: "Cambiar inicio de servicio", description: "Cambia Manual/Disabled solo sobre servicios revisables.", category: "Startup", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "serviceName", type: "STRING", required: true, description: "Servicio exacto" }, { name: "targetMode", type: "STRING", required: true, description: "Manual o Disabled" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "startup.service.restore", title: "Restaurar inicio de servicio", description: "Restaura StartMode guardado.", category: "Startup", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "serviceName", type: "STRING", required: true, description: "Servicio exacto" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "startup.entries.preview", title: "Revisar autoarranque Run/RunOnce", description: "Clasifica entradas protegidas, revisables y con rollback.", category: "Startup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "startup.entry.disable", title: "Deshabilitar entrada de autoarranque", description: "Quita la entrada seleccionada y guarda snapshot sin cerrar el proceso actual.", category: "Startup", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "entryId", type: "STRING", required: true, description: "ID exacto" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "startup.entry.restore", title: "Restaurar entrada de autoarranque", description: "Restaura una entrada Run/RunOnce deshabilitada por la app.", category: "Startup", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "entryId", type: "STRING", required: true, description: "ID exacto" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "windows.update.audit", title: "Auditar Windows Update", description: "Resume eventos recientes de Windows Update.", category: "WindowsUpdate", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "windows.update.services.restart", title: "Reiniciar servicios de Windows Update", description: "Reinicia BITS y Windows Update sin borrar historial.", category: "WindowsUpdate", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "apps.inventory", title: "Inventario de aplicaciones", description: "Enumera aplicaciones instaladas.", category: "Apps", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
@@ -745,7 +863,7 @@ const moduleDefinitions: Record<string, {
     kicker: "SISTEMA",
     title: "Estado y fiabilidad",
     description: "Evidencia de Windows, reinicios y señales de mantenimiento.",
-    actionIds: ["system.actionplan.preview", "system.workload.status", "system.health.scan", "system.integrity.check", "system.integrity.repair", "system.reliability.analyze", "drivers.analyze", "drivers.rescan", "system.activation.analyze"]
+    actionIds: ["system.actionplan.preview", "system.workload.status", "system.health.scan", "system.integrity.check", "system.integrity.repair", "system.reliability.analyze", "system.crash.analyze", "drivers.analyze", "drivers.rescan", "system.activation.analyze"]
   },
   network: {
     kicker: "RED",
@@ -781,7 +899,7 @@ const moduleDefinitions: Record<string, {
     kicker: "INICIO",
     title: "Inicio y servicios",
     description: "Audita inicio y permite ajustar servicios de terceros con protección y rollback.",
-    actionIds: ["startup.audit", "startup.services.preview"]
+    actionIds: ["startup.audit", "startup.services.preview", "startup.entries.preview"]
   },
   integrity: {
     kicker: "INTEGRIDAD",
@@ -793,7 +911,7 @@ const moduleDefinitions: Record<string, {
     kicker: "HARDWARE",
     title: "Drivers y hardware",
     description: "Detecta problemas y permite reescanear Plug and Play sin instalar drivers arbitrarios.",
-    actionIds: ["drivers.analyze", "drivers.rescan"]
+    actionIds: ["drivers.analyze", "drivers.usb.analyze", "drivers.rescan"]
   },
   "windows-update": {
     kicker: "WINDOWS UPDATE",
@@ -853,7 +971,7 @@ const moduleDefinitions: Record<string, {
     kicker: "HISTORIAL",
     title: "Fiabilidad y reinicios",
     description: "Eventos recientes que explican apagados, reinicios y estabilidad.",
-    actionIds: ["system.reliability.analyze"]
+    actionIds: ["system.reliability.analyze", "system.crash.analyze"]
   },
   tools: {
     kicker: "HERRAMIENTAS",
@@ -1951,6 +2069,182 @@ function renderStructuredResult(  actionId: string,
           " MB/s · ↑ " + displayValue(network.sendMegabytesPerSecond) + " MB/s"]
       ]));
     }
+    return;
+  }
+
+  if (actionId === "system.crash.analyze") {
+    const insights = asArray(data.insights)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+
+    content.append(createResultGrid([
+      ["Eventos leídos", displayValue(data.eventsRead)],
+      ["Patrones", String(insights.length)],
+      ["Alta prioridad", displayValue(data.highSeverityCount)],
+      ["Prioridad media", displayValue(data.mediumSeverityCount)]
+    ]));
+
+    if (insights.length) {
+      content.append(createResultTable(
+        ["Prioridad", "Patrón", "Veces", "Evidencia", "Siguiente paso"],
+        insights.map(item => [
+          displayValue(item.severity),
+          displayValue(item.title),
+          displayValue(item.occurrences),
+          displayValue(item.latestEvidence),
+          displayValue(item.recommendedActionId)
+        ])
+      ));
+
+      const controls = document.createElement("div");
+      controls.className = "result-actions";
+      const seen = new Set<string>();
+      for (const item of insights) {
+        if (typeof item.recommendedActionId !== "string" ||
+            seen.has(item.recommendedActionId)) continue;
+        seen.add(item.recommendedActionId);
+        const actionIdValue = item.recommendedActionId;
+        const button = document.createElement("button");
+        button.className = "btn btn-secondary";
+        button.textContent = "Analizar · " + displayValue(item.title);
+        button.addEventListener("click", () =>
+          void runAction(actionIdValue, button));
+        controls.append(button);
+      }
+      if (controls.childElementCount) content.append(controls);
+    }
+    return;
+  }
+
+  if (actionId === "drivers.usb.analyze") {
+    const devices = asArray(data.devices)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+
+    content.append(createResultGrid([
+      ["USB observados", displayValue(data.deviceCount)],
+      ["Con problema", displayValue(data.problemCount)],
+      ["Reinicio elegible", displayValue(data.restartEligibleCount)],
+      ["Política", "Fail-closed"]
+    ]));
+
+    if (devices.length) {
+      content.append(createResultTable(
+        ["Dispositivo", "Código", "Clase", "Estado", "Decisión"],
+        devices.map(item => [
+          displayValue(item.name),
+          displayValue(item.problemCode),
+          displayValue(item.pnpClass),
+          displayValue(item.status),
+          item.restartEligible === true ? "Reinicio disponible" : displayValue(item.reason)
+        ])
+      ));
+
+      const controls = document.createElement("div");
+      controls.className = "result-actions";
+      for (const device of devices.filter(item =>
+        item.restartEligible === true &&
+        typeof item.deviceInstanceId === "string").slice(0, 8)) {
+        const button = document.createElement("button");
+        button.className = "btn btn-primary";
+        button.textContent = "Reiniciar · " + displayValue(device.name);
+        button.addEventListener("click", () => {
+          if (!window.confirm(
+            "¿Reiniciar únicamente " + displayValue(device.name) +
+            "?\n\nWindows solicitará UAC. No se reiniciarán hubs, teclado, ratón, almacenamiento ni red protegidos."
+          )) return;
+          void runAction(
+            "drivers.usb.restart",
+            button,
+            {
+              deviceInstanceId: String(device.deviceInstanceId),
+              confirmed: true
+            });
+        });
+        controls.append(button);
+      }
+      if (controls.childElementCount) content.append(controls);
+    }
+    return;
+  }
+
+  if (actionId === "startup.entries.preview") {
+    const entries = asArray(data.entries)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+
+    content.append(createResultGrid([
+      ["Registradas", displayValue(data.registeredCount)],
+      ["Revisables", displayValue(data.eligibleCount)],
+      ["Protegidas", displayValue(data.protectedCount)],
+      ["Con rollback", displayValue(data.disabledByAppCount)]
+    ]));
+
+    if (entries.length) {
+      content.append(createResultTable(
+        ["Entrada", "Ubicación", "Estado", "Protección", "Motivo"],
+        entries.map(item => [
+          displayValue(item.name),
+          displayValue(item.scope),
+          item.enabled === true ? "Activa" : "Deshabilitada por la app",
+          item.protected === true ? "Protegida" : "Revisable",
+          displayValue(item.reason)
+        ])
+      ));
+
+      const controls = document.createElement("div");
+      controls.className = "result-actions";
+      for (const entry of entries.slice(0, 24)) {
+        if (typeof entry.entryId !== "string") continue;
+
+        if (entry.enabled === true && entry.protected !== true) {
+          const disable = document.createElement("button");
+          disable.className = "btn btn-secondary";
+          disable.textContent = "Deshabilitar · " + displayValue(entry.name);
+          disable.addEventListener("click", () => {
+            if (!window.confirm(
+              "¿Quitar " + displayValue(entry.name) +
+              " del próximo autoarranque?\n\nEl proceso actual NO se cerrará y la app guardará rollback."
+            )) return;
+            void runAction(
+              "startup.entry.disable",
+              disable,
+              { entryId: String(entry.entryId), confirmed: true });
+          });
+          controls.append(disable);
+        }
+
+        if (entry.restoreAvailable === true) {
+          const restore = document.createElement("button");
+          restore.className = "btn btn-secondary";
+          restore.textContent = "Restaurar · " + displayValue(entry.name);
+          restore.addEventListener("click", () => {
+            if (!window.confirm(
+              "¿Restaurar " + displayValue(entry.name) +
+              " al autoarranque original?"
+            )) return;
+            void runAction(
+              "startup.entry.restore",
+              restore,
+              { entryId: String(entry.entryId), confirmed: true });
+          });
+          controls.append(restore);
+        }
+      }
+      if (controls.childElementCount) content.append(controls);
+    }
+    return;
+  }
+
+  if (actionId === "drivers.usb.restart" ||
+      actionId === "startup.entry.disable" ||
+      actionId === "startup.entry.restore") {
+    content.append(createResultGrid([
+      ["Estado", displayValue(data.status)],
+      ["Elemento", displayValue(data.name ?? data.deviceInstanceId)],
+      ["Detalle", displayValue(data.detail)],
+      ["Rollback", data.restoreAvailable === true ? "Disponible" : "—"]
+    ]));
     return;
   }
 
