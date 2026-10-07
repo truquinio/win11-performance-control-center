@@ -457,6 +457,24 @@ public sealed class ScheduledTaskRemediationService
                 "La tarea está ejecutándose; se evita modificarla durante su ejecución.");
         }
 
+        if (task.State.Equals(
+                "Queued",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return new(
+                true,
+                "La tarea tiene una ejecución en cola; se evita cambiar su estado.");
+        }
+
+        if (task.State.Equals(
+                "Unknown",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return new(
+                true,
+                "Windows no informó un estado concluyente; la política falla cerrada.");
+        }
+
         var combined = string.Join(
             " ",
             task.FullName,
