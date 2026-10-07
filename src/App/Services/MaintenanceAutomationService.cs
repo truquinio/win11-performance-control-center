@@ -15,7 +15,8 @@ public sealed class MaintenanceAutomationService
         "drivers.usb.analyze",
         "browsers.extensions.health",
         "startup.services.preview",
-        "startup.entries.preview"
+        "startup.entries.preview",
+        "startup.tasks.preview"
     ];
 
     private readonly string statePath;
@@ -28,6 +29,7 @@ public sealed class MaintenanceAutomationService
     private readonly BrowserExtensionHealthService browserExtensionHealthService;
     private readonly ServiceStartupRemediationService serviceStartupService;
     private readonly StartupEntryRemediationService startupEntryService;
+    private readonly ScheduledTaskRemediationService scheduledTaskService;
 
     public MaintenanceAutomationService(
         WorkloadGuardService workloadGuard,
@@ -39,6 +41,7 @@ public sealed class MaintenanceAutomationService
         BrowserExtensionHealthService browserExtensionHealthService,
         ServiceStartupRemediationService serviceStartupService,
         StartupEntryRemediationService startupEntryService,
+        ScheduledTaskRemediationService scheduledTaskService,
         string? statePath = null)
     {
         AppPaths.EnsureDirectories();
@@ -54,6 +57,7 @@ public sealed class MaintenanceAutomationService
         this.browserExtensionHealthService = browserExtensionHealthService;
         this.serviceStartupService = serviceStartupService;
         this.startupEntryService = startupEntryService;
+        this.scheduledTaskService = scheduledTaskService;
 
         var directory = Path.GetDirectoryName(this.statePath);
         if (!string.IsNullOrWhiteSpace(directory))
@@ -204,6 +208,17 @@ public sealed class MaintenanceAutomationService
                 return (
                     "OK",
                     $"{report.EligibleCount} entrada(s) revisable(s), {report.ProtectedCount} protegida(s).");
+            });
+
+        await CaptureAsync(
+            items,
+            "startup.tasks.preview",
+            async () =>
+            {
+                var report = await scheduledTaskService.PreviewAsync();
+                return (
+                    "OK",
+                    $"{report.EligibleCount} tarea(s) revisable(s), {report.ProtectedCount} protegida(s).");
             });
 
         return new MaintenanceRunReport(
