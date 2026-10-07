@@ -14,7 +14,7 @@ public sealed class OutcomeAuditService
             ["system.workload.inuse"] = new("DIRECT_VERIFIED", "Estado interno persistido y releído.", true),
             ["system.workload.auto"] = new("DIRECT_VERIFIED", "Estado interno persistido y releído.", true),
             ["system.workload.maintenance"] = new("DIRECT_VERIFIED", "Estado interno persistido y releído.", true),
-            ["system.integrity.repair"] = new("POSTCHECK", "DISM/SFC seguidos por CheckHealth.", true),
+            ["system.integrity.repair"] = new("POSTCHECK", "DISM/SFC seguidos por CheckHealth.", false),
             ["memory.trim"] = new("TRANSIENT", "Compara working set antes/después; el efecto no es persistente.", false),
             ["memory.pagefile.capped"] = new("POSTCHECK", "Verifica configuración del pagefile después de escribir.", true),
             ["memory.pagefile.restore"] = new("POSTCHECK", "Restaura y verifica la configuración capturada.", true),
