@@ -162,10 +162,9 @@ public sealed class WorkloadGuardService
             if (!GetLastInputInfo(ref info))
                 return TimeSpan.Zero;
 
-            var elapsed = unchecked(
-                Environment.TickCount64 - info.Time);
-            return TimeSpan.FromMilliseconds(
-                Math.Max(0, elapsed));
+            var now = unchecked((uint)Environment.TickCount);
+            var elapsed = unchecked(now - info.Time);
+            return TimeSpan.FromMilliseconds(elapsed);
         }
         catch
         {
