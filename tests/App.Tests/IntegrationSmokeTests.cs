@@ -1,11 +1,14 @@
 using System.Text.Json;
 using Win11PerformanceControlCenter.App.Core;
 using Win11PerformanceControlCenter.App.Models;
+using Xunit.Abstractions;
 
 namespace App.Tests;
 
-public sealed class IntegrationSmokeTests
+public sealed class IntegrationSmokeTests(ITestOutputHelper output)
 {
+    private static readonly TimeSpan PerActionBudget = TimeSpan.FromSeconds(15);
+
     [Fact]
     public async Task NonAdminReadAndPreviewActions_CompleteThroughTypedBridge()
     {
@@ -32,7 +35,19 @@ public sealed class IntegrationSmokeTests
                     payload = new { id = action.Id }
                 });
 
-            var response = await bridge.HandleAsync(request);
+            output.WriteLine("INTEGRATION_SMOKE_START {0}", action.Id);
+            BridgeResponse response;
+            try
+            {
+                response = await bridge.HandleAsync(request)
+                    .WaitAsync(PerActionBudget);
+            }
+            catch (TimeoutException)
+            {
+                throw new Xunit.Sdk.XunitException(
+                    $"{action.Id} excedió el presupuesto de {PerActionBudget.TotalSeconds:F0}s.");
+            }
+            output.WriteLine("INTEGRATION_SMOKE_OK {0}", action.Id);
 
             Assert.True(
                 response.Ok,

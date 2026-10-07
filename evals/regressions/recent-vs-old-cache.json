@@ -1,0 +1,25 @@
+{
+  "id": "recent-vs-old-cache",
+  "kind": "positive_negative_pair",
+  "description": "Old cache is eligible while recent cache is preserved; the second cleanup is idempotent.",
+  "targetRelativePath": "age-cache",
+  "processName": null,
+  "processRunning": false,
+  "expectedDeletedFiles": 1,
+  "expectedFailedFiles": 0,
+  "runTwice": true,
+  "files": [
+    {
+      "path": "age-cache/old.tmp",
+      "ageDays": 15,
+      "sizeBytes": 96,
+      "expect": "deleted"
+    },
+    {
+      "path": "age-cache/recent.tmp",
+      "ageDays": 2,
+      "sizeBytes": 96,
+      "expect": "preserved"
+    }
+  ]
+}

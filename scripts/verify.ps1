@@ -28,6 +28,8 @@ Invoke-Step "Frontend contract" { npm run test:frontend-contract }
 
 Invoke-Step "UI smoke" { npm run test:ui-smoke }
 
+Invoke-Step "Real-world eval manifest contract" { npm run test:real-world-evals }
+
 Invoke-Step "Package safety contract" { npm run test:package-contract }
 
 Invoke-Step "Resource safety contract" { npm run test:resource-contract }
@@ -44,6 +46,10 @@ Invoke-Step "Visual QA isolation contract" {
 
 Invoke-Step "Release build" {
     & $dotnet build ".\\Win11PerformanceControlCenter.slnx" -c $Configuration --nologo --verbosity minimal -warnaserror
+}
+
+Invoke-Step "Real-world evals" {
+    & $dotnet test ".\\tests\\App.Tests\\App.Tests.csproj" -c $Configuration --no-build --nologo --verbosity minimal --filter "Layer=RealWorldEval"
 }
 
 Invoke-Step "Tests" {

@@ -14,7 +14,8 @@
     "test:ci-contract": "node scripts/ci-contract.mjs",
     "test:webview-security": "node scripts/webview-security-contract.mjs",
     "test:platform-contract": "node scripts/platform-contract.mjs",
-    "watch:frontend": "tsc --watch"
+    "watch:frontend": "tsc --watch",
+    "test:real-world-evals": "node scripts/real-world-evals-contract.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

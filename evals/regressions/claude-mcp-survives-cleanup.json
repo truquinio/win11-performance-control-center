@@ -1,0 +1,55 @@
+{
+  "id": "claude-mcp-survives-cleanup",
+  "kind": "historical_regression",
+  "description": "A cleanup may remove an old cache file but must preserve Claude Extensions, Windows-MCP runtime files, .venv contents, WinGet packages and WhatsApp state even if they appear below an evaluation cleanup root.",
+  "targetRelativePath": "cleanup-root",
+  "processName": null,
+  "processRunning": false,
+  "expectedDeletedFiles": 1,
+  "expectedFailedFiles": 0,
+  "runTwice": true,
+  "files": [
+    {
+      "path": "cleanup-root/old-cache.bin",
+      "ageDays": 30,
+      "sizeBytes": 128,
+      "expect": "deleted"
+    },
+    {
+      "path": "cleanup-root/recent-cache.bin",
+      "ageDays": 1,
+      "sizeBytes": 64,
+      "expect": "preserved"
+    },
+    {
+      "path": "cleanup-root/Claude Extensions/ant.dir.cursortouch.windows-mcp/.venv/Scripts/windows-mcp.exe",
+      "ageDays": 30,
+      "sizeBytes": 256,
+      "expect": "preserved"
+    },
+    {
+      "path": "cleanup-root/Claude Extensions/ant.dir.cursortouch.windows-mcp/server.json",
+      "ageDays": 30,
+      "sizeBytes": 64,
+      "expect": "preserved"
+    },
+    {
+      "path": "cleanup-root/.venv/runtime.dll",
+      "ageDays": 30,
+      "sizeBytes": 128,
+      "expect": "preserved"
+    },
+    {
+      "path": "cleanup-root/WinGet/Packages/tool/package.exe",
+      "ageDays": 30,
+      "sizeBytes": 128,
+      "expect": "preserved"
+    },
+    {
+      "path": "cleanup-root/WhatsApp/session.db",
+      "ageDays": 30,
+      "sizeBytes": 128,
+      "expect": "preserved"
+    }
+  ]
+}
