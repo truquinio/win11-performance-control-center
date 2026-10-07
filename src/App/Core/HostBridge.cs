@@ -157,8 +157,8 @@ public sealed class HostBridge : IDisposable
             pageFileStatePath,
             powerPlanStatePath,
             serviceStartupStatePath,
-            startupEntryStatePath,
-            edgeQuarantineRoot);
+            edgeQuarantineRoot,
+            startupEntryStatePath);
         var actionPlan = new ActionPlanService(
             catalog,
             snapshot,
