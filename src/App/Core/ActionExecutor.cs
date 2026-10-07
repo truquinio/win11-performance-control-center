@@ -43,6 +43,9 @@ public sealed class ActionExecutor(
     OperationRecoveryService operationRecoveryService,
     RollbackCenterService rollbackCenterService,
     ActionPlanService actionPlanService,
+    HealthHistoryService healthHistoryService,
+    OutcomeAuditService outcomeAuditService,
+    MaintenanceAutomationService maintenanceAutomationService,
     WorkloadGuardService workloadGuardService,
     SystemHealthStateStore healthState,
     ElevatedActionClient elevatedActionClient)
@@ -276,6 +279,8 @@ public sealed class ActionExecutor(
         return action.Id switch
         {
             "system.actionplan.preview" => await ActionPlanAsync(operationId),
+            "system.healthscore.analyze" => await HealthScoreAsync(),
+            "system.changes.analyze" => await Task.Run(HealthChanges),
             "system.workload.status" => await Task.Run(WorkloadStatus),
             "system.workload.inuse" => await Task.Run(() => SetWorkloadMode("IN_USE", parameters)),
             "system.workload.auto" => await Task.Run(() => SetWorkloadMode("AUTO", parameters)),
@@ -331,6 +336,7 @@ public sealed class ActionExecutor(
             "privacy.audit" => await Task.Run(PrivacyAudit),
             "developer.audit" => await Task.Run(DeveloperAudit),
             "lab.reliability.status" => await Task.Run(ReliabilityLabStatus),
+            "lab.outcomes.status" => await Task.Run(OutcomeAudit),
             "thermal.audit" => await Task.Run(ThermalAudit),
             "thermal.power.balanced" => await PowerPlanBalancedAsync(parameters),
             "thermal.power.performance" => await PowerPlanPerformanceAsync(parameters),
@@ -341,6 +347,10 @@ public sealed class ActionExecutor(
             "explorer.restart" => await ExplorerRestartAsync(parameters),
             "backup.status" => await Task.Run(() => BackupStatus(operationId)),
             "backup.rollback.center" => await Task.Run(() => RollbackCenter(operationId)),
+            "maintenance.policy.status" => await Task.Run(MaintenancePolicyStatus),
+            "maintenance.policy.readonly" => await Task.Run(() => SetMaintenancePolicy("READ_ONLY_IDLE", parameters)),
+            "maintenance.policy.off" => await Task.Run(() => SetMaintenancePolicy("OFF", parameters)),
+            "maintenance.safe.run" => await MaintenanceSafeRunAsync(),
             _ => throw new InvalidOperationException("Action ID no implementada.")
         };
     }
@@ -355,6 +365,32 @@ public sealed class ActionExecutor(
             report.Items.Count == 0
                 ? "Plan de acción: no se detectaron tareas prioritarias con las señales rápidas disponibles."
                 : $"Plan de acción: {report.ActionableCount} acción(es) sugeridas; {report.DeferredCount} diferida(s) por modo de uso.",
+            report);
+    }
+
+    private async Task<ActionResult> HealthScoreAsync()
+    {
+        var report = await healthHistoryService.CaptureAsync();
+        return new ActionResult(
+            true,
+            false,
+            report.BaselineCreated
+                ? $"Health Score: {report.Score}/100 ({report.Band}). Se creó la primera línea base."
+                : $"Health Score: {report.Score}/100 ({report.Band}). {report.Changes.Count} cambio(s) material(es) respecto a la línea base anterior.",
+            report);
+    }
+
+    private ActionResult HealthChanges()
+    {
+        var report = healthHistoryService.ReadChanges();
+        return new ActionResult(
+            true,
+            false,
+            report.BaselineRequired
+                ? "Qué cambió: hace falta al menos una segunda captura de Health Score para comparar."
+                : report.Changes.Count == 0
+                    ? "Qué cambió: no hay cambios materiales entre las dos últimas líneas base."
+                    : $"Qué cambió: {report.Changes.Count} cambio(s) material(es) entre las dos últimas líneas base.",
             report);
     }
 
@@ -1575,6 +1611,16 @@ public sealed class ActionExecutor(
             "Developer tooling",
             developerToolingService.Analyze());
 
+    private ActionResult OutcomeAudit()
+    {
+        var report = outcomeAuditService.Analyze();
+        return new ActionResult(
+            report.ClassifiedCount == report.WriteActionCount,
+            false,
+            $"Outcome coverage: {report.CoveragePercent:F1}% de acciones WRITE clasificadas; {report.PostcheckedCount} con post-check explícito y {report.IncompleteRuns} ejecución(es) incompleta(s) observadas.",
+            report);
+    }
+
     private ActionResult ThermalAudit() =>
         AuditResultToAction(
             "Energía y temperaturas",
@@ -1594,6 +1640,47 @@ public sealed class ActionExecutor(
         AuditResultToAction(
             "Explorer",
             explorerAuditService.Analyze());
+
+    private ActionResult MaintenancePolicyStatus()
+    {
+        var status = maintenanceAutomationService.GetStatus();
+        return new ActionResult(
+            true,
+            false,
+            status.Mode == "OFF"
+                ? "Automatización segura: OFF. Es el estado por defecto."
+                : status.CanRunNow
+                    ? "Automatización segura: READ_ONLY_IDLE y el lote es elegible ahora."
+                    : "Automatización segura: READ_ONLY_IDLE, pero el lote está diferido.",
+            status);
+    }
+
+    private ActionResult SetMaintenancePolicy(
+        string mode,
+        JsonElement? parameters)
+    {
+        RequireConfirmed(
+            parameters,
+            "Confirma el cambio de política de automatización.");
+        var status = maintenanceAutomationService.SetMode(mode);
+        return new ActionResult(
+            true,
+            false,
+            mode == "OFF"
+                ? "Automatización segura desactivada."
+                : "Automatización READ_ONLY_IDLE activada. No habilita ninguna acción WRITE.",
+            status);
+    }
+
+    private async Task<ActionResult> MaintenanceSafeRunAsync()
+    {
+        var report = await maintenanceAutomationService.RunAsync();
+        return new ActionResult(
+            report.Executed,
+            false,
+            report.Message,
+            report);
+    }
 
     private ActionResult BackupStatus(string operationId)
     {
