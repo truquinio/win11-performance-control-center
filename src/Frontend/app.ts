@@ -136,7 +136,11 @@ class LocalProvider implements Provider {
     // four minutes (and an elevated helper for up to three). The UI timeout
     // must outlive those budgets or it can report a false failure while the
     // global operation interlock is still held.
-    const timeoutMs = 270000;
+    const defaultActionTimeoutMs = 270000;
+    const integrityRepairTimeoutMs = 60 * 60 * 1000;
+    const timeoutMs = id === "system.integrity.repair"
+      ? integrityRepairTimeoutMs
+      : defaultActionTimeoutMs;
     return this.request("actions.run", payload, timeoutMs);
   }
 }
@@ -296,6 +300,41 @@ class DemoProvider implements Provider {
       };
     }
 
+    if (id === "startup.services.preview") {
+      return {
+        success: true,
+        dryRun: true,
+        message: "DEMO: 1 servicio revisable y 1 protegido.",
+        data: {
+          automaticCount: 2,
+          eligibleCount: 1,
+          protectedCount: 1,
+          services: [
+            {
+              serviceName: "DemoVendorSvc",
+              displayName: "Demo Vendor Updater",
+              state: "Stopped",
+              startMode: "Auto",
+              pathName: "C:\\Program Files\\DemoVendor\\updater.exe",
+              protected: false,
+              reason: "Servicio de terceros automático y actualmente detenido.",
+              restoreAvailable: false
+            },
+            {
+              serviceName: "RpcSs",
+              displayName: "Remote Procedure Call",
+              state: "Running",
+              startMode: "Auto",
+              pathName: "C:\\Windows\\System32\\svchost.exe",
+              protected: true,
+              reason: "Servicio esencial o de infraestructura de Windows.",
+              restoreAvailable: false
+            }
+          ]
+        }
+      };
+    }
+
     if (id === "multimedia.inventory") {
       return {
         success: true,
@@ -428,11 +467,14 @@ class DemoProvider implements Provider {
 const demoCatalog: ActionDefinition[] = [
   { id: "system.health.scan", title: "Diagnóstico del sistema", description: "Obtiene una línea base segura.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "system.integrity.check", title: "Comprobar integridad de Windows", description: "Ejecuta DISM /CheckHealth en modo lectura.", category: "System", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "system.integrity.repair", title: "Reparar integridad de Windows", description: "Ejecuta DISM /RestoreHealth + SFC y verifica.", category: "System", risk: "CAUTION", requiresAdmin: true, connectivity: "OPTIONAL_ONLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "system.reliability.analyze", title: "Reliability Analyzer", description: "Correlaciona eventos de arranque y apagado.", category: "Reliability", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "memory.analyze", title: "Analizar memoria", description: "Mide presión y uso de RAM.", category: "Memory", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "memory.trim.preview", title: "Previsualizar MemoryTrim", description: "Identifica working sets altos sin modificar memoria.", category: "Memory", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "DRY_RUN" },
   { id: "memory.trim", title: "MemoryTrim seleccionado", description: "Recorta working sets sólo de procesos seleccionados.", category: "Memory", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "processIds", type: "INTEGER_ARRAY", required: true, description: "PIDs seleccionados" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "memory.pagefile.analyze", title: "Analizar archivo de paginación", description: "Lee configuración y uso del pagefile.", category: "Memory", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "memory.pagefile.capped", title: "Aplicar pagefile 4–8 GB en D:", description: "Mantiene 512 MB en C: y limita D: a 4 GB inicial / 8 GB máximo.", category: "Memory", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "memory.pagefile.restore", title: "Restaurar configuración de pagefile", description: "Restaura la configuración previa guardada.", category: "Memory", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "cpu.ecoqos.analyze", title: "Analizar EcoQoS", description: "Detecta candidatos sin aplicar cambios.", category: "CPU", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "cpu.ecoqos.apply", title: "Aplicar EcoQoS seleccionado", description: "Aplica EcoQoS sólo a procesos seleccionados.", category: "CPU", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "processIds", type: "INTEGER_ARRAY", required: true, description: "PIDs seleccionados" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "cpu.ecoqos.restore", title: "Restaurar EcoQoS", description: "Restaura el estado previo registrado.", category: "CPU", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "processIds", type: "INTEGER_ARRAY", required: true, description: "PIDs modificados" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
@@ -444,9 +486,12 @@ const demoCatalog: ActionDefinition[] = [
   { id: "disk.storage.watch", title: "Storage Watch", description: "Compara espacio libre con el baseline anterior y detecta crecimiento anormal.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "disk.hotspots.scan", title: "Buscar hotspots de disco", description: "Escaneo read-only con presupuesto temporal en unidades con poco espacio.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "disk.hibernate.status", title: "Estado de hibernación", description: "Consulta estados disponibles con powercfg.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "disk.hibernate.reduce", title: "Hibernación reducida", description: "Con UAC; conserva inicio rápido, deshabilita hibernación completa.", category: "Storage", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE" },
+  { id: "disk.hibernate.reduce", title: "Hibernación reducida", description: "Con UAC; conserva inicio rápido, deshabilita hibernación completa.", category: "Storage", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "network.test", title: "Analizar red", description: "Mide el adaptador activo.", category: "Network", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "network.flushdns", title: "Vaciar caché DNS", description: "Vacía la caché DNS local.", category: "Network", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "network.winsock.reset", title: "Restablecer Winsock", description: "Restablece Winsock; puede requerir reinicio.", category: "Network", risk: "EXPLICIT_CONFIRMATION", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "drivers.analyze", title: "Analizar drivers", description: "Detecta dispositivos con códigos de problema.", category: "Drivers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "drivers.rescan", title: "Reescanear hardware", description: "Pide a Plug and Play que vuelva a detectar dispositivos.", category: "Drivers", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "system.activation.analyze", title: "Comprobar activación", description: "Lee el estado de licencia de Windows.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "browsers.inventory", title: "Inventario de navegadores", description: "Detecta navegadores y perfiles locales.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "browsers.extensions.health", title: "Integridad de extensiones Edge", description: "Explica qué está correcto, qué son residuos y qué requiere reparación.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
@@ -454,16 +499,25 @@ const demoCatalog: ActionDefinition[] = [
   { id: "browsers.extensions.orphans.quarantine", title: "Poner residuos en cuarentena", description: "Con Edge cerrado, mueve residuos a una cuarentena reversible.", category: "Browsers", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "browsers.extensions.orphans.restore", title: "Restaurar última cuarentena Edge", description: "Devuelve los datos del último lote a su ubicación original.", category: "Browsers", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "multimedia.inventory", title: "Inventario multimedia", description: "Enumera dispositivos de audio y vídeo.", category: "Multimedia", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "multimedia.audio.restart", title: "Reiniciar audio de Windows", description: "Reinicia Windows Audio y verifica dispositivos.", category: "Multimedia", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "startup.audit", title: "Auditar inicio y servicios", description: "Enumera inicio y servicios automáticos.", category: "Startup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "startup.services.preview", title: "Revisar servicios automáticos", description: "Clasifica servicios protegidos y revisables.", category: "Startup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "startup.service.setmode", title: "Cambiar inicio de servicio", description: "Cambia Manual/Disabled solo sobre servicios revisables.", category: "Startup", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "serviceName", type: "STRING", required: true, description: "Servicio exacto" }, { name: "targetMode", type: "STRING", required: true, description: "Manual o Disabled" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "startup.service.restore", title: "Restaurar inicio de servicio", description: "Restaura StartMode guardado.", category: "Startup", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "serviceName", type: "STRING", required: true, description: "Servicio exacto" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "windows.update.audit", title: "Auditar Windows Update", description: "Resume eventos recientes de Windows Update.", category: "WindowsUpdate", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "windows.update.services.restart", title: "Reiniciar servicios de Windows Update", description: "Reinicia BITS y Windows Update sin borrar historial.", category: "WindowsUpdate", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "apps.inventory", title: "Inventario de aplicaciones", description: "Enumera aplicaciones instaladas.", category: "Apps", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "privacy.audit", title: "Auditar privacidad", description: "Lee configuraciones seleccionadas sin modificarlas.", category: "Privacy", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "developer.audit", title: "Auditar developer tooling", description: "Detecta toolchains y versiones.", category: "Developer", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "lab.reliability.status", title: "Reliability Lab", description: "Verifica regresiones históricas y barreras de seguridad sin tocar el Windows real.", category: "Developer", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "thermal.audit", title: "Auditar energía y temperaturas", description: "Lee plan de energía y sensores disponibles.", category: "Thermal", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "thermal.power.balanced", title: "Usar plan Equilibrado", description: "Activa Equilibrado y guarda rollback.", category: "Thermal", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "thermal.power.performance", title: "Usar Alto rendimiento", description: "Activa Alto rendimiento; aumenta consumo/temperatura.", category: "Thermal", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "thermal.power.restore", title: "Restaurar plan de energía", description: "Restaura el plan anterior guardado.", category: "Thermal", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "boot.audit", title: "Auditar arranque", description: "Lee eventos de rendimiento de arranque.", category: "Boot", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "sleepresume.audit", title: "Auditar suspensión/reanudación", description: "Construye timeline de sleep/resume.", category: "SleepResume", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "explorer.audit", title: "Auditar Explorer", description: "Mide memoria, threads y respuesta.", category: "Explorer", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "explorer.restart", title: "Reiniciar Explorer", description: "Reinicia explorer.exe y verifica que vuelva.", category: "Explorer", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "backup.status", title: "Estado de backup y rollback", description: "Detecta operaciones incompletas y snapshots.", category: "Backup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" }
 ];
 
@@ -583,13 +637,13 @@ const moduleDefinitions: Record<string, {
     kicker: "SISTEMA",
     title: "Estado y fiabilidad",
     description: "Evidencia de Windows, reinicios y señales de mantenimiento.",
-    actionIds: ["system.health.scan", "system.integrity.check", "system.reliability.analyze", "drivers.analyze", "system.activation.analyze"]
+    actionIds: ["system.health.scan", "system.integrity.check", "system.integrity.repair", "system.reliability.analyze", "drivers.analyze", "drivers.rescan", "system.activation.analyze"]
   },
   network: {
     kicker: "RED",
     title: "Conectividad",
-    description: "Estado del adaptador activo y tráfico medido localmente.",
-    actionIds: ["network.test"]
+    description: "Diagnóstico y reparación controlada de conectividad local.",
+    actionIds: ["network.test", "network.flushdns", "network.winsock.reset"]
   },
   browsers: {
     kicker: "NAVEGADORES",
@@ -600,14 +654,14 @@ const moduleDefinitions: Record<string, {
   multimedia: {
     kicker: "MULTIMEDIA",
     title: "Audio y vídeo",
-    description: "Inventario de dispositivos multimedia registrados por Windows.",
-    actionIds: ["multimedia.inventory"]
+    description: "Inventario multimedia y reinicio controlado del subsistema de audio.",
+    actionIds: ["multimedia.inventory", "multimedia.audio.restart"]
   },
   memory: {
     kicker: "MEMORIA",
     title: "RAM",
-    description: "Presión de memoria, pagefile y selección segura antes de MemoryTrim.",
-    actionIds: ["memory.analyze", "memory.trim.preview", "memory.pagefile.analyze"]
+    description: "Presión de memoria, MemoryTrim y pagefile limitado a un máximo razonable con rollback.",
+    actionIds: ["memory.analyze", "memory.trim.preview", "memory.pagefile.analyze", "memory.pagefile.capped", "memory.pagefile.restore"]
   },
   cpu: {
     kicker: "CPU / ECOQOS",
@@ -618,26 +672,26 @@ const moduleDefinitions: Record<string, {
   startup: {
     kicker: "INICIO",
     title: "Inicio y servicios",
-    description: "Auditoría read-only de elementos de inicio y servicios automáticos.",
-    actionIds: ["startup.audit"]
+    description: "Audita inicio y permite ajustar servicios de terceros con protección y rollback.",
+    actionIds: ["startup.audit", "startup.services.preview"]
   },
   integrity: {
     kicker: "INTEGRIDAD",
     title: "Integridad de Windows",
-    description: "Comprobaciones de salud del sistema y del almacén de componentes.",
-    actionIds: ["system.health.scan", "system.integrity.check"]
+    description: "Comprueba, repara y verifica la integridad de Windows.",
+    actionIds: ["system.health.scan", "system.integrity.check", "system.integrity.repair"]
   },
   drivers: {
     kicker: "HARDWARE",
     title: "Drivers y hardware",
-    description: "Dispositivos con códigos de problema reportados por Windows.",
-    actionIds: ["drivers.analyze"]
+    description: "Detecta problemas y permite reescanear Plug and Play sin instalar drivers arbitrarios.",
+    actionIds: ["drivers.analyze", "drivers.rescan"]
   },
   "windows-update": {
     kicker: "WINDOWS UPDATE",
     title: "Actualizaciones",
-    description: "Eventos y estado reciente de Windows Update.",
-    actionIds: ["windows.update.audit"]
+    description: "Audita Windows Update y permite reiniciar sus servicios sin borrar historial.",
+    actionIds: ["windows.update.audit", "windows.update.services.restart"]
   },
   apps: {
     kicker: "APLICACIONES",
@@ -666,14 +720,14 @@ const moduleDefinitions: Record<string, {
   thermal: {
     kicker: "ENERGÍA / TEMPERATURAS",
     title: "Energía y sensores",
-    description: "Plan de energía y temperaturas expuestas por ACPI o hardware compatible.",
-    actionIds: ["thermal.audit"]
+    description: "Observa temperaturas y permite cambiar el plan de energía con rollback.",
+    actionIds: ["thermal.audit", "thermal.power.balanced", "thermal.power.performance", "thermal.power.restore"]
   },
   diagnostics: {
     kicker: "DIAGNÓSTICO AVANZADO",
     title: "Arranque, suspensión y Explorer",
-    description: "Auditorías técnicas read-only para diagnosticar comportamiento del sistema.",
-    actionIds: ["boot.audit", "sleepresume.audit", "explorer.audit"]
+    description: "Diagnóstico avanzado y reparación controlada de Explorer cuando corresponde.",
+    actionIds: ["boot.audit", "sleepresume.audit", "explorer.audit", "explorer.restart"]
   },
   activation: {
     kicker: "ACTIVACIÓN",
@@ -880,10 +934,18 @@ function renderModuleView(view: string): void {
     const button = document.createElement("button");
     button.className = "btn btn-primary";
     button.dataset.action = action.id;
-    const hasRequiredParameters = Boolean(
-      action.parameters?.some(parameter => parameter.required));
-    button.textContent = hasRequiredParameters && action.mode === "WRITE"
-      ? "Desde análisis previo"
+    const requiredParameters =
+      action.parameters?.filter(parameter => parameter.required) ?? [];
+    const selectionParameters = requiredParameters.filter(
+      parameter => parameter.name !== "confirmed");
+    const hasRequiredParameters = requiredParameters.length > 0;
+    const needsSelection = selectionParameters.length > 0;
+    button.textContent = action.mode === "WRITE"
+      ? needsSelection
+        ? "Desde análisis previo"
+        : action.requiresAdmin
+          ? "Aplicar (UAC)"
+          : "Aplicar"
       : action.requiresAdmin
         ? "Solicitar UAC"
         : action.mode === "READ" ? "Analizar" : "Previsualizar";
@@ -901,11 +963,26 @@ function renderModuleView(view: string): void {
       button.title = "Conserva Inicio rápido, pero deshabilita la hibernación completa.";
       button.addEventListener("click", () => {
         if (!window.confirm("¿Reducir hiberfil.sys? Se conserva Inicio rápido, pero ya no podrás hibernar completamente. Windows solicitará UAC.")) return;
-        void runAction(action.id, button);
+        void runAction(action.id, button, { confirmed: true });
       });
-    } else if (hasRequiredParameters && action.mode === "WRITE") {
+    } else if (needsSelection && action.mode === "WRITE") {
       button.disabled = true;
       button.title = "Primero ejecutá el análisis que genera una selección segura.";
+    } else if (action.mode === "WRITE") {
+      button.addEventListener("click", () => {
+        const warning = action.risk === "EXPLICIT_CONFIRMATION"
+          ? "Este cambio puede requerir reinicio o afectar temporalmente la conectividad."
+          : action.reversible
+            ? "La app guardará rollback cuando la acción lo soporte."
+            : "La app verificará el resultado después de aplicar el cambio.";
+        if (!window.confirm(
+          action.title + "\n\n" + action.description + "\n\n" +
+          warning + "\n\n¿Continuar?"
+        )) return;
+        void runAction(action.id, button, hasRequiredParameters
+          ? { confirmed: true }
+          : {});
+      });
     } else {
       button.addEventListener("click", () => runAction(action.id, button));
     }
@@ -1180,6 +1257,100 @@ function createEcoQosRollback(
   return controls;
 }
 
+function createServiceStartupControls(
+  services: Record<string, unknown>[]
+): HTMLElement {
+  const host = document.createElement("div");
+  host.className = "process-selection";
+
+  const wrap = document.createElement("div");
+  wrap.className = "result-table-wrap";
+  const table = document.createElement("table");
+  const head = table.createTHead().insertRow();
+  for (const header of ["Servicio", "Estado", "Clasificación", "Motivo", "Acciones"]) {
+    const cell = document.createElement("th");
+    cell.textContent = header;
+    head.append(cell);
+  }
+
+  const body = table.createTBody();
+  for (const service of services) {
+    const row = body.insertRow();
+    const protectedService = service.protected === true;
+    const serviceName = String(service.serviceName ?? "");
+    const displayName = String(service.displayName ?? serviceName);
+
+    for (const value of [
+      displayName,
+      displayValue(service.state),
+      protectedService ? "Protegido" : "Revisable",
+      displayValue(service.reason)
+    ]) {
+      const cell = row.insertCell();
+      cell.textContent = value;
+    }
+
+    const actions = row.insertCell();
+    actions.className = "inline-actions";
+    if (protectedService || !serviceName) {
+      actions.textContent = "Sin cambios automáticos";
+      continue;
+    }
+
+    const manual = document.createElement("button");
+    manual.className = "btn btn-small";
+    manual.textContent = "Manual";
+    manual.addEventListener("click", () => {
+      if (!window.confirm(
+        displayName +
+        "\n\nCambiar inicio de Automático a Manual. " +
+        "El servicio que ya esté ejecutándose NO se detendrá ahora. ¿Continuar?"
+      )) return;
+      void runAction(
+        "startup.service.setmode",
+        manual,
+        { serviceName, targetMode: "Manual", confirmed: true });
+    });
+
+    const disable = document.createElement("button");
+    disable.className = "btn btn-small";
+    disable.textContent = "Deshabilitar";
+    disable.addEventListener("click", () => {
+      if (!window.confirm(
+        displayName +
+        "\n\nDESHABILITAR el inicio del servicio. " +
+        "No se forzará su cierre ahora y habrá rollback del StartMode. ¿Continuar?"
+      )) return;
+      void runAction(
+        "startup.service.setmode",
+        disable,
+        { serviceName, targetMode: "Disabled", confirmed: true });
+    });
+
+    actions.append(manual, disable);
+
+    if (service.restoreAvailable === true) {
+      const restore = document.createElement("button");
+      restore.className = "btn btn-small";
+      restore.textContent = "Restaurar";
+      restore.addEventListener("click", () => {
+        if (!window.confirm(
+          "¿Restaurar el modo de inicio guardado para " + displayName + "?"
+        )) return;
+        void runAction(
+          "startup.service.restore",
+          restore,
+          { serviceName, confirmed: true });
+      });
+      actions.append(restore);
+    }
+  }
+
+  wrap.append(table);
+  host.append(wrap);
+  return host;
+}
+
 function renderStructuredResult(  actionId: string,
   data: Record<string, unknown> | null,
   content: HTMLElement
@@ -1198,6 +1369,27 @@ function renderStructuredResult(  actionId: string,
       pre.className = "result-pre";
       pre.textContent = data.output;
       content.append(pre);
+    }
+    if (data.status === "REPAIRABLE") {
+      const controls = document.createElement("div");
+      controls.className = "result-actions";
+      const note = document.createElement("span");
+      note.textContent = "Windows informó corrupción reparable. DISM /RestoreHealth + SFC puede tardar bastante.";
+      const repair = document.createElement("button");
+      repair.className = "btn btn-primary";
+      repair.textContent = "Reparar y verificar (UAC)";
+      repair.addEventListener("click", () => {
+        if (!window.confirm(
+          "¿Ejecutar DISM /RestoreHealth y después SFC /scannow? " +
+          "La operación puede tardar varios minutos."
+        )) return;
+        void runAction(
+          "system.integrity.repair",
+          repair,
+          { confirmed: true });
+      });
+      controls.append(note, repair);
+      content.append(controls);
     }
     return;
   }
@@ -1220,6 +1412,19 @@ function renderStructuredResult(  actionId: string,
           displayValue(item.manufacturer)
         ])
       ));
+      const controls = document.createElement("div");
+      controls.className = "result-actions";
+      const note = document.createElement("span");
+      note.textContent = "Primero reescanea Plug and Play. La app no instalará un driver arbitrario.";
+      const rescan = document.createElement("button");
+      rescan.className = "btn btn-primary";
+      rescan.textContent = "Reescanear hardware (UAC)";
+      rescan.addEventListener("click", () => {
+        if (!window.confirm("¿Pedir a Windows que vuelva a detectar el hardware?")) return;
+        void runAction("drivers.rescan", rescan, { confirmed: true });
+      });
+      controls.append(note, rescan);
+      content.append(controls);
     }
     return;
   }
@@ -1469,6 +1674,24 @@ function renderStructuredResult(  actionId: string,
     return;
   }
 
+  if (actionId === "startup.services.preview") {
+    const services = asArray(data.services)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+    content.append(createResultGrid([
+      ["Automáticos", displayValue(data.automaticCount)],
+      ["Revisables", displayValue(data.eligibleCount)],
+      ["Protegidos", displayValue(data.protectedCount)],
+      ["Política", "Fail-closed"],
+      ["Cambio seguro", "Manual antes que Disabled"],
+      ["Rollback", "StartMode guardado"]
+    ]));
+    if (services.length) {
+      content.append(createServiceStartupControls(services));
+    }
+    return;
+  }
+
   if (actionId === "multimedia.inventory") {
     const devices = asArray(data.devices)
       .map(asRecord)
@@ -1492,13 +1715,16 @@ function renderStructuredResult(  actionId: string,
       ["Administración", data.automaticallyManaged === true
         ? "Automática" : data.automaticallyManaged === false ? "Manual" : "No determinada"],
       ["Pagefiles", String(entries.length)],
-      ["Modo", "Read-only"]
+      ["Perfil recomendado", "C: 512 MB + D: 4096–8192 MB"],
+      ["Techo recomendado", "8 GB en D: (< 10 GB)"]
     ]));
     if (entries.length) {
       content.append(createResultTable(
-        ["Archivo", "Asignado", "Uso actual", "Pico"],
+        ["Archivo", "Inicial", "Máximo", "Asignado", "Uso actual", "Pico"],
         entries.map(item => [
           displayValue(item.name),
+          typeof item.initialSizeMb === "number" ? item.initialSizeMb + " MB" : "—",
+          typeof item.maximumSizeMb === "number" ? item.maximumSizeMb + " MB" : "—",
           typeof item.allocatedMb === "number" ? item.allocatedMb + " MB" : "—",
           typeof item.currentUsageMb === "number" ? item.currentUsageMb + " MB" : "—",
           typeof item.peakUsageMb === "number" ? item.peakUsageMb + " MB" : "—"

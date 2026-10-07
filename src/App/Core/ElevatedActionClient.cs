@@ -10,10 +10,12 @@ namespace Win11PerformanceControlCenter.App.Core;
 
 public sealed class ElevatedActionClient
 {
-    private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan DefaultTimeout = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan RepairTimeout = TimeSpan.FromMinutes(55);
 
     public async Task<ActionResult> ExecuteAsync(
         ActionDefinition action,
+        JsonElement? parameters = null,
         CancellationToken cancellationToken = default)
     {
         if (!action.RequiresAdmin)
@@ -51,6 +53,24 @@ public sealed class ElevatedActionClient
             ElevatedActionProtocol.TokenFlag);
         startInfo.ArgumentList.Add(token.ToString("N"));
 
+        if (parameters is { ValueKind: JsonValueKind.Object } supplied &&
+            supplied.EnumerateObject().Any())
+        {
+            var raw = supplied.GetRawText();
+            var encoded = Convert.ToBase64String(
+                Encoding.UTF8.GetBytes(raw));
+            if (encoded.Length >
+                ElevatedActionProtocol.MaxEncodedParametersLength)
+            {
+                throw new InvalidOperationException(
+                    "Los parámetros elevados exceden el tamaño permitido.");
+            }
+
+            startInfo.ArgumentList.Add(
+                ElevatedActionProtocol.ParametersFlag);
+            startInfo.ArgumentList.Add(encoded);
+        }
+
         using var process = new Process { StartInfo = startInfo };
 
         try
@@ -84,7 +104,13 @@ public sealed class ElevatedActionClient
         using var timeoutCts =
             CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken);
-        timeoutCts.CancelAfter(Timeout);
+        timeoutCts.CancelAfter(
+            string.Equals(
+                action.Id,
+                "system.integrity.repair",
+                StringComparison.Ordinal)
+                ? RepairTimeout
+                : DefaultTimeout);
 
         try
         {

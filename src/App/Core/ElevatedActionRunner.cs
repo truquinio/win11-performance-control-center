@@ -9,7 +9,8 @@ public static class ElevatedActionRunner
 {
     public static async Task<int> RunAsync(
         string actionId,
-        Guid token)
+        Guid token,
+        string? parametersBase64 = null)
     {
         try
         {
@@ -37,15 +38,25 @@ public static class ElevatedActionRunner
                     throw new InvalidOperationException(
                         "La acción solicitada no pertenece al boundary elevado.");
 
+                JsonElement? parameters = DecodeParameters(
+                    parametersBase64);
+
                 using var bridge = HostBridge.CreateDefault();
                 var requestId = token.ToString("N");
+                var payload = new Dictionary<string, object?>
+                {
+                    ["id"] = action.Id
+                };
+                if (parameters is JsonElement supplied)
+                    payload["parameters"] = supplied;
+
                 var request = JsonSerializer.Serialize(
                     new
                     {
                         type = "request",
                         requestId,
                         method = "actions.run",
-                        payload = new { id = action.Id }
+                        payload
                     },
                     HostBridge.JsonOptions);
                 response = await bridge.HandleAsync(request);
@@ -77,4 +88,41 @@ public static class ElevatedActionRunner
             return 2;
         }
     }
+    private static JsonElement? DecodeParameters(
+        string? parametersBase64)
+    {
+        if (string.IsNullOrWhiteSpace(parametersBase64))
+            return null;
+
+        if (parametersBase64.Length >
+            ElevatedActionProtocol.MaxEncodedParametersLength)
+        {
+            throw new InvalidOperationException(
+                "Parámetros elevados demasiado grandes.");
+        }
+
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(parametersBase64);
+        }
+        catch (FormatException ex)
+        {
+            throw new InvalidOperationException(
+                "Parámetros elevados mal codificados.",
+                ex);
+        }
+
+        if (bytes.Length > 16 * 1024)
+            throw new InvalidOperationException(
+                "Payload elevado demasiado grande.");
+
+        using var document = JsonDocument.Parse(bytes);
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException(
+                "Los parámetros elevados deben ser un objeto JSON.");
+
+        return document.RootElement.Clone();
+    }
+
 }

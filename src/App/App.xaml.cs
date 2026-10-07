@@ -41,13 +41,17 @@ public partial class App : Application
             if (!ElevatedActionProtocol.TryParse(
                     e.Args,
                     out var actionId,
-                    out var token))
+                    out var token,
+                    out var parametersBase64))
             {
                 Shutdown(3);
                 return;
             }
 
-            _ = RunElevatedAndExitAsync(actionId, token);
+            _ = RunElevatedAndExitAsync(
+                actionId,
+                token,
+                parametersBase64);
             return;
         }
 
@@ -157,14 +161,16 @@ public partial class App : Application
 
     private async Task RunElevatedAndExitAsync(
         string actionId,
-        Guid token)
+        Guid token,
+        string? parametersBase64)
     {
         var exitCode = 2;
         try
         {
             exitCode = await ElevatedActionRunner.RunAsync(
                 actionId,
-                token);
+                token,
+                parametersBase64);
         }
         catch
         {
