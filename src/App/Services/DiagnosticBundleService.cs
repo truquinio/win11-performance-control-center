@@ -345,7 +345,7 @@ public sealed class DiagnosticBundleService
                 generatedAt,
                 zipPath,
                 info.Length,
-                9,
+                10,
                 true,
                 "Bundle diagnóstico sanitizado creado localmente.");
         }
