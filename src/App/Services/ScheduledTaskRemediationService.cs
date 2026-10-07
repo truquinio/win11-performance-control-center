@@ -340,7 +340,7 @@ public sealed class ScheduledTaskRemediationService
                         fullName,
                         name,
                         path,
-                        Convert.ToString(item["State"]) ?? "Unknown",
+                        NormalizeTaskState(item["State"]),
                         action.Execute,
                         action.Arguments));
                 }
@@ -372,16 +372,68 @@ public sealed class ScheduledTaskRemediationService
             if (action is not ManagementBaseObject item)
                 continue;
 
-            var execute = Convert.ToString(item["Execute"]);
+            var executeProperty = item.Properties
+                .Cast<PropertyData>()
+                .FirstOrDefault(property =>
+                    property.Name.Equals(
+                        "Execute",
+                        StringComparison.OrdinalIgnoreCase));
+            var execute = Convert.ToString(
+                executeProperty?.Value);
             if (string.IsNullOrWhiteSpace(execute))
                 continue;
 
+            var argumentsProperty = item.Properties
+                .Cast<PropertyData>()
+                .FirstOrDefault(property =>
+                    property.Name.Equals(
+                        "Arguments",
+                        StringComparison.OrdinalIgnoreCase));
+
             return (
                 execute,
-                Convert.ToString(item["Arguments"]));
+                Convert.ToString(
+                    argumentsProperty?.Value));
         }
 
         return (null, null);
+    }
+
+    private static string NormalizeTaskState(object? raw)
+    {
+        if (raw is null)
+            return "Unknown";
+
+        if (raw is string text &&
+            !int.TryParse(text, out _))
+        {
+            return text.Trim() switch
+            {
+                "Unknown" => "Unknown",
+                "Disabled" => "Disabled",
+                "Queued" => "Queued",
+                "Ready" => "Ready",
+                "Running" => "Running",
+                _ => text.Trim()
+            };
+        }
+
+        try
+        {
+            return Convert.ToInt32(raw) switch
+            {
+                0 => "Unknown",
+                1 => "Disabled",
+                2 => "Queued",
+                3 => "Ready",
+                4 => "Running",
+                _ => "Unknown"
+            };
+        }
+        catch
+        {
+            return "Unknown";
+        }
     }
 
     private TaskProtection Classify(
