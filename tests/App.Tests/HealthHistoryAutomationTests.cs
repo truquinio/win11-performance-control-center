@@ -173,6 +173,40 @@ public sealed class HealthHistoryAutomationTests
     }
 
     [Fact]
+    public async Task HealthHistory_CorruptPrimary_FallsBackToDurableBackup()
+    {
+        using var root = new TestDataRoot();
+        var path = Path.Combine(root.Path, "health-history.json");
+        var snapshot = Snapshot(
+            cpu: 10,
+            memoryUsedPercent: 40,
+            systemFreePercent: 40,
+            integrity: "OK",
+            drivers: "OK",
+            rebootRequired: false);
+        var storage = Storage(
+            ("C:\\", 40d, "OK"),
+            ("D:\\", 50d, "OK"));
+
+        var service = new HealthHistoryService(
+            path,
+            () => Task.FromResult(snapshot),
+            () => Task.FromResult(storage),
+            _ => Task.FromResult<IReadOnlyList<ReliabilityEventDto>>([]));
+
+        await service.CaptureAsync();
+        await service.CaptureAsync();
+
+        Assert.True(File.Exists(path + ".bak"));
+        File.WriteAllText(path, "{corrupt");
+
+        var recovered = service.ReadChanges();
+
+        Assert.True(recovered.BaselineRequired);
+        Assert.Single(recovered.Trend);
+    }
+
+    [Fact]
     [Trait("Layer", "RealWorldEval")]
     public async Task HostBridge_AutomationDefaultsOff_AndRunsOnlyReadOnlyWhenOptedIn()
     {
