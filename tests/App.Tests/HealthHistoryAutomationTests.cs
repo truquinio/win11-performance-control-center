@@ -213,13 +213,10 @@ public sealed class HealthHistoryAutomationTests
         var report = Assert.IsType<MaintenanceRunReport>(run.Data);
         Assert.True(report.Executed);
         Assert.Equal(8, report.Items.Count);
+        var catalog = new ActionCatalog();
         Assert.DoesNotContain(
             report.Policy.FixedReadOnlyScope,
-            actionId => new ActionCatalog()
-                .GetRequired(actionId == "system.health.snapshot"
-                    ? "system.health.scan"
-                    : actionId)
-                .Mode == ActionMode.WRITE);
+            actionId => catalog.GetRequired(actionId).Mode == ActionMode.WRITE);
     }
 
     [Fact]
