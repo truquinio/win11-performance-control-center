@@ -194,6 +194,8 @@ const expression = String.raw`
   }
 
   const developerButtons = [...document.querySelectorAll(".developer-nav")].filter(visible);
+  // Browser tests explicitly approve the safe cleanup confirmation dialog.
+  window.confirm = () => true;
   let moduleButtonsSeen = 0;
   let moduleActionsExecuted = 0;
   for (const button of developerButtons) {

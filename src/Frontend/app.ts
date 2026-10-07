@@ -206,6 +206,9 @@ class DemoProvider implements Provider {
       };
     }
 
+    if (id === "disk.cleanup.execute") {
+      return { success: true, dryRun: false, message: "DEMO: limpieza simulada; no se elimina ningún archivo.", data: { deletedBytes: 0, deletedFiles: 0, failedFiles: 0 } };
+    }
     if (id === "disk.scan" || id === "disk.cleanup.safe") {
       return {
         success: true,
@@ -435,6 +438,10 @@ const demoCatalog: ActionDefinition[] = [
   { id: "cpu.ecoqos.restore", title: "Restaurar EcoQoS", description: "Restaura el estado previo registrado.", category: "CPU", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "processIds", type: "INTEGER_ARRAY", required: true, description: "PIDs modificados" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "disk.scan", title: "Analizar almacenamiento", description: "Calcula espacio y temporales.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "disk.cleanup.safe", title: "Limpieza segura", description: "Dry-run del pipeline de limpieza.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "DRY_RUN" },
+  { id: "disk.cleanup.execute", title: "Eliminar cachés regenerables", description: "Solo después de la previsualización y una confirmación explícita.", category: "Storage", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "disk.appdata.rank", title: "Ranking de AppData Local", description: "Tamaños por carpeta, nunca borra programas ni datos.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "disk.hibernate.status", title: "Estado de hibernación", description: "Consulta estados disponibles con powercfg.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "disk.hibernate.reduce", title: "Hibernación reducida", description: "Con UAC; conserva inicio rápido, deshabilita hibernación completa.", category: "Storage", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE" },
   { id: "network.test", title: "Analizar red", description: "Mide el adaptador activo.", category: "Network", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "drivers.analyze", title: "Analizar drivers", description: "Detecta dispositivos con códigos de problema.", category: "Drivers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "system.activation.analyze", title: "Comprobar activación", description: "Lee el estado de licencia de Windows.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
@@ -463,6 +470,7 @@ let currentSnapshot: SystemSnapshot | null = null;
 let currentCatalog: ActionDefinition[] = [];
 let currentReliabilityEvents: ReliabilityEvent[] = [];
 let recoverableBytes: number | null = null;
+let cleanupPreviewReady = false;
 let latestTemperatureCelsius: number | null = null;
 let latestTemperatureSensor = "Sensor no expuesto";
 let activeView = "dashboard";
@@ -562,7 +570,7 @@ const moduleDefinitions: Record<string, {
     kicker: "LIMPIEZA",
     title: "Almacenamiento seguro",
     description: "Análisis y previsualización de espacio recuperable sin borrar archivos.",
-    actionIds: ["disk.scan", "disk.cleanup.safe"]
+    actionIds: ["disk.scan", "disk.cleanup.safe", "disk.cleanup.execute", "disk.appdata.rank", "disk.hibernate.status", "disk.hibernate.reduce"]
   },
   system: {
     kicker: "SISTEMA",
@@ -860,7 +868,23 @@ function renderModuleView(view: string): void {
       : action.requiresAdmin
         ? "Solicitar UAC"
         : action.mode === "READ" ? "Analizar" : "Previsualizar";
-    if (hasRequiredParameters && action.mode === "WRITE") {
+    if (action.id === "disk.cleanup.execute") {
+      button.textContent = "Limpiar (confirmar)";
+      button.disabled = !cleanupPreviewReady;
+      button.title = cleanupPreviewReady ? "Limpiar solo cachés antiguas, con confirmación." : "Primero previsualizá la limpieza.";
+      button.addEventListener("click", () => {
+        if (!cleanupPreviewReady) return;
+        if (!window.confirm("¿Eliminar únicamente cachés regenerables con más de 7 días?\nNo se tocarán sesiones, extensiones instaladas, WhatsApp ni documentos.")) return;
+        void runAction(action.id, button, { confirmed: true });
+      });
+    } else if (action.id === "disk.hibernate.reduce") {
+      button.textContent = "Reducir (UAC)";
+      button.title = "Conserva Inicio rápido, pero deshabilita la hibernación completa.";
+      button.addEventListener("click", () => {
+        if (!window.confirm("¿Reducir hiberfil.sys? Se conserva Inicio rápido, pero ya no podrás hibernar completamente. Windows solicitará UAC.")) return;
+        void runAction(action.id, button);
+      });
+    } else if (hasRequiredParameters && action.mode === "WRITE") {
       button.disabled = true;
       button.title = "Primero ejecutá el análisis que genera una selección segura.";
     } else {
@@ -1848,6 +1872,12 @@ async function runAction(
   try {
     while (backgroundWork) await backgroundWork;
     const result = await provider.runAction(id, parameters);
+    if (id === "disk.cleanup.safe" && result.success) {
+      cleanupPreviewReady = true;
+      const cleanButton = document.querySelector<HTMLButtonElement>('button[data-action="disk.cleanup.execute"]');
+      if (cleanButton) { cleanButton.disabled = false; cleanButton.title = "Previsualización realizada. Confirmá para limpiar."; }
+    }
+    if (id === "disk.cleanup.execute") cleanupPreviewReady = false;
     pushActivity(id, result.message, result.success ? "ok" : "warn");
     toast(result.success ? "Acción completada" : "Acción con advertencias", result.message, result.success ? "success" : "info");
     const estimated = result.data?.estimatedBytes;
