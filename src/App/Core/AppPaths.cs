@@ -11,6 +11,9 @@ public static class AppPaths
 
     public static string Logs => Path.Combine(Root, "Logs");
     public static string State => Path.Combine(Root, "State");
+    public static string Quarantine => Path.Combine(Root, "Quarantine");
+    public static string EdgeExtensionQuarantine =>
+        Path.Combine(Quarantine, "EdgeExtensions");
     public static string WebView2UserData =>
         Path.Combine(Root, "WebView2");
 
@@ -24,6 +27,7 @@ public static class AppPaths
     {
         Directory.CreateDirectory(Logs);
         Directory.CreateDirectory(State);
+        Directory.CreateDirectory(Quarantine);
         Directory.CreateDirectory(WebView2UserData);
     }
 }

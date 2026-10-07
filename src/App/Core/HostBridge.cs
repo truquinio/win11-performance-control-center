@@ -95,7 +95,26 @@ public sealed class HostBridge : IDisposable
         var drivers = new DriverService();
         var activation = new ActivationService();
         var browsers = new BrowserInventoryService();
-        var browserExtensions = new BrowserExtensionHealthService();
+        string? edgeUserDataRoot = null;
+        string? edgeQuarantineRoot = null;
+        Func<bool>? edgeRunning = null;
+        if (evaluationRoot is not null)
+        {
+            edgeUserDataRoot = Path.Combine(evaluationRoot, "EdgeUserData");
+            edgeQuarantineRoot = Path.Combine(
+                evaluationRoot,
+                "Quarantine",
+                "EdgeExtensions");
+            Directory.CreateDirectory(Path.Combine(edgeUserDataRoot, "Default"));
+            edgeRunning = () => false;
+        }
+        var browserExtensions = new BrowserExtensionHealthService(
+            edgeUserDataRoot);
+        var browserExtensionRemediation =
+            new BrowserExtensionRemediationService(
+                edgeUserDataRoot,
+                edgeQuarantineRoot,
+                edgeRunning);
         var multimedia = new MultimediaService();
         var startup = new StartupAuditService();
         var updates = new WindowsUpdateAuditService();
@@ -125,6 +144,7 @@ public sealed class HostBridge : IDisposable
             activation,
             browsers,
             browserExtensions,
+            browserExtensionRemediation,
             multimedia,
             startup,
             updates,

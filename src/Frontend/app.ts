@@ -449,7 +449,10 @@ const demoCatalog: ActionDefinition[] = [
   { id: "drivers.analyze", title: "Analizar drivers", description: "Detecta dispositivos con códigos de problema.", category: "Drivers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "system.activation.analyze", title: "Comprobar activación", description: "Lee el estado de licencia de Windows.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "browsers.inventory", title: "Inventario de navegadores", description: "Detecta navegadores y perfiles locales.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "browsers.extensions.health", title: "Integridad de extensiones Edge", description: "Detecta datos huérfanos, código ausente y extensiones unpacked sin modificar el perfil.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "browsers.extensions.health", title: "Integridad de extensiones Edge", description: "Explica qué está correcto, qué son residuos y qué requiere reparación.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "browsers.extensions.orphans.preview", title: "Revisar residuos de extensiones", description: "Muestra datos de extensiones ya desinstaladas y cuánto espacio ocupan.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "browsers.extensions.orphans.quarantine", title: "Poner residuos en cuarentena", description: "Con Edge cerrado, mueve residuos a una cuarentena reversible.", category: "Browsers", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "browsers.extensions.orphans.restore", title: "Restaurar última cuarentena Edge", description: "Devuelve los datos del último lote a su ubicación original.", category: "Browsers", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "multimedia.inventory", title: "Inventario multimedia", description: "Enumera dispositivos de audio y vídeo.", category: "Multimedia", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "startup.audit", title: "Auditar inicio y servicios", description: "Enumera inicio y servicios automáticos.", category: "Startup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "windows.update.audit", title: "Auditar Windows Update", description: "Resume eventos recientes de Windows Update.", category: "WindowsUpdate", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
@@ -591,8 +594,8 @@ const moduleDefinitions: Record<string, {
   browsers: {
     kicker: "NAVEGADORES",
     title: "Navegadores",
-    description: "Inventario local y diagnóstico sin abrir ni modificar perfiles.",
-    actionIds: ["browsers.inventory", "browsers.extensions.health"]
+    description: "Diagnóstico comprensible de Edge con limpieza opcional y reversible de residuos.",
+    actionIds: ["browsers.inventory", "browsers.extensions.health", "browsers.extensions.orphans.preview"]
   },
   multimedia: {
     kicker: "MULTIMEDIA",
@@ -1036,6 +1039,17 @@ function renderActionResult(
     "Evidencia de la última ejecución local.";
   status.textContent = result.success ? (result.dryRun ? "DRY-RUN" : "OK") : "WARNING";
   status.className = "badge " + (result.success ? "badge-green" : "");
+  if (actionId === "browsers.extensions.health" && data) {
+    const broken = typeof data.brokenCount === "number" ? data.brokenCount : 0;
+    const residues = typeof data.dataOnlyCount === "number" ? data.dataOnlyCount : 0;
+    status.textContent = broken > 0
+      ? "REVISAR"
+      : residues > 0
+        ? "LIMPIEZA OPCIONAL"
+        : "OK";
+    status.className = "badge " +
+      (broken === 0 && residues === 0 ? "badge-green" : "");
+  }
 
   const message = document.createElement("p");
   message.className = "result-message";
@@ -1239,30 +1253,219 @@ function renderStructuredResult(  actionId: string,
     const items = asArray(data.items)
       .map(asRecord)
       .filter((item): item is Record<string, unknown> => item !== null);
+    const dataOnlyCount = typeof data.dataOnlyCount === "number" ? data.dataOnlyCount : 0;
+    const brokenCount = typeof data.brokenCount === "number" ? data.brokenCount : 0;
+    const orphanBytes = typeof data.orphanBytes === "number" ? data.orphanBytes : 0;
+    const humanStatus = brokenCount > 0
+      ? "Requiere revisión"
+      : dataOnlyCount > 0
+        ? "Limpieza opcional"
+        : "Todo correcto";
 
     content.append(createResultGrid([
-      ["Estado", displayValue(data.status)],
-      ["Perfiles", displayValue(data.profilesScanned)],
-      ["Developer Mode", data.developerMode === true
-        ? "Activo" : data.developerMode === false ? "Desactivado" : "Sin determinar"],
+      ["Resultado", humanStatus],
       ["Instaladas", displayValue(data.installedCount)],
-      ["Unpacked", displayValue(data.developerLoadedCount)],
-      ["Datos sin instalación", displayValue(data.dataOnlyCount)],
-      ["Código ausente", displayValue(data.brokenCount)]
+      ["Residuos", String(dataOnlyCount)],
+      ["Espacio de residuos", formatBytes(orphanBytes)],
+      ["Problemas reales", String(brokenCount)],
+      ["Developer Mode", data.developerMode === true
+        ? "Activo" : data.developerMode === false ? "Desactivado" : "Sin determinar"]
     ]));
 
-    if (items.length) {
+    const guidance = document.createElement("div");
+    guidance.className = "result-guidance";
+    const guidanceTitle = document.createElement("strong");
+    guidanceTitle.textContent = brokenCount > 0
+      ? "Qué requiere tu atención"
+      : dataOnlyCount > 0
+        ? "Qué significa"
+        : "Qué hacer ahora";
+    const guidanceText = document.createElement("span");
+    guidanceText.textContent = brokenCount > 0
+      ? String(brokenCount) + " extensión(es) sí tienen código o manifest ausente. No se eliminan automáticamente porque podrían ser instalaciones recuperables."
+      : dataOnlyCount > 0
+        ? String(dataOnlyCount) + " entradas son solo datos de extensiones que ya no están instaladas. No están corriendo ni consumen RAM/CPU; únicamente ocupan " + formatBytes(orphanBytes) + "."
+        : "No necesitas hacer nada. Las extensiones instaladas están íntegras.";
+    guidance.append(guidanceTitle, guidanceText);
+    content.append(guidance);
+
+    const statusInfo = (status: unknown): [string, string, string] => {
+      switch (String(status ?? "")) {
+        case "DATA_WITHOUT_INSTALLATION":
+          return ["Residuo", "Datos de una extensión ya desinstalada", "Cuarentena opcional"];
+        case "CODE_MISSING":
+          return ["Instalación rota", "Edge la registra pero faltan archivos", "Revisar en Edge"];
+        case "MANIFEST_MISSING":
+          return ["Instalación incompleta", "Existe código pero falta manifest.json", "Revisar / reinstalar"];
+        case "UNPACKED":
+          return ["Extensión local", "Cargada manualmente en modo desarrollador", "Sin acción automática"];
+        case "POLICY_REMOVED":
+          return ["Retirada por política", "Windows/Edge la retiró mediante política", "Informativo"];
+        case "STALE_METADATA":
+          return ["Metadatos antiguos", "Registro residual sin instalación activa", "Informativo"];
+        case "INSTALLED_NO_LOCAL_DATA":
+          return ["Correcta", "Instalada sin datos locales propios", "Nada"];
+        case "OK":
+          return ["Correcta", "Instalación y datos coherentes", "Nada"];
+        default:
+          return [displayValue(status), "Estado técnico sin clasificar", "Revisar"];
+      }
+    };
+
+    const relevantItems = items.filter(item =>
+      String(item.status ?? "") !== "OK" &&
+      String(item.status ?? "") !== "INSTALLED_NO_LOCAL_DATA");
+
+    if (relevantItems.length) {
       content.append(createResultTable(
-        ["Perfil", "Extensión", "Estado", "Datos", "Developer"],
-        items.map(item => [
+        ["Perfil", "Extensión", "Situación", "Qué significa", "Datos", "Qué hacer"],
+        relevantItems.map(item => {
+          const info = statusInfo(item.status);
+          const rawName = typeof item.name === "string" && item.name.trim()
+            ? item.name
+            : typeof item.extensionId === "string"
+              ? "Extensión " + item.extensionId.slice(0, 8) + "…"
+              : "Extensión";
+          return [
+            displayValue(item.profile),
+            rawName,
+            info[0],
+            info[1],
+            typeof item.dataBytes === "number" ? formatBytes(item.dataBytes) : "—",
+            info[2]
+          ];
+        })
+      ));
+    }
+
+    if (dataOnlyCount > 0) {
+      const controls = document.createElement("div");
+      controls.className = "result-actions";
+      const note = document.createElement("span");
+      note.textContent = "Primero previsualiza. La limpieza moverá residuos a cuarentena; no los borrará definitivamente.";
+      const button = document.createElement("button");
+      button.className = "btn btn-primary";
+      button.textContent = "Revisar residuos →";
+      button.addEventListener("click", () =>
+        void runAction("browsers.extensions.orphans.preview", button));
+      controls.append(note, button);
+      content.append(controls);
+    }
+    return;
+  }
+
+  if (actionId === "browsers.extensions.orphans.preview") {
+    const candidates = asArray(data.candidates)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+    const count = typeof data.candidateCount === "number" ? data.candidateCount : candidates.length;
+    const totalBytes = typeof data.totalBytes === "number" ? data.totalBytes : 0;
+    const edgeRunning = data.edgeRunning === true;
+    const restoreAvailable = data.restoreAvailable === true;
+
+    content.append(createResultGrid([
+      ["Residuos", String(count)],
+      ["Espacio", formatBytes(totalBytes)],
+      ["Edge", edgeRunning ? "Abierto" : "Cerrado"],
+      ["Acción", count > 0 ? "Cuarentena reversible" : "Nada que limpiar"],
+      ["Rollback", restoreAvailable ? "Disponible" : "Sin cuarentenas previas"],
+      ["Impacto RAM/CPU", "Ninguno: no están ejecutándose"]
+    ]));
+
+    const guidance = document.createElement("div");
+    guidance.className = "result-guidance";
+    const strong = document.createElement("strong");
+    strong.textContent = edgeRunning
+      ? "Cierra Edge para continuar"
+      : "Limpieza segura disponible";
+    const span = document.createElement("span");
+    span.textContent = edgeRunning
+      ? "No se moverá ningún dato mientras Edge esté abierto. Cierra todas sus ventanas y vuelve a ejecutar esta revisión."
+      : "Solo se moverán carpetas de Local Extension Settings que pertenecen a extensiones ya no instaladas. Puedes restaurarlas después.";
+    guidance.append(strong, span);
+    content.append(guidance);
+
+    if (candidates.length) {
+      content.append(createResultTable(
+        ["Perfil", "Extensión", "Datos", "Resultado si aplicas"],
+        candidates.map(item => [
           displayValue(item.profile),
-          displayValue(item.name ?? item.extensionId),
-          displayValue(item.status),
+          typeof item.extensionId === "string"
+            ? item.extensionId.slice(0, 8) + "…"
+            : "—",
           typeof item.dataBytes === "number" ? formatBytes(item.dataBytes) : "—",
-          item.developerLoaded === true ? "Sí" : "No"
+          "Mover a cuarentena"
         ])
       ));
     }
+
+    const controls = document.createElement("div");
+    controls.className = "result-actions";
+    const note = document.createElement("span");
+    note.textContent = count === 0
+      ? "No hay residuos que resolver."
+      : edgeRunning
+        ? "Bloqueado mientras Edge esté abierto."
+        : "No borra definitivamente; crea un lote de rollback.";
+
+    if (count > 0) {
+      const quarantine = document.createElement("button");
+      quarantine.className = "btn btn-primary";
+      quarantine.textContent = "Poner en cuarentena";
+      quarantine.disabled = edgeRunning;
+      quarantine.addEventListener("click", () => {
+        if (!window.confirm(
+          "¿Mover " + String(count) + " residuo(s) (" + formatBytes(totalBytes) + ") a cuarentena reversible?"
+        )) return;
+        void runAction(
+          "browsers.extensions.orphans.quarantine",
+          quarantine,
+          { confirmed: true });
+      });
+      controls.append(note, quarantine);
+    } else {
+      controls.append(note);
+    }
+
+    if (restoreAvailable) {
+      const restore = document.createElement("button");
+      restore.className = "btn";
+      restore.textContent = "Restaurar última cuarentena";
+      restore.disabled = edgeRunning;
+      restore.addEventListener("click", () => {
+        if (!window.confirm(
+          "¿Restaurar el último lote de residuos de Edge a su ubicación original?"
+        )) return;
+        void runAction(
+          "browsers.extensions.orphans.restore",
+          restore,
+          { confirmed: true });
+      });
+      controls.append(restore);
+    }
+    content.append(controls);
+    return;
+  }
+
+  if (actionId === "browsers.extensions.orphans.quarantine") {
+    content.append(createResultGrid([
+      ["Movidos", displayValue(data.movedCount)],
+      ["Datos", typeof data.movedBytes === "number" ? formatBytes(data.movedBytes) : "—"],
+      ["Omitidos", displayValue(data.skippedCount)],
+      ["Rollback", data.rollbackAvailable === true ? "Disponible" : "No"],
+      ["Lote", displayValue(data.batchId)],
+      ["Estado", displayValue(data.status)]
+    ]));
+    return;
+  }
+
+  if (actionId === "browsers.extensions.orphans.restore") {
+    content.append(createResultGrid([
+      ["Restaurados", displayValue(data.restoredCount)],
+      ["Datos", typeof data.restoredBytes === "number" ? formatBytes(data.restoredBytes) : "—"],
+      ["Lote", displayValue(data.batchId)],
+      ["Estado", displayValue(data.status)]
+    ]));
     return;
   }
 
