@@ -455,9 +455,9 @@ public sealed class ScheduledTaskRemediationService
         var value = string.IsNullOrWhiteSpace(path)
             ? @"\"
             : path.Trim();
-        if (!value.StartsWith('\'))
+        if (!value.StartsWith('\\'))
             value = @"\" + value;
-        if (!value.EndsWith('\'))
+        if (!value.EndsWith('\\'))
             value += @"\";
         return value;
     }
