@@ -59,8 +59,8 @@ public sealed class DiagnosticsActionabilityTests
 
         Assert.Equal(2, report.DeviceCount);
         Assert.Equal(1, report.ProblemCount);
-        var camera = Assert.Single(report.Devices.Where(item =>
-            item.RestartEligible));
+        var camera = Assert.Single(report.Devices, item =>
+            item.RestartEligible);
         Assert.Contains("Camera", camera.Name, StringComparison.Ordinal);
 
         var result = await service.RestartAsync(camera.DeviceInstanceId);
@@ -68,8 +68,8 @@ public sealed class DiagnosticsActionabilityTests
         Assert.True(result.Success);
         Assert.Equal("EVALUATION", result.Status);
 
-        var hub = Assert.Single(report.Devices.Where(item =>
-            item.Name.Contains("Root Hub", StringComparison.OrdinalIgnoreCase)));
+        var hub = Assert.Single(report.Devices, item =>
+            item.Name.Contains("Root Hub", StringComparison.OrdinalIgnoreCase));
         Assert.False(hub.RestartEligible);
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.RestartAsync(hub.DeviceInstanceId));
@@ -87,12 +87,12 @@ public sealed class DiagnosticsActionabilityTests
 
         var preview = await service.PreviewAsync();
 
-        var protectedPm2 = Assert.Single(preview.Entries.Where(item =>
-            item.Name == "PM2"));
+        var protectedPm2 = Assert.Single(preview.Entries, item =>
+            item.Name == "PM2");
         Assert.True(protectedPm2.Protected);
 
-        var vendor = Assert.Single(preview.Entries.Where(item =>
-            item.Name == "DemoVendor"));
+        var vendor = Assert.Single(preview.Entries, item =>
+            item.Name == "DemoVendor");
         Assert.False(vendor.Protected);
         Assert.True(vendor.Enabled);
 
@@ -101,8 +101,8 @@ public sealed class DiagnosticsActionabilityTests
         Assert.True(disabled.RestoreAvailable);
 
         var afterDisable = await service.PreviewAsync();
-        var disabledVendor = Assert.Single(afterDisable.Entries.Where(item =>
-            item.Name == "DemoVendor"));
+        var disabledVendor = Assert.Single(afterDisable.Entries, item =>
+            item.Name == "DemoVendor");
         Assert.False(disabledVendor.Enabled);
         Assert.True(disabledVendor.RestoreAvailable);
 
@@ -110,8 +110,8 @@ public sealed class DiagnosticsActionabilityTests
         Assert.True(restored.Success);
 
         var afterRestore = await service.PreviewAsync();
-        var restoredVendor = Assert.Single(afterRestore.Entries.Where(item =>
-            item.Name == "DemoVendor"));
+        var restoredVendor = Assert.Single(afterRestore.Entries, item =>
+            item.Name == "DemoVendor");
         Assert.True(restoredVendor.Enabled);
         Assert.False(restoredVendor.RestoreAvailable);
     }
@@ -128,8 +128,8 @@ public sealed class DiagnosticsActionabilityTests
             startupState,
             evaluationMode: true);
         var preview = await startup.PreviewAsync();
-        var vendor = Assert.Single(preview.Entries.Where(item =>
-            item.Name == "DemoVendor"));
+        var vendor = Assert.Single(preview.Entries, item =>
+            item.Name == "DemoVendor");
         await startup.DisableAsync(vendor.EntryId);
 
         var eco = new EcoQosStateStore(
@@ -148,8 +148,8 @@ public sealed class DiagnosticsActionabilityTests
 
         var report = center.Analyze();
 
-        var item = Assert.Single(report.Entries.Where(entry =>
-            entry.Id == "startup-entry:" + vendor.EntryId));
+        var item = Assert.Single(report.Entries, entry =>
+            entry.Id == "startup-entry:" + vendor.EntryId);
         Assert.Equal("startup.entry.restore", item.ActionId);
         Assert.Equal(vendor.EntryId, item.Parameters["entryId"]);
     }
@@ -172,8 +172,8 @@ public sealed class DiagnosticsActionabilityTests
         Assert.True(usb.Success);
 
         var report = Assert.IsType<UsbDiagnosticsReport>(usb.Data);
-        var device = Assert.Single(report.Devices.Where(item =>
-            item.RestartEligible));
+        var device = Assert.Single(report.Devices, item =>
+            item.RestartEligible);
 
         var blocked = await RunAsync(
             bridge,
