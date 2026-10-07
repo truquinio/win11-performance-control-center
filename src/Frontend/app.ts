@@ -401,6 +401,108 @@ class DemoProvider implements Provider {
       };
     }
 
+    if (id === "system.actionplan.preview") {
+      return {
+        success: true,
+        dryRun: false,
+        message: "DEMO: plan de acción construido.",
+        data: {
+          highPriorityCount: 1,
+          mediumPriorityCount: 1,
+          actionableCount: 2,
+          deferredCount: 1,
+          workload: {
+            configuredMode: "AUTO",
+            effectiveMode: "IN_USE",
+            idleSeconds: 42,
+            dFreePercent: 12.5,
+            storageCritical: false,
+            heavyActionsAllowed: false,
+            reason: "El equipo está en uso."
+          },
+          items: [
+            {
+              priority: "HIGH",
+              title: "Espacio bajo en D:",
+              reason: "12.5% libre.",
+              actionId: "disk.hotspots.scan",
+              mode: "READ",
+              risk: "SAFE",
+              requiresAdmin: false,
+              deferred: true,
+              deferReason: "PC en uso"
+            },
+            {
+              priority: "LOW",
+              title: "Rollbacks disponibles",
+              reason: "Hay cambios recuperables.",
+              actionId: "backup.rollback.center",
+              mode: "READ",
+              risk: "SAFE",
+              requiresAdmin: false,
+              deferred: false,
+              deferReason: null
+            }
+          ]
+        }
+      };
+    }
+
+    if (id.startsWith("system.workload.")) {
+      const configured = id.endsWith(".inuse")
+        ? "IN_USE"
+        : id.endsWith(".maintenance")
+          ? "MAINTENANCE"
+          : "AUTO";
+      return {
+        success: true,
+        dryRun: false,
+        message: "DEMO: modo de carga actualizado.",
+        data: {
+          configuredMode: configured,
+          effectiveMode: configured === "AUTO" ? "IDLE" : configured,
+          idleSeconds: 900,
+          dFreePercent: 50,
+          storageCritical: false,
+          heavyActionsAllowed: configured !== "IN_USE",
+          reason: configured === "IN_USE"
+            ? "PC protegido mientras está en uso."
+            : "Mantenimiento permitido."
+        }
+      };
+    }
+
+    if (id === "backup.rollback.center") {
+      return {
+        success: true,
+        dryRun: false,
+        message: "DEMO: 2 cambios con rollback disponible.",
+        data: {
+          incompleteOperations: [],
+          entries: [
+            {
+              id: "pagefile",
+              title: "Archivo de paginación",
+              detail: "Configuración previa guardada.",
+              actionId: "memory.pagefile.restore",
+              parameters: {},
+              requiresAdmin: true,
+              risk: "SAFE"
+            },
+            {
+              id: "power-plan",
+              title: "Plan de energía",
+              detail: "Plan anterior disponible.",
+              actionId: "thermal.power.restore",
+              parameters: {},
+              requiresAdmin: false,
+              risk: "SAFE"
+            }
+          ]
+        }
+      };
+    }
+
     if (id === "system.reliability.analyze") {
       return {
         success: true,
@@ -465,6 +567,11 @@ class DemoProvider implements Provider {
 }
 
 const demoCatalog: ActionDefinition[] = [
+  { id: "system.actionplan.preview", title: "Construir plan de acción", description: "Prioriza problemas y enlaza cada hallazgo con su acción segura.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "system.workload.status", title: "Estado PC en uso", description: "Indica si el mantenimiento pesado está permitido.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "system.workload.inuse", title: "Proteger PC en uso", description: "Bloquea tareas pesadas o disruptivas.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "system.workload.auto", title: "Volver a modo automático", description: "Decide según inactividad.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "system.workload.maintenance", title: "Permitir mantenimiento", description: "Habilita tareas pesadas de forma explícita.", category: "System", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "system.health.scan", title: "Diagnóstico del sistema", description: "Obtiene una línea base segura.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "system.integrity.check", title: "Comprobar integridad de Windows", description: "Ejecuta DISM /CheckHealth en modo lectura.", category: "System", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "system.integrity.repair", title: "Reparar integridad de Windows", description: "Ejecuta DISM /RestoreHealth + SFC y verifica.", category: "System", risk: "CAUTION", requiresAdmin: true, connectivity: "OPTIONAL_ONLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
@@ -518,6 +625,7 @@ const demoCatalog: ActionDefinition[] = [
   { id: "sleepresume.audit", title: "Auditar suspensión/reanudación", description: "Construye timeline de sleep/resume.", category: "SleepResume", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "explorer.audit", title: "Auditar Explorer", description: "Mide memoria, threads y respuesta.", category: "Explorer", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "explorer.restart", title: "Reiniciar Explorer", description: "Reinicia explorer.exe y verifica que vuelva.", category: "Explorer", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "backup.rollback.center", title: "Rollback Center", description: "Reúne todos los cambios reversibles disponibles.", category: "Backup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "backup.status", title: "Estado de backup y rollback", description: "Detecta operaciones incompletas y snapshots.", category: "Backup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" }
 ];
 
@@ -637,7 +745,7 @@ const moduleDefinitions: Record<string, {
     kicker: "SISTEMA",
     title: "Estado y fiabilidad",
     description: "Evidencia de Windows, reinicios y señales de mantenimiento.",
-    actionIds: ["system.health.scan", "system.integrity.check", "system.integrity.repair", "system.reliability.analyze", "drivers.analyze", "drivers.rescan", "system.activation.analyze"]
+    actionIds: ["system.actionplan.preview", "system.workload.status", "system.health.scan", "system.integrity.check", "system.integrity.repair", "system.reliability.analyze", "drivers.analyze", "drivers.rescan", "system.activation.analyze"]
   },
   network: {
     kicker: "RED",
@@ -739,7 +847,7 @@ const moduleDefinitions: Record<string, {
     kicker: "RECOVERY",
     title: "Backups y rollback",
     description: "Operaciones incompletas y snapshots disponibles para rollback.",
-    actionIds: ["backup.status"]
+    actionIds: ["backup.status", "backup.rollback.center"]
   },
   history: {
     kicker: "HISTORIAL",
@@ -755,9 +863,9 @@ const moduleDefinitions: Record<string, {
   },
   settings: {
     kicker: "CONFIGURACIÓN",
-    title: "Aplicación",
-    description: "Estado del runtime y principios operativos del producto.",
-    actionIds: []
+    title: "Aplicación y carga",
+    description: "Controla cuándo la app puede ejecutar mantenimiento pesado mientras usás el equipo.",
+    actionIds: ["system.workload.status", "system.workload.inuse", "system.workload.auto", "system.workload.maintenance"]
   }
 };
 
@@ -853,6 +961,18 @@ function getModuleSummary(
         ["CPU", snapshot.cpuPercent.toFixed(0) + "%", "Uso total medido"],
         ["EcoQoS", "Análisis previo", "No aplica cambios automáticamente"],
         ["Modo", "Seguro", "Selección explícita antes de WRITE"]
+      ];
+    case "backup":
+      return [
+        ["Centro", "Rollback", "Cambios reversibles en una sola vista"],
+        ["Política", "Explícita", "Nunca restaura sin confirmación"],
+        ["Evidencia", "Persistida", "Estado propio de la app"]
+      ];
+    case "settings":
+      return [
+        ["Modo", "AUTO / EN USO", "Protección de tareas pesadas"],
+        ["Mantenimiento", "Explícito", "Se habilita solo cuando lo decidís"],
+        ["Disco D:", "Guardado", "Por debajo del 3% bloquea carga pesada"]
       ];
     case "history":
       return [
@@ -1862,6 +1982,134 @@ function renderStructuredResult(  actionId: string,
       ["Drivers", "Evaluados"],
       ["Activación", "Evaluada"]
     ]));
+    return;
+  }
+
+  if (actionId === "system.actionplan.preview") {
+    const items = asArray(data.items)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+    const workload = asRecord(data.workload);
+
+    content.append(createResultGrid([
+      ["Prioridad alta", displayValue(data.highPriorityCount)],
+      ["Prioridad media", displayValue(data.mediumPriorityCount)],
+      ["Accionables", displayValue(data.actionableCount)],
+      ["Diferidas", displayValue(data.deferredCount)],
+      ["PC", workload ? displayValue(workload.effectiveMode) : "—"],
+      ["Mantenimiento pesado", workload?.heavyActionsAllowed === true ? "Permitido" : "Protegido"]
+    ]));
+
+    if (items.length) {
+      content.append(createResultTable(
+        ["Prioridad", "Hallazgo", "Motivo", "Acción", "Estado"],
+        items.map(item => [
+          displayValue(item.priority),
+          displayValue(item.title),
+          displayValue(item.reason),
+          displayValue(item.actionId ?? "Informativo"),
+          item.deferred === true ? "Diferida" : "Disponible"
+        ])
+      ));
+
+      const controls = document.createElement("div");
+      controls.className = "result-actions";
+      const actionable = items.filter(item =>
+        typeof item.actionId === "string" &&
+        item.deferred !== true);
+      for (const item of actionable.slice(0, 8)) {
+        const actionIdValue = String(item.actionId);
+        const definition = currentCatalog.find(action =>
+          action.id === actionIdValue);
+        const button = document.createElement("button");
+        button.className = "btn btn-secondary";
+        button.textContent = "Abrir · " + displayValue(item.title);
+
+        const requiredSelection = definition?.parameters?.some(parameter =>
+          parameter.required && parameter.name !== "confirmed") === true;
+        if (requiredSelection) {
+          button.disabled = true;
+          button.title = "Primero ejecutá el análisis específico que genera una selección segura.";
+        } else {
+          button.addEventListener("click", () => {
+            if (definition?.mode === "WRITE") {
+              if (!window.confirm(
+                definition.title + "\n\n" + definition.description +
+                "\n\n¿Ejecutar esta acción del plan?"
+              )) return;
+              void runAction(actionIdValue, button, { confirmed: true });
+            } else {
+              void runAction(actionIdValue, button);
+            }
+          });
+        }
+        controls.append(button);
+      }
+      if (controls.childElementCount) content.append(controls);
+    }
+    return;
+  }
+
+  if (actionId.startsWith("system.workload.")) {
+    content.append(createResultGrid([
+      ["Configurado", displayValue(data.configuredMode)],
+      ["Efectivo", displayValue(data.effectiveMode)],
+      ["Inactividad", typeof data.idleSeconds === "number"
+        ? formatDuration(data.idleSeconds) : "—"],
+      ["D: libre", typeof data.dFreePercent === "number"
+        ? Number(data.dFreePercent).toFixed(1) + "%" : "—"],
+      ["Carga pesada", data.heavyActionsAllowed === true
+        ? "Permitida" : "Protegida"],
+      ["Motivo", displayValue(data.reason)]
+    ]));
+    return;
+  }
+
+  if (actionId === "backup.rollback.center") {
+    const entries = asArray(data.entries)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+    const incomplete = asArray(data.incompleteOperations);
+
+    content.append(createResultGrid([
+      ["Rollbacks", String(entries.length)],
+      ["Operaciones incompletas", String(incomplete.length)],
+      ["Estado", incomplete.length ? "REVISAR" : entries.length ? "RECUPERABLE" : "LIMPIO"]
+    ]));
+
+    if (entries.length) {
+      content.append(createResultTable(
+        ["Cambio", "Detalle", "Acción", "UAC"],
+        entries.map(item => [
+          displayValue(item.title),
+          displayValue(item.detail),
+          displayValue(item.actionId),
+          item.requiresAdmin === true ? "Sí" : "No"
+        ])
+      ));
+
+      const controls = document.createElement("div");
+      controls.className = "result-actions";
+      for (const entry of entries.slice(0, 12)) {
+        if (typeof entry.actionId !== "string") continue;
+        const params = asRecord(entry.parameters) ?? {};
+        const button = document.createElement("button");
+        button.className = "btn btn-secondary";
+        button.textContent = "Restaurar · " + displayValue(entry.title);
+        button.addEventListener("click", () => {
+          if (!window.confirm(
+            "¿Restaurar " + displayValue(entry.title) +
+            "?\n\n" + displayValue(entry.detail)
+          )) return;
+          void runAction(
+            String(entry.actionId),
+            button,
+            { ...params, confirmed: true });
+        });
+        controls.append(button);
+      }
+      content.append(controls);
+    }
     return;
   }
 
