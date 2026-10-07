@@ -19,8 +19,8 @@ public sealed class RollbackCenterService
         string? pageFileStatePath = null,
         string? powerPlanStatePath = null,
         string? serviceStartupStatePath = null,
-        string? startupEntryStatePath = null,
-        string? edgeQuarantineRoot = null)
+        string? edgeQuarantineRoot = null,
+        string? startupEntryStatePath = null)
     {
         this.recovery = recovery;
         this.pageFileStatePath = string.IsNullOrWhiteSpace(pageFileStatePath)
