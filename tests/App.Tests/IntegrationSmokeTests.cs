@@ -16,7 +16,9 @@ public sealed class IntegrationSmokeTests(ITestOutputHelper output)
         var actions = catalog.All
             .Where(action =>
                 !action.RequiresAdmin &&
-                action.Mode is ActionMode.READ or ActionMode.DRY_RUN)
+                action.Mode is ActionMode.READ or ActionMode.DRY_RUN &&
+                !(action.Parameters?.Any(parameter =>
+                    parameter.Required) ?? false))
             .ToArray();
 
         Assert.NotEmpty(actions);

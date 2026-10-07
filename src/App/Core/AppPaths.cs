@@ -36,6 +36,10 @@ public static class AppPaths
         Path.Combine(State, "health-history.json");
     public static string MaintenancePolicyState =>
         Path.Combine(State, "maintenance-policy.json");
+    public static string ScheduledTaskState =>
+        Path.Combine(State, "scheduled-tasks.json");
+    public static string DiagnosticExports =>
+        Path.Combine(Root, "Exports");
 
     public static void EnsureDirectories()
     {
@@ -43,5 +47,6 @@ public static class AppPaths
         Directory.CreateDirectory(State);
         Directory.CreateDirectory(Quarantine);
         Directory.CreateDirectory(WebView2UserData);
+        Directory.CreateDirectory(DiagnosticExports);
     }
 }

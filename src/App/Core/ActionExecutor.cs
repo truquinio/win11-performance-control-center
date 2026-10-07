@@ -18,6 +18,7 @@ public sealed class ActionExecutor(
     StorageWatchService storageWatchService,
     ServiceStartupRemediationService serviceStartupRemediationService,
     StartupEntryRemediationService startupEntryRemediationService,
+    ScheduledTaskRemediationService scheduledTaskRemediationService,
     SystemRemediationService systemRemediationService,
     PowerPlanTuningService powerPlanTuningService,
     PageFileTuningService pageFileTuningService,
@@ -46,6 +47,8 @@ public sealed class ActionExecutor(
     HealthHistoryService healthHistoryService,
     OutcomeAuditService outcomeAuditService,
     MaintenanceAutomationService maintenanceAutomationService,
+    WindowsEvidenceService windowsEvidenceService,
+    DiagnosticBundleService diagnosticBundleService,
     WorkloadGuardService workloadGuardService,
     SystemHealthStateStore healthState,
     ElevatedActionClient elevatedActionClient)
@@ -316,6 +319,9 @@ public sealed class ActionExecutor(
             "drivers.usb.analyze" => await UsbAnalyzeAsync(),
             "drivers.usb.restart" => await UsbRestartAsync(parameters),
             "system.activation.analyze" => await ActivationAsync(),
+            "system.registry.evidence" => await Task.Run(RegistryEvidence),
+            "system.com.evidence" => await Task.Run(ComEvidence),
+            "system.certificates.audit" => await Task.Run(CertificateEvidence),
             "browsers.inventory" => await Task.Run(BrowserInventory),
             "browsers.extensions.health" => await Task.Run(BrowserExtensionHealth),
             "browsers.extensions.orphans.preview" => await Task.Run(BrowserExtensionOrphansPreview),
@@ -325,11 +331,15 @@ public sealed class ActionExecutor(
             "multimedia.audio.restart" => await AudioRestartAsync(parameters),
             "startup.audit" => await StartupAuditAsync(),
             "startup.services.preview" => await ServicesPreviewAsync(),
+            "startup.service.dependencies" => await ServiceDependenciesAsync(parameters),
             "startup.service.setmode" => await ServiceSetModeAsync(parameters),
             "startup.service.restore" => await ServiceRestoreAsync(parameters),
             "startup.entries.preview" => await StartupEntriesPreviewAsync(),
             "startup.entry.disable" => await StartupEntryDisableAsync(parameters),
             "startup.entry.restore" => await StartupEntryRestoreAsync(parameters),
+            "startup.tasks.preview" => await ScheduledTasksPreviewAsync(),
+            "startup.task.disable" => await ScheduledTaskDisableAsync(parameters),
+            "startup.task.restore" => await ScheduledTaskRestoreAsync(parameters),
             "windows.update.audit" => await Task.Run(WindowsUpdateAudit),
             "windows.update.services.restart" => await WindowsUpdateServicesRestartAsync(parameters),
             "apps.inventory" => await Task.Run(InstalledAppsInventory),
@@ -347,6 +357,7 @@ public sealed class ActionExecutor(
             "explorer.restart" => await ExplorerRestartAsync(parameters),
             "backup.status" => await Task.Run(() => BackupStatus(operationId)),
             "backup.rollback.center" => await Task.Run(() => RollbackCenter(operationId)),
+            "diagnostics.bundle.create" => await DiagnosticBundleAsync(parameters),
             "maintenance.policy.status" => await Task.Run(MaintenancePolicyStatus),
             "maintenance.policy.readonly" => await Task.Run(() => SetMaintenancePolicy("READ_ONLY_IDLE", parameters)),
             "maintenance.policy.off" => await Task.Run(() => SetMaintenancePolicy("OFF", parameters)),
@@ -589,6 +600,25 @@ public sealed class ActionExecutor(
             });
     }
 
+    private async Task<ActionResult> ServiceDependenciesAsync(
+        JsonElement? parameters)
+    {
+        var serviceName = GetRequiredString(
+            parameters,
+            "serviceName");
+        var report =
+            await serviceStartupRemediationService
+                .AnalyzeDependenciesAsync(serviceName);
+
+        return new ActionResult(
+            true,
+            false,
+            report.DependentCount == 0
+                ? $"Servicio {report.ServiceName}: no se detectaron servicios dependientes."
+                : $"Servicio {report.ServiceName}: {report.DependentCount} servicio(s) dependiente(s); los cambios quedan protegidos.",
+            report);
+    }
+
     private async Task<ActionResult> ServiceSetModeAsync(
         JsonElement? parameters)
     {
@@ -696,6 +726,69 @@ public sealed class ActionExecutor(
                 : result.Success
                     ? $"Autoarranque {result.Name}: restaurado y verificado."
                     : $"Autoarranque {result.Name}: rollback no verificado.",
+            result);
+    }
+
+    private async Task<ActionResult> ScheduledTasksPreviewAsync()
+    {
+        var preview =
+            await scheduledTaskRemediationService.PreviewAsync();
+        return new ActionResult(
+            true,
+            true,
+            $"Tareas programadas: {preview.EligibleCount} revisable(s), " +
+            $"{preview.ProtectedCount} protegida(s), " +
+            $"{preview.RestoreAvailableCount} con rollback.",
+            new
+            {
+                preview.TaskCount,
+                preview.EligibleCount,
+                preview.ProtectedCount,
+                preview.RestoreAvailableCount,
+                tasks = preview.Tasks,
+                note = "Deshabilitar una tarea afecta futuras ejecuciones; no se termina ningún proceso actual."
+            });
+    }
+
+    private async Task<ActionResult> ScheduledTaskDisableAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(
+            parameters,
+            "Confirma la desactivación de la tarea programada.");
+        var entryId = GetRequiredString(parameters, "entryId");
+        var result =
+            await scheduledTaskRemediationService.DisableAsync(
+                entryId);
+
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Success
+                ? $"Tarea {result.FullName}: deshabilitada y verificada; rollback disponible."
+                : $"Tarea {result.FullName}: no se pudo verificar la desactivación.",
+            result);
+    }
+
+    private async Task<ActionResult> ScheduledTaskRestoreAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(
+            parameters,
+            "Confirma el rollback de la tarea programada.");
+        var entryId = GetRequiredString(parameters, "entryId");
+        var result =
+            await scheduledTaskRemediationService.RestoreAsync(
+                entryId);
+
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Status == "NO_SNAPSHOT"
+                ? "Tarea programada: no existe snapshot guardado."
+                : result.Success
+                    ? $"Tarea {result.FullName}: restaurada y verificada."
+                    : $"Tarea {result.FullName}: rollback no verificado ({result.Status}).",
             result);
     }
 
@@ -1287,6 +1380,42 @@ public sealed class ActionExecutor(
             result);
     }
 
+    private ActionResult RegistryEvidence()
+    {
+        var report = windowsEvidenceService.AnalyzeRegistry();
+        return EvidenceActionResult(
+            report,
+            "Registry");
+    }
+
+    private ActionResult ComEvidence()
+    {
+        var report = windowsEvidenceService.AnalyzeCom();
+        return EvidenceActionResult(
+            report,
+            "COM");
+    }
+
+    private ActionResult CertificateEvidence()
+    {
+        var report = windowsEvidenceService.AnalyzeCertificates();
+        return EvidenceActionResult(
+            report,
+            "Certificados");
+    }
+
+    private static ActionResult EvidenceActionResult(
+        WindowsEvidenceReport report,
+        string label) =>
+        new(
+            true,
+            false,
+            $"{label}: {report.AttentionCount} hallazgo(s) de atención; " +
+            (report.Partial
+                ? "escaneo acotado por presupuesto."
+                : "escaneo read-only completado."),
+            report);
+
     private async Task<ActionResult> ActivationAsync()
     {
         var analysis = await activationService.AnalyzeAsync();
@@ -1640,6 +1769,20 @@ public sealed class ActionExecutor(
         AuditResultToAction(
             "Explorer",
             explorerAuditService.Analyze());
+
+    private async Task<ActionResult> DiagnosticBundleAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(
+            parameters,
+            "Confirma la creación del bundle diagnóstico local sanitizado.");
+        var result = await diagnosticBundleService.CreateAsync();
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Message,
+            result);
+    }
 
     private ActionResult MaintenancePolicyStatus()
     {

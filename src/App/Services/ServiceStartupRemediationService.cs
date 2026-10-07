@@ -62,7 +62,10 @@ public sealed class ServiceStartupRemediationService
             .Where(service => service.StartMode == "Auto")
             .Select(service =>
             {
-                var protection = Classify(service);
+                var dependents = evaluationMode
+                    ? Array.Empty<string>()
+                    : ReadDependentServices(service.Name);
+                var protection = Classify(service, dependents);
                 return new ServiceStartupCandidate(
                     service.Name,
                     service.DisplayName,
@@ -71,7 +74,9 @@ public sealed class ServiceStartupRemediationService
                     service.PathName,
                     protection.Protected,
                     protection.Reason,
-                    snapshots.ContainsKey(service.Name));
+                    snapshots.ContainsKey(service.Name),
+                    dependents.Count,
+                    dependents);
             })
             .OrderBy(candidate => candidate.Protected)
             .ThenBy(candidate => candidate.DisplayName,
@@ -101,7 +106,9 @@ public sealed class ServiceStartupRemediationService
                     StringComparison.OrdinalIgnoreCase)) ??
                 throw new InvalidOperationException(
                     "Servicio sintético no permitido.");
-            var evaluationProtection = Classify(evaluationService);
+            var evaluationProtection = Classify(
+                evaluationService,
+                Array.Empty<string>());
             if (evaluationProtection.Protected)
                 throw new InvalidOperationException(
                     "Servicio protegido: " + evaluationProtection.Reason);
@@ -120,7 +127,8 @@ public sealed class ServiceStartupRemediationService
             throw new InvalidOperationException(
                 "El servicio solicitado ya no existe.");
 
-        var protection = Classify(service);
+        var dependents = ReadDependentServices(service.Name);
+        var protection = Classify(service, dependents);
         if (protection.Protected)
             throw new InvalidOperationException(
                 "Servicio protegido: " + protection.Reason);
@@ -197,7 +205,7 @@ public sealed class ServiceStartupRemediationService
         var current = FindService(serviceName) ??
             throw new InvalidOperationException(
                 "El servicio guardado ya no existe.");
-        var protection = Classify(current);
+        var protection = Classify(current, Array.Empty<string>());
         if (protection.Protected)
             throw new InvalidOperationException(
                 "El servicio ahora está clasificado como protegido: " +
@@ -323,6 +331,82 @@ public sealed class ServiceStartupRemediationService
         return result;
     }
 
+    public Task<ServiceDependencyReport> AnalyzeDependenciesAsync(
+        string serviceName) => Task.Run(() =>
+    {
+        ValidateServiceName(serviceName);
+        var service = evaluationMode
+            ? SyntheticServices().FirstOrDefault(item =>
+                string.Equals(
+                    item.Name,
+                    serviceName,
+                    StringComparison.OrdinalIgnoreCase))
+            : FindService(serviceName);
+
+        if (service is null)
+            throw new InvalidOperationException(
+                "El servicio solicitado no existe.");
+
+        var dependents = evaluationMode
+            ? Array.Empty<string>()
+            : ReadDependentServices(service.Name);
+
+        return new ServiceDependencyReport(
+            service.Name,
+            service.DisplayName,
+            dependents.Count,
+            dependents);
+    });
+
+    private static IReadOnlyList<string> ReadDependentServices(
+        string serviceName)
+    {
+        var result = new List<string>();
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                $"ASSOCIATORS OF {{Win32_Service.Name='{serviceName}'}} " +
+                "WHERE AssocClass=Win32_DependentService Role=Antecedent");
+            using var rows = searcher.Get();
+
+            foreach (var raw in rows)
+            {
+                using (raw)
+                {
+                    if (raw is not ManagementObject item)
+                        continue;
+
+                    var name = Convert.ToString(item["Name"]);
+                    var display = Convert.ToString(item["DisplayName"]);
+                    if (string.IsNullOrWhiteSpace(name))
+                        continue;
+
+                    result.Add(string.IsNullOrWhiteSpace(display)
+                        ? name
+                        : display + " (" + name + ")");
+                }
+            }
+        }
+        catch (ManagementException)
+        {
+            return ["UNKNOWN_WMI"];
+        }
+        catch (COMException)
+        {
+            return ["UNKNOWN_WMI"];
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return ["UNKNOWN_POLICY"];
+        }
+
+        return result
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
+            .Take(32)
+            .ToArray();
+    }
+
     private static IReadOnlyList<ServiceDescriptor> SyntheticServices() =>
     [
         new ServiceDescriptor(
@@ -339,10 +423,19 @@ public sealed class ServiceStartupRemediationService
             @"C:\Windows\System32\svchost.exe -k rpcss")
     ];
 
-    private static ServiceProtection Classify(ServiceDescriptor service)
+    private static ServiceProtection Classify(
+        ServiceDescriptor service,
+        IReadOnlyList<string> dependents)
     {
         if (ProtectedServiceNames.Contains(service.Name))
             return new(true, "Servicio esencial o de infraestructura de Windows.");
+
+        if (dependents.Count > 0)
+        {
+            return new(
+                true,
+                $"Tiene {dependents.Count} servicio(s) dependiente(s): {string.Join(", ", dependents.Take(5))}.");
+        }
 
         var combined = string.Join(
             " ",
@@ -500,7 +593,15 @@ public sealed record ServiceStartupCandidate(
     string? PathName,
     bool Protected,
     string Reason,
-    bool RestoreAvailable);
+    bool RestoreAvailable,
+    int DependentServiceCount = 0,
+    IReadOnlyList<string>? Dependents = null);
+
+public sealed record ServiceDependencyReport(
+    string ServiceName,
+    string DisplayName,
+    int DependentCount,
+    IReadOnlyList<string> Dependents);
 
 public sealed record ServiceStartupPreview(
     int AutomaticCount,
