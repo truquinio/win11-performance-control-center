@@ -51,6 +51,8 @@ public sealed class HostBridge : IDisposable
         string? powerPlanStatePath = null;
         string? pageFileStatePath = null;
         string? workloadModeStatePath = null;
+        string? healthHistoryStatePath = null;
+        string? maintenancePolicyStatePath = null;
         string? evaluationRoot = null;
 
         if (!string.IsNullOrWhiteSpace(dataRoot))
@@ -64,6 +66,8 @@ public sealed class HostBridge : IDisposable
             powerPlanStatePath = Path.Combine(root, "State", "power-plan.json");
             pageFileStatePath = Path.Combine(root, "State", "pagefile.json");
             workloadModeStatePath = Path.Combine(root, "State", "workload-mode.json");
+            healthHistoryStatePath = Path.Combine(root, "State", "health-history.json");
+            maintenancePolicyStatePath = Path.Combine(root, "State", "maintenance-policy.json");
             evaluationRoot = root;
         }
 
@@ -102,6 +106,11 @@ public sealed class HostBridge : IDisposable
         var storageWatch = new StorageWatchService(
             storageWatchStatePath,
             evaluationRoot);
+        var healthHistory = new HealthHistoryService(
+            snapshot,
+            storageWatch,
+            reliability,
+            healthHistoryStatePath);
         var serviceStartup = new ServiceStartupRemediationService(
             serviceStartupStatePath,
             evaluationRoot is not null);
@@ -156,6 +165,7 @@ public sealed class HostBridge : IDisposable
         var bootSleep = new BootSleepAuditService();
         var explorer = new ExplorerAuditService();
         var recovery = new OperationRecoveryService(ecoQosState, logPath);
+        var outcomeAudit = new OutcomeAuditService(catalog, logPath);
         var rollbackCenter = new RollbackCenterService(
             recovery,
             pageFileStatePath,
@@ -172,6 +182,17 @@ public sealed class HostBridge : IDisposable
             browserExtensionRemediation,
             rollbackCenter,
             workloadGuard);
+        var maintenanceAutomation = new MaintenanceAutomationService(
+            workloadGuard,
+            snapshot,
+            storageWatch,
+            drivers,
+            crashIntelligence,
+            usbDiagnostics,
+            browserExtensions,
+            serviceStartup,
+            startupEntries,
+            maintenancePolicyStatePath);
         var privilege = new PrivilegeBoundary();
         var elevatedActions = new ElevatedActionClient();
         var executor = new ActionExecutor(
@@ -211,6 +232,9 @@ public sealed class HostBridge : IDisposable
             recovery,
             rollbackCenter,
             actionPlan,
+            healthHistory,
+            outcomeAudit,
+            maintenanceAutomation,
             workloadGuard,
             healthState,
             elevatedActions);
