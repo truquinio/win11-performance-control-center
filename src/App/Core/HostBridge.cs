@@ -48,6 +48,7 @@ public sealed class HostBridge : IDisposable
         string? storageWatchStatePath = null;
         string? serviceStartupStatePath = null;
         string? startupEntryStatePath = null;
+        string? scheduledTaskStatePath = null;
         string? powerPlanStatePath = null;
         string? pageFileStatePath = null;
         string? workloadModeStatePath = null;
@@ -63,6 +64,7 @@ public sealed class HostBridge : IDisposable
             storageWatchStatePath = Path.Combine(root, "State", "storage-watch.json");
             serviceStartupStatePath = Path.Combine(root, "State", "service-startup.json");
             startupEntryStatePath = Path.Combine(root, "State", "startup-entries.json");
+            scheduledTaskStatePath = Path.Combine(root, "State", "scheduled-tasks.json");
             powerPlanStatePath = Path.Combine(root, "State", "power-plan.json");
             pageFileStatePath = Path.Combine(root, "State", "pagefile.json");
             workloadModeStatePath = Path.Combine(root, "State", "workload-mode.json");
@@ -124,6 +126,9 @@ public sealed class HostBridge : IDisposable
         var startupEntries = new StartupEntryRemediationService(
             startupEntryStatePath,
             evaluationRoot is not null);
+        var scheduledTasks = new ScheduledTaskRemediationService(
+            scheduledTaskStatePath,
+            evaluationRoot is not null);
         var systemRemediation = new SystemRemediationService();
         var powerPlanTuning = new PowerPlanTuningService(
             powerPlanStatePath);
@@ -171,6 +176,7 @@ public sealed class HostBridge : IDisposable
         var thermal = new ThermalEnergyService();
         var bootSleep = new BootSleepAuditService();
         var explorer = new ExplorerAuditService();
+        var windowsEvidence = new WindowsEvidenceService();
         var recovery = new OperationRecoveryService(ecoQosState, logPath);
         var outcomeAudit = new OutcomeAuditService(catalog, logPath);
         var rollbackCenter = new RollbackCenterService(
@@ -179,7 +185,8 @@ public sealed class HostBridge : IDisposable
             powerPlanStatePath,
             serviceStartupStatePath,
             edgeQuarantineRoot,
-            startupEntryStatePath);
+            startupEntryStatePath,
+            scheduledTaskStatePath);
         var actionPlan = new ActionPlanService(
             catalog,
             snapshot,
@@ -199,7 +206,24 @@ public sealed class HostBridge : IDisposable
             browserExtensions,
             serviceStartup,
             startupEntries,
+            scheduledTasks,
             maintenancePolicyStatePath);
+        var diagnosticBundle = new DiagnosticBundleService(
+            snapshot,
+            storageWatch,
+            drivers,
+            usbDiagnostics,
+            crashIntelligence,
+            serviceStartup,
+            scheduledTasks,
+            startupEntries,
+            outcomeAudit,
+            healthHistory,
+            windowsEvidence,
+            rollbackCenter,
+            evaluationRoot is null
+                ? null
+                : Path.Combine(evaluationRoot, "Exports"));
         var privilege = new PrivilegeBoundary();
         var elevatedActions = new ElevatedActionClient();
         var executor = new ActionExecutor(
@@ -214,6 +238,7 @@ public sealed class HostBridge : IDisposable
             storageWatch,
             serviceStartup,
             startupEntries,
+            scheduledTasks,
             systemRemediation,
             powerPlanTuning,
             pageFileTuning,
@@ -242,6 +267,8 @@ public sealed class HostBridge : IDisposable
             healthHistory,
             outcomeAudit,
             maintenanceAutomation,
+            windowsEvidence,
+            diagnosticBundle,
             workloadGuard,
             healthState,
             elevatedActions);
