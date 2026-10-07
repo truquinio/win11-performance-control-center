@@ -28,6 +28,8 @@ public static class AppPaths
         Path.Combine(State, "power-plan.json");
     public static string PageFileState =>
         Path.Combine(State, "pagefile.json");
+    public static string WorkloadModeState =>
+        Path.Combine(State, "workload-mode.json");
 
     public static void EnsureDirectories()
     {
