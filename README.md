@@ -194,3 +194,8 @@ En **Limpieza**: `Analizar almacenamiento` muestra estimaciones; `Limpieza segur
 ## Multi-drive Storage Watch
 
 La app audita todos los volúmenes fijos, mantiene un baseline local de espacio libre y puede detectar pérdidas anormales entre capturas. El escaneo de hotspots solo se activa en unidades por debajo del 15% libre y está estrictamente acotado por tiempo. Véase docs/STORAGE_WATCH.md.
+
+
+## Edge extension remediation
+
+La vista de integridad distingue residuos inactivos de extensiones realmente rotas. El estado DATA_WITHOUT_INSTALLATION no se presenta como un proceso ni como un fallo grave: son datos locales de extensiones ya desinstaladas. La app puede previsualizarlos y, con Edge cerrado y confirmación explícita, moverlos a una cuarentena reversible. Nunca edita Preferences / Secure Preferences ni elimina automáticamente extensiones instaladas.

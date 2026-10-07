@@ -23,6 +23,7 @@ public sealed class ActionExecutor(
     ActivationService activationService,
     BrowserInventoryService browserService,
     BrowserExtensionHealthService browserExtensionHealthService,
+    BrowserExtensionRemediationService browserExtensionRemediationService,
     MultimediaService multimediaService,
     StartupAuditService startupAuditService,
     WindowsUpdateAuditService windowsUpdateAuditService,
@@ -268,6 +269,9 @@ public sealed class ActionExecutor(
             "system.activation.analyze" => await ActivationAsync(),
             "browsers.inventory" => await Task.Run(BrowserInventory),
             "browsers.extensions.health" => await Task.Run(BrowserExtensionHealth),
+            "browsers.extensions.orphans.preview" => await Task.Run(BrowserExtensionOrphansPreview),
+            "browsers.extensions.orphans.quarantine" => await BrowserExtensionOrphansQuarantineAsync(parameters),
+            "browsers.extensions.orphans.restore" => await BrowserExtensionOrphansRestoreAsync(parameters),
             "multimedia.inventory" => await MultimediaAsync(),
             "startup.audit" => await StartupAuditAsync(),
             "windows.update.audit" => await Task.Run(WindowsUpdateAudit),
@@ -725,15 +729,26 @@ public sealed class ActionExecutor(
     private ActionResult BrowserExtensionHealth()
     {
         var health = browserExtensionHealthService.AnalyzeEdge();
+        var orphanBytes = health.Items
+            .Where(item => item.Status == "DATA_WITHOUT_INSTALLATION")
+            .Sum(item => item.DataBytes);
+
+        var message = health.Status switch
+        {
+            "NO_DATA" => "Edge: no se detectaron perfiles analizables.",
+            _ when health.BrokenCount > 0 =>
+                $"Edge: {health.BrokenCount} extensión(es) tienen una instalación incompleta o código ausente. " +
+                $"Además hay {health.DataOnlyCount} residuo(s) de extensiones ya desinstaladas.",
+            _ when health.DataOnlyCount > 0 =>
+                $"Edge: las extensiones instaladas están íntegras. Hay {health.DataOnlyCount} residuo(s) de extensiones ya desinstaladas " +
+                $"({orphanBytes / 1048576d:F1} MiB). No están ejecutándose; limpiarlos es opcional.",
+            _ => "Edge: las extensiones instaladas están íntegras y no se detectaron residuos relevantes."
+        };
+
         return new ActionResult(
             true,
             false,
-            health.Status switch
-            {
-                "OK" => "Edge: no se detectaron extensiones desacopladas en los perfiles analizados.",
-                "WARNING" => $"Edge: {health.DataOnlyCount + health.BrokenCount} anomalía(s) de extensión requieren revisión.",
-                _ => "Edge: no se detectaron perfiles analizables."
-            },
+            message,
             new
             {
                 health.Browser,
@@ -744,8 +759,105 @@ public sealed class ActionExecutor(
                 health.DeveloperLoadedCount,
                 health.DataOnlyCount,
                 health.BrokenCount,
+                orphanBytes,
+                recommendedNextStep = health.BrokenCount > 0
+                    ? "Revisa las extensiones rotas antes de limpiar residuos. La app no eliminará automáticamente una instalación dañada."
+                    : health.DataOnlyCount > 0
+                        ? "Puedes dejar los residuos sin riesgo funcional o previsualizar una cuarentena reversible para recuperar espacio."
+                        : "No necesitas hacer nada.",
                 items = health.Items
             });
+    }
+
+    private ActionResult BrowserExtensionOrphansPreview()
+    {
+        var preview = browserExtensionRemediationService.Preview();
+        return new ActionResult(
+            true,
+            true,
+            preview.CandidateCount == 0
+                ? "Edge: no hay residuos de extensiones desinstaladas para limpiar."
+                : preview.EdgeRunning
+                    ? $"Edge: {preview.CandidateCount} residuo(s), {preview.TotalBytes / 1048576d:F1} MiB. Cierra Edge para habilitar la cuarentena reversible."
+                    : $"Edge: {preview.CandidateCount} residuo(s), {preview.TotalBytes / 1048576d:F1} MiB. Puedes ponerlos en cuarentena de forma reversible.",
+            new
+            {
+                preview.CandidateCount,
+                preview.TotalBytes,
+                preview.EdgeRunning,
+                preview.RestoreAvailable,
+                candidates = preview.Candidates,
+                scope = "Solo Local Extension Settings de extensiones que ya no están instaladas.",
+                reversible = true
+            });
+    }
+
+    private async Task<ActionResult> BrowserExtensionOrphansQuarantineAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(parameters,
+            "Confirma la cuarentena después de revisar los residuos de Edge.");
+        var result = await browserExtensionRemediationService.QuarantineAsync();
+
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Status switch
+            {
+                "EDGE_RUNNING" => "Edge está abierto. Ciérralo antes de poner residuos en cuarentena.",
+                "NOTHING_TO_DO" => "No hay residuos de extensiones para poner en cuarentena.",
+                "QUARANTINED" => $"Edge: {result.MovedCount} residuo(s) movidos a cuarentena ({result.MovedBytes / 1048576d:F1} MiB). Rollback disponible.",
+                _ => $"Edge: la cuarentena quedó incompleta. Movidos: {result.MovedCount}; omitidos: {result.SkippedCount}."
+            },
+            new
+            {
+                result.Status,
+                result.MovedCount,
+                result.MovedBytes,
+                result.SkippedCount,
+                result.BatchId,
+                result.Skipped,
+                rollbackAvailable = result.MovedCount > 0
+            });
+    }
+
+    private async Task<ActionResult> BrowserExtensionOrphansRestoreAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(parameters,
+            "Confirma el rollback de la última cuarentena de Edge.");
+        var result = await browserExtensionRemediationService.RestoreLatestAsync();
+
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Status switch
+            {
+                "EDGE_RUNNING" => "Edge está abierto. Ciérralo antes de restaurar la cuarentena.",
+                "NO_QUARANTINE" => "No existe una cuarentena de extensiones Edge para restaurar.",
+                "RESTORED" => $"Edge: {result.RestoredCount} residuo(s) restaurados ({result.RestoredBytes / 1048576d:F1} MiB).",
+                _ => $"Edge: rollback incompleto. Restaurados: {result.RestoredCount}; incidencias: {result.Skipped.Count}."
+            },
+            new
+            {
+                result.Status,
+                result.RestoredCount,
+                result.RestoredBytes,
+                result.BatchId,
+                result.Skipped
+            });
+    }
+
+    private static void RequireConfirmed(
+        JsonElement? parameters,
+        string message)
+    {
+        if (parameters is not { ValueKind: JsonValueKind.Object } args ||
+            !args.TryGetProperty("confirmed", out var flag) ||
+            flag.ValueKind != JsonValueKind.True)
+        {
+            throw new InvalidOperationException(message);
+        }
     }
 
     private async Task<ActionResult> MultimediaAsync()
