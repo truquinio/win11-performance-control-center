@@ -73,7 +73,11 @@ public sealed class HostBridge : IDisposable
         var healthState = new SystemHealthStateStore();
         var snapshot = new SystemSnapshotService(coordinator, healthState);
         var reliability = new ReliabilityService();
-        var crashIntelligence = new CrashIntelligenceService(reliability);
+        var crashIntelligence = evaluationRoot is null
+            ? new CrashIntelligenceService(reliability)
+            : new CrashIntelligenceService(
+                _ => Task.FromResult<
+                    IReadOnlyList<Models.ReliabilityEventDto>>([]));
         StorageAnalysisService storage;
         if (evaluationRoot is null)
         {
