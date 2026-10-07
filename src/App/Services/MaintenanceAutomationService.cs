@@ -8,7 +8,7 @@ public sealed class MaintenanceAutomationService
 {
     private static readonly string[] FixedReadOnlyScope =
     [
-        "system.health.snapshot",
+        "system.health.scan",
         "disk.volumes.audit",
         "drivers.analyze",
         "system.crash.analyze",
@@ -112,7 +112,7 @@ public sealed class MaintenanceAutomationService
 
         await CaptureAsync(
             items,
-            "system.health.snapshot",
+            "system.health.scan",
             async () =>
             {
                 var snapshot = await snapshotService.CaptureAsync();
