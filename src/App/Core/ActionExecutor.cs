@@ -538,8 +538,13 @@ public sealed class ActionExecutor(
         return new ActionResult(summary.FailedFiles == 0, false,
             $"Limpieza: {summary.DeletedFiles} archivos eliminados, {summary.DeletedBytes / 1048576d:F1} MiB liberados. " +
             $"Errores: {summary.FailedFiles}; categorías omitidas: {summary.SkippedCategories.Count}.",
-            new { summary.DeletedBytes, summary.DeletedFiles, summary.FailedFiles,
-                summary.SkippedCategories });
+            new
+            {
+                summary.DeletedBytes,
+                summary.DeletedFiles,
+                summary.FailedFiles,
+                summary.SkippedCategories
+            });
     }
 
     private async Task<ActionResult> AppDataRankAsync()
