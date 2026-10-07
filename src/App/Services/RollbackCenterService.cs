@@ -11,6 +11,7 @@ public sealed class RollbackCenterService
     private readonly string pageFileStatePath;
     private readonly string powerPlanStatePath;
     private readonly string serviceStartupStatePath;
+    private readonly string startupEntryStatePath;
     private readonly string edgeQuarantineRoot;
 
     public RollbackCenterService(
@@ -18,6 +19,7 @@ public sealed class RollbackCenterService
         string? pageFileStatePath = null,
         string? powerPlanStatePath = null,
         string? serviceStartupStatePath = null,
+        string? startupEntryStatePath = null,
         string? edgeQuarantineRoot = null)
     {
         this.recovery = recovery;
@@ -31,6 +33,10 @@ public sealed class RollbackCenterService
             string.IsNullOrWhiteSpace(serviceStartupStatePath)
                 ? AppPaths.ServiceStartupState
                 : Path.GetFullPath(serviceStartupStatePath);
+        this.startupEntryStatePath =
+            string.IsNullOrWhiteSpace(startupEntryStatePath)
+                ? AppPaths.StartupEntryState
+                : Path.GetFullPath(startupEntryStatePath);
         this.edgeQuarantineRoot =
             string.IsNullOrWhiteSpace(edgeQuarantineRoot)
                 ? AppPaths.EdgeExtensionQuarantine
@@ -102,6 +108,21 @@ public sealed class RollbackCenterService
                 "SAFE"));
         }
 
+        foreach (var startupEntry in ReadStartupEntrySnapshots())
+        {
+            entries.Add(new RollbackCenterEntry(
+                "startup-entry:" + startupEntry.EntryId,
+                "Autoarranque · " + startupEntry.Name,
+                "Entrada Run/RunOnce deshabilitada por la app.",
+                "startup.entry.restore",
+                new Dictionary<string, object?>
+                {
+                    ["entryId"] = startupEntry.EntryId
+                },
+                true,
+                "SAFE"));
+        }
+
         var edgeBatch = FindLatestEdgeBatch();
         if (edgeBatch is not null)
         {
@@ -161,6 +182,48 @@ public sealed class RollbackCenterService
         }
     }
 
+    private IReadOnlyList<StartupEntryRollbackSnapshot>
+        ReadStartupEntrySnapshots()
+    {
+        try
+        {
+            if (!File.Exists(startupEntryStatePath))
+                return [];
+
+            using var document = JsonDocument.Parse(
+                File.ReadAllText(startupEntryStatePath));
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                return [];
+
+            var result = new List<StartupEntryRollbackSnapshot>();
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                var id = property.Value.TryGetProperty("entryId", out var idNode)
+                    ? idNode.GetString()
+                    : property.Name;
+                var name = property.Value.TryGetProperty("name", out var nameNode)
+                    ? nameNode.GetString()
+                    : property.Name;
+                if (string.IsNullOrWhiteSpace(id) ||
+                    string.IsNullOrWhiteSpace(name))
+                    continue;
+
+                result.Add(new StartupEntryRollbackSnapshot(id, name));
+                if (result.Count >= 64)
+                    break;
+            }
+
+            return result;
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
     private string? FindLatestEdgeBatch()
     {
         try
@@ -183,6 +246,10 @@ public sealed class RollbackCenterService
         }
     }
 }
+
+internal sealed record StartupEntryRollbackSnapshot(
+    string EntryId,
+    string Name);
 
 public sealed record RollbackCenterEntry(
     string Id,
