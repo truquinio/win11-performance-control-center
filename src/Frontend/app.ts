@@ -440,6 +440,9 @@ const demoCatalog: ActionDefinition[] = [
   { id: "disk.cleanup.safe", title: "Limpieza segura", description: "Dry-run del pipeline de limpieza.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "DRY_RUN" },
   { id: "disk.cleanup.execute", title: "Eliminar cachés regenerables", description: "Solo después de la previsualización y una confirmación explícita.", category: "Storage", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "disk.appdata.rank", title: "Ranking de AppData Local", description: "Tamaños por carpeta, nunca borra programas ni datos.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "disk.volumes.audit", title: "Auditar C: / D: y volúmenes", description: "Mide presión de almacenamiento en todos los volúmenes fijos.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "disk.storage.watch", title: "Storage Watch", description: "Compara espacio libre con el baseline anterior y detecta crecimiento anormal.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "disk.hotspots.scan", title: "Buscar hotspots de disco", description: "Escaneo read-only con presupuesto temporal en unidades con poco espacio.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "disk.hibernate.status", title: "Estado de hibernación", description: "Consulta estados disponibles con powercfg.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "disk.hibernate.reduce", title: "Hibernación reducida", description: "Con UAC; conserva inicio rápido, deshabilita hibernación completa.", category: "Storage", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE" },
   { id: "network.test", title: "Analizar red", description: "Mide el adaptador activo.", category: "Network", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
@@ -570,8 +573,8 @@ const moduleDefinitions: Record<string, {
   cleanup: {
     kicker: "LIMPIEZA",
     title: "Almacenamiento seguro",
-    description: "Análisis y previsualización de espacio recuperable sin borrar archivos.",
-    actionIds: ["disk.scan", "disk.cleanup.safe", "disk.cleanup.execute", "disk.appdata.rank", "disk.hibernate.status", "disk.hibernate.reduce"]
+    description: "Análisis multiunidad, tendencias y previsualización de espacio recuperable sin borrar archivos.",
+    actionIds: ["disk.scan", "disk.cleanup.safe", "disk.cleanup.execute", "disk.appdata.rank", "disk.volumes.audit", "disk.storage.watch", "disk.hotspots.scan", "disk.hibernate.status", "disk.hibernate.reduce"]
   },
   system: {
     kicker: "SISTEMA",
