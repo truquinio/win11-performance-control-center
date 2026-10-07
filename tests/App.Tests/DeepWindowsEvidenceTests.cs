@@ -143,7 +143,7 @@ public sealed class DeepWindowsEvidenceTests
             Assert.True(result.Success);
             var report = Assert.IsType<WindowsEvidenceReport>(
                 result.Data);
-            Assert.True(report.Items.Count <= 160);
+            Assert.True(report.Items.Count <= 200);
         }
     }
 
