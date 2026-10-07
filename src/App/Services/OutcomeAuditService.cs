@@ -37,7 +37,9 @@ public sealed class OutcomeAuditService
             ["thermal.power.balanced"] = new("POSTCHECK", "Lee el plan activo después del cambio.", true),
             ["thermal.power.performance"] = new("POSTCHECK", "Lee el plan activo después del cambio.", true),
             ["thermal.power.restore"] = new("POSTCHECK", "Lee el plan activo después del rollback.", false),
-            ["explorer.restart"] = new("POSTCHECK", "Comprueba que explorer.exe vuelva a existir y responder.", false)
+            ["explorer.restart"] = new("POSTCHECK", "Comprueba que explorer.exe vuelva a existir y responder.", false),
+            ["maintenance.policy.readonly"] = new("DIRECT_VERIFIED", "Política app-owned persistida y releída; no modifica Windows.", true),
+            ["maintenance.policy.off"] = new("DIRECT_VERIFIED", "Política app-owned persistida y releída; no modifica Windows.", true)
         };
 
     private static readonly HashSet<string> TerminalStatuses =
