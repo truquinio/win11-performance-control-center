@@ -12,6 +12,7 @@ public sealed class RollbackCenterService
     private readonly string powerPlanStatePath;
     private readonly string serviceStartupStatePath;
     private readonly string startupEntryStatePath;
+    private readonly string scheduledTaskStatePath;
     private readonly string edgeQuarantineRoot;
 
     public RollbackCenterService(
@@ -20,7 +21,8 @@ public sealed class RollbackCenterService
         string? powerPlanStatePath = null,
         string? serviceStartupStatePath = null,
         string? edgeQuarantineRoot = null,
-        string? startupEntryStatePath = null)
+        string? startupEntryStatePath = null,
+        string? scheduledTaskStatePath = null)
     {
         this.recovery = recovery;
         this.pageFileStatePath = string.IsNullOrWhiteSpace(pageFileStatePath)
@@ -37,6 +39,10 @@ public sealed class RollbackCenterService
             string.IsNullOrWhiteSpace(startupEntryStatePath)
                 ? AppPaths.StartupEntryState
                 : Path.GetFullPath(startupEntryStatePath);
+        this.scheduledTaskStatePath =
+            string.IsNullOrWhiteSpace(scheduledTaskStatePath)
+                ? AppPaths.ScheduledTaskState
+                : Path.GetFullPath(scheduledTaskStatePath);
         this.edgeQuarantineRoot =
             string.IsNullOrWhiteSpace(edgeQuarantineRoot)
                 ? AppPaths.EdgeExtensionQuarantine
@@ -118,6 +124,21 @@ public sealed class RollbackCenterService
                 new Dictionary<string, object?>
                 {
                     ["entryId"] = startupEntry.EntryId
+                },
+                true,
+                "SAFE"));
+        }
+
+        foreach (var task in ReadScheduledTaskSnapshots())
+        {
+            entries.Add(new RollbackCenterEntry(
+                "scheduled-task:" + task.EntryId,
+                "Tarea programada · " + task.FullName,
+                "Tarea deshabilitada por la app; snapshot disponible.",
+                "startup.task.restore",
+                new Dictionary<string, object?>
+                {
+                    ["entryId"] = task.EntryId
                 },
                 true,
                 "SAFE"));
@@ -224,6 +245,50 @@ public sealed class RollbackCenterService
         }
     }
 
+    private IReadOnlyList<ScheduledTaskRollbackSnapshot>
+        ReadScheduledTaskSnapshots()
+    {
+        try
+        {
+            if (!File.Exists(scheduledTaskStatePath))
+                return [];
+
+            using var document = JsonDocument.Parse(
+                File.ReadAllText(scheduledTaskStatePath));
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                return [];
+
+            var result = new List<ScheduledTaskRollbackSnapshot>();
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                var id = property.Value.TryGetProperty("entryId", out var idNode)
+                    ? idNode.GetString()
+                    : property.Name;
+                var fullName = property.Value.TryGetProperty("fullName", out var nameNode)
+                    ? nameNode.GetString()
+                    : property.Name;
+                if (string.IsNullOrWhiteSpace(id) ||
+                    string.IsNullOrWhiteSpace(fullName))
+                    continue;
+
+                result.Add(new ScheduledTaskRollbackSnapshot(
+                    id,
+                    fullName));
+                if (result.Count >= 64)
+                    break;
+            }
+
+            return result;
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
     private string? FindLatestEdgeBatch()
     {
         try
@@ -250,6 +315,10 @@ public sealed class RollbackCenterService
 internal sealed record StartupEntryRollbackSnapshot(
     string EntryId,
     string Name);
+
+internal sealed record ScheduledTaskRollbackSnapshot(
+    string EntryId,
+    string FullName);
 
 public sealed record RollbackCenterEntry(
     string Id,
