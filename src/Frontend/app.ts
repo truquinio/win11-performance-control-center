@@ -615,6 +615,127 @@ class DemoProvider implements Provider {
       };
     }
 
+    if (id === "system.healthscore.analyze") {
+      return {
+        success: true,
+        dryRun: false,
+        message: "DEMO: Health Score 82/100 (GOOD).",
+        data: {
+          capturedAt: new Date().toISOString(),
+          score: 82,
+          band: "GOOD",
+          previousCapturedAt: new Date(Date.now() - 86400000).toISOString(),
+          baselineCreated: false,
+          historyCount: 4,
+          factors: [
+            { category: "Almacenamiento", status: "WATCH", penalty: 10, detail: "12.4% libre en D:." },
+            { category: "Memoria", status: "WATCH", penalty: 8, detail: "82% de RAM en uso." }
+          ],
+          changes: [
+            { category: "Métrica", name: "Health Score", impact: "IMPROVED", before: "77", after: "82", delta: 5, unit: "puntos" }
+          ],
+          trend: [
+            { capturedAt: new Date(Date.now() - 86400000).toISOString(), score: 77, band: "GOOD", memoryUsedPercent: 79, systemDiskFreePercent: 22 },
+            { capturedAt: new Date().toISOString(), score: 82, band: "GOOD", memoryUsedPercent: 76, systemDiskFreePercent: 25 }
+          ]
+        }
+      };
+    }
+
+    if (id === "system.changes.analyze") {
+      return {
+        success: true,
+        dryRun: false,
+        message: "DEMO: 2 cambios materiales.",
+        data: {
+          previousCapturedAt: new Date(Date.now() - 86400000).toISOString(),
+          currentCapturedAt: new Date().toISOString(),
+          baselineRequired: false,
+          changes: [
+            { category: "Métrica", name: "Health Score", impact: "IMPROVED", before: "77", after: "82", delta: 5, unit: "puntos" },
+            { category: "Volumen", name: "D:\\", impact: "IMPROVED", before: "40 GB", after: "45 GB", delta: 5368709120, unit: "bytes" }
+          ],
+          trend: []
+        }
+      };
+    }
+
+    if (id === "lab.outcomes.status") {
+      return {
+        success: true,
+        dryRun: false,
+        message: "DEMO: 100% de acciones WRITE clasificadas.",
+        data: {
+          writeActionCount: 25,
+          classifiedCount: 25,
+          postcheckedCount: 17,
+          coveragePercent: 100,
+          incompleteRuns: 0,
+          actions: [
+            { actionId: "system.integrity.repair", title: "Reparar integridad de Windows", verificationLevel: "POSTCHECK", verificationDetail: "DISM/SFC + CheckHealth", reversible: false, rollbackExpected: true, completedRuns: 1, failedRuns: 0, rejectedRuns: 0, incompleteRuns: 0 },
+            { actionId: "network.winsock.reset", title: "Restablecer Winsock", verificationLevel: "REBOOT_REQUIRED", verificationDetail: "Estado final tras reinicio", reversible: false, rollbackExpected: false, completedRuns: 0, failedRuns: 0, rejectedRuns: 0, incompleteRuns: 0 }
+          ]
+        }
+      };
+    }
+
+    if (id.startsWith("maintenance.policy.")) {
+      const mode = id.endsWith(".readonly") ? "READ_ONLY_IDLE" :
+        id.endsWith(".off") ? "OFF" : "OFF";
+      return {
+        success: true,
+        dryRun: false,
+        message: mode === "OFF"
+          ? "DEMO: automatización segura OFF."
+          : "DEMO: automatización READ_ONLY_IDLE activada.",
+        data: {
+          mode,
+          canRunNow: mode === "READ_ONLY_IDLE",
+          workload: {
+            configuredMode: "AUTO",
+            effectiveMode: "IDLE",
+            idleSeconds: 900,
+            dFreePercent: 50,
+            storageCritical: false,
+            heavyActionsAllowed: true,
+            reason: "Equipo inactivo."
+          },
+          fixedReadOnlyScope: [
+            "system.health.snapshot",
+            "disk.volumes.audit",
+            "drivers.analyze",
+            "system.crash.analyze"
+          ],
+          updatedAt: new Date().toISOString(),
+          reason: mode === "OFF"
+            ? "Automatización desactivada."
+            : "Lote read-only elegible."
+        }
+      };
+    }
+
+    if (id === "maintenance.safe.run") {
+      return {
+        success: true,
+        dryRun: false,
+        message: "DEMO: mantenimiento read-only completado.",
+        data: {
+          completedAt: new Date().toISOString(),
+          executed: true,
+          message: "No se ejecutó ninguna acción WRITE.",
+          policy: {
+            mode: "READ_ONLY_IDLE",
+            canRunNow: true,
+            fixedReadOnlyScope: ["drivers.analyze", "disk.volumes.audit"]
+          },
+          items: [
+            { actionId: "drivers.analyze", status: "OK", summary: "0 dispositivos con problema.", errorType: null },
+            { actionId: "disk.volumes.audit", status: "OK", summary: "2 volúmenes, 0 con presión.", errorType: null }
+          ]
+        }
+      };
+    }
+
     if (id === "system.reliability.analyze") {
       return {
         success: true,
@@ -680,6 +801,8 @@ class DemoProvider implements Provider {
 
 const demoCatalog: ActionDefinition[] = [
   { id: "system.actionplan.preview", title: "Construir plan de acción", description: "Prioriza problemas y enlaza cada hallazgo con su acción segura.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "system.healthscore.analyze", title: "Health Score y baseline", description: "Captura una línea base y calcula un score explicable.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "system.changes.analyze", title: "Qué cambió", description: "Compara las dos últimas líneas base.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "system.workload.status", title: "Estado PC en uso", description: "Indica si el mantenimiento pesado está permitido.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "system.workload.inuse", title: "Proteger PC en uso", description: "Bloquea tareas pesadas o disruptivas.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "system.workload.auto", title: "Volver a modo automático", description: "Decide según inactividad.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
@@ -744,6 +867,10 @@ const demoCatalog: ActionDefinition[] = [
   { id: "explorer.audit", title: "Auditar Explorer", description: "Mide memoria, threads y respuesta.", category: "Explorer", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "explorer.restart", title: "Reiniciar Explorer", description: "Reinicia explorer.exe y verifica que vuelva.", category: "Explorer", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "backup.rollback.center", title: "Rollback Center", description: "Reúne todos los cambios reversibles disponibles.", category: "Backup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "maintenance.policy.status", title: "Estado de automatización segura", description: "Muestra la política read-only; por defecto OFF.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "maintenance.policy.readonly", title: "Activar mantenimiento read-only en reposo", description: "Habilita solo el lote fijo de diagnósticos, nunca WRITE.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "maintenance.policy.off", title: "Desactivar automatización", description: "Vuelve a OFF.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "maintenance.safe.run", title: "Ejecutar lote read-only", description: "Ejecuta diagnósticos fijos solo cuando la política y el estado del PC lo permiten.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "backup.status", title: "Estado de backup y rollback", description: "Detecta operaciones incompletas y snapshots.", category: "Backup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" }
 ];
 
@@ -863,7 +990,7 @@ const moduleDefinitions: Record<string, {
     kicker: "SISTEMA",
     title: "Estado y fiabilidad",
     description: "Evidencia de Windows, reinicios y señales de mantenimiento.",
-    actionIds: ["system.actionplan.preview", "system.workload.status", "system.health.scan", "system.integrity.check", "system.integrity.repair", "system.reliability.analyze", "system.crash.analyze", "drivers.analyze", "drivers.rescan", "system.activation.analyze"]
+    actionIds: ["system.actionplan.preview", "system.healthscore.analyze", "system.changes.analyze", "system.workload.status", "system.health.scan", "system.integrity.check", "system.integrity.repair", "system.reliability.analyze", "system.crash.analyze", "drivers.analyze", "drivers.rescan", "system.activation.analyze"]
   },
   network: {
     kicker: "RED",
@@ -941,7 +1068,7 @@ const moduleDefinitions: Record<string, {
     kicker: "REAL-WORLD RELIABILITY",
     title: "Reliability Lab",
     description: "Regresiones históricas, outcome checks y barreras fail-closed. Los escenarios destructivos nunca se ejecutan sobre el Windows real.",
-    actionIds: ["lab.reliability.status"]
+    actionIds: ["lab.reliability.status", "lab.outcomes.status"]
   },
   thermal: {
     kicker: "ENERGÍA / TEMPERATURAS",
@@ -971,7 +1098,7 @@ const moduleDefinitions: Record<string, {
     kicker: "HISTORIAL",
     title: "Fiabilidad y reinicios",
     description: "Eventos recientes que explican apagados, reinicios y estabilidad.",
-    actionIds: ["system.reliability.analyze", "system.crash.analyze"]
+    actionIds: ["system.healthscore.analyze", "system.changes.analyze", "system.reliability.analyze", "system.crash.analyze"]
   },
   tools: {
     kicker: "HERRAMIENTAS",
@@ -982,8 +1109,8 @@ const moduleDefinitions: Record<string, {
   settings: {
     kicker: "CONFIGURACIÓN",
     title: "Aplicación y carga",
-    description: "Controla cuándo la app puede ejecutar mantenimiento pesado mientras usás el equipo.",
-    actionIds: ["system.workload.status", "system.workload.inuse", "system.workload.auto", "system.workload.maintenance"]
+    description: "Controla carga y automatización segura. La automatización está OFF por defecto y nunca habilita WRITE.",
+    actionIds: ["system.workload.status", "system.workload.inuse", "system.workload.auto", "system.workload.maintenance", "maintenance.policy.status", "maintenance.policy.readonly", "maintenance.policy.off", "maintenance.safe.run"]
   }
 };
 
@@ -2276,6 +2403,148 @@ function renderStructuredResult(  actionId: string,
       ["Drivers", "Evaluados"],
       ["Activación", "Evaluada"]
     ]));
+    return;
+  }
+
+  if (actionId === "system.healthscore.analyze") {
+    const factors = asArray(data.factors)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+    const changes = asArray(data.changes)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+
+    content.append(createResultGrid([
+      ["Health Score", displayValue(data.score) + "/100"],
+      ["Banda", displayValue(data.band)],
+      ["Historial", displayValue(data.historyCount) + " captura(s)"],
+      ["Baseline", data.baselineCreated === true ? "Creada" : "Comparada"]
+    ]));
+
+    if (factors.length) {
+      content.append(createResultTable(
+        ["Factor", "Estado", "Penalización", "Evidencia"],
+        factors.map(item => [
+          displayValue(item.category),
+          displayValue(item.status),
+          "-" + displayValue(item.penalty),
+          displayValue(item.detail)
+        ])
+      ));
+    }
+
+    if (changes.length) {
+      content.append(createResultTable(
+        ["Cambio", "Impacto", "Antes", "Después", "Delta"],
+        changes.map(item => [
+          displayValue(item.name),
+          displayValue(item.impact),
+          displayValue(item.before),
+          displayValue(item.after),
+          displayValue(item.delta) + (item.unit ? " " + displayValue(item.unit) : "")
+        ])
+      ));
+    }
+    return;
+  }
+
+  if (actionId === "system.changes.analyze") {
+    const changes = asArray(data.changes)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+
+    content.append(createResultGrid([
+      ["Baseline previa", displayValue(data.previousCapturedAt)],
+      ["Baseline actual", displayValue(data.currentCapturedAt)],
+      ["Cambios materiales", String(changes.length)],
+      ["Comparación", data.baselineRequired === true ? "Falta baseline" : "Disponible"]
+    ]));
+
+    if (changes.length) {
+      content.append(createResultTable(
+        ["Categoría", "Elemento", "Impacto", "Antes", "Después"],
+        changes.map(item => [
+          displayValue(item.category),
+          displayValue(item.name),
+          displayValue(item.impact),
+          displayValue(item.before),
+          displayValue(item.after)
+        ])
+      ));
+    }
+    return;
+  }
+
+  if (actionId === "lab.outcomes.status") {
+    const actions = asArray(data.actions)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+
+    content.append(createResultGrid([
+      ["WRITE", displayValue(data.writeActionCount)],
+      ["Clasificadas", displayValue(data.classifiedCount)],
+      ["Post-check", displayValue(data.postcheckedCount)],
+      ["Cobertura", displayValue(data.coveragePercent) + "%"],
+      ["Incompletas", displayValue(data.incompleteRuns)]
+    ]));
+
+    if (actions.length) {
+      content.append(createResultTable(
+        ["Acción", "Verificación", "Rollback", "OK / Fallos", "Detalle"],
+        actions.map(item => [
+          displayValue(item.actionId),
+          displayValue(item.verificationLevel),
+          item.rollbackExpected === true ? "Esperado" : item.reversible === true ? "Disponible" : "No",
+          displayValue(item.completedRuns) + " / " + displayValue(item.failedRuns),
+          displayValue(item.verificationDetail)
+        ])
+      ));
+    }
+    return;
+  }
+
+  if (actionId.startsWith("maintenance.policy.")) {
+    const workload = asRecord(data.workload);
+    const scope = asArray(data.fixedReadOnlyScope);
+    content.append(createResultGrid([
+      ["Política", displayValue(data.mode)],
+      ["Ejecutable ahora", data.canRunNow === true ? "Sí" : "No"],
+      ["PC", workload ? displayValue(workload.effectiveMode) : "—"],
+      ["Scope", String(scope.length) + " diagnósticos fijos"],
+      ["Motivo", displayValue(data.reason)]
+    ]));
+    if (scope.length) {
+      const pre = document.createElement("pre");
+      pre.className = "result-pre";
+      pre.textContent = scope.map(displayValue).join("\n");
+      content.append(pre);
+    }
+    return;
+  }
+
+  if (actionId === "maintenance.safe.run") {
+    const items = asArray(data.items)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+    const policy = asRecord(data.policy);
+
+    content.append(createResultGrid([
+      ["Ejecutado", data.executed === true ? "Sí" : "No"],
+      ["Política", policy ? displayValue(policy.mode) : "—"],
+      ["Diagnósticos", String(items.length)],
+      ["WRITE ejecutados", "0"]
+    ]));
+
+    if (items.length) {
+      content.append(createResultTable(
+        ["Diagnóstico", "Estado", "Resumen"],
+        items.map(item => [
+          displayValue(item.actionId),
+          displayValue(item.status),
+          displayValue(item.summary)
+        ])
+      ));
+    }
     return;
   }
 
