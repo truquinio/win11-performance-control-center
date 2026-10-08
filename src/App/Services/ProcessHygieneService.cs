@@ -29,10 +29,12 @@ public sealed partial class ProcessHygieneService
     ];
 
     private readonly bool evaluationMode;
+    private readonly DateTimeOffset evaluationCapturedAt;
 
     public ProcessHygieneService(bool evaluationMode = false)
     {
         this.evaluationMode = evaluationMode;
+        evaluationCapturedAt = DateTimeOffset.Now;
     }
 
     public ProcessHygieneReport Analyze()
@@ -574,10 +576,10 @@ public sealed partial class ProcessHygieneService
         }
     }
 
-    private static IReadOnlyList<ProcessDescriptor>
+    private IReadOnlyList<ProcessDescriptor>
         SyntheticProcesses()
     {
-        var now = DateTimeOffset.Now;
+        var now = evaluationCapturedAt;
 
         return
         [
