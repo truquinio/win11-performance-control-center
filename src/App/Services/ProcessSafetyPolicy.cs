@@ -41,10 +41,39 @@ public static class ProcessSafetyPolicy
             "WidgetService",
             "PhoneExperienceHost",
             "msedgewebview2",
+            // Interactive browsers and automation runtimes must never be selected
+            // by generic MemoryTrim/EcoQoS merely because their windows are hidden.
+            "msedge",
+            "chrome",
+            "chrome-headless-shell",
+            "chromium",
+            "firefox",
+            "brave",
+            "helium",
+            "node",
+            "nodew",
+            "pm2",
+            "python",
+            "pythonw",
+            "uv",
+            "cloudflared",
+            "ollama",
+            "claude",
+            "codex",
+            "java",
+            "javaw",
+            "powershell",
+            "pwsh",
+            "cmd",
+            "conhost",
+            "WindowsTerminal",
             "adb",
             "emulator",
             "qemu-system-x86_64",
-            "qemu-system-x86_64-headless"
+            "qemu-system-x86_64-headless",
+            "qemu-system-aarch64",
+            "qemu-system-aarch64-headless",
+            "qemu-system-i386"
         };
 
     public static bool IsEligible(
