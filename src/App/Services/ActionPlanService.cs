@@ -11,6 +11,7 @@ public sealed class ActionPlanService
     private readonly PageFileService pageFileService;
     private readonly ServiceStartupRemediationService serviceStartup;
     private readonly BrowserExtensionRemediationService browserRemediation;
+    private readonly ProcessHygieneService processHygiene;
     private readonly RollbackCenterService rollbackCenter;
     private readonly WorkloadGuardService workloadGuard;
 
@@ -21,6 +22,7 @@ public sealed class ActionPlanService
         PageFileService pageFileService,
         ServiceStartupRemediationService serviceStartup,
         BrowserExtensionRemediationService browserRemediation,
+        ProcessHygieneService processHygiene,
         RollbackCenterService rollbackCenter,
         WorkloadGuardService workloadGuard)
     {
@@ -30,6 +32,7 @@ public sealed class ActionPlanService
         this.pageFileService = pageFileService;
         this.serviceStartup = serviceStartup;
         this.browserRemediation = browserRemediation;
+        this.processHygiene = processHygiene;
         this.rollbackCenter = rollbackCenter;
         this.workloadGuard = workloadGuard;
     }
@@ -42,19 +45,22 @@ public sealed class ActionPlanService
         var pageFileTask = pageFileService.AnalyzeAsync();
         var servicesTask = serviceStartup.PreviewAsync();
         var browserTask = Task.Run(browserRemediation.Preview);
+        var hygieneTask = Task.Run(processHygiene.Analyze);
 
         await Task.WhenAll(
             snapshotTask,
             storageTask,
             pageFileTask,
             servicesTask,
-            browserTask);
+            browserTask,
+            hygieneTask);
 
         var snapshot = await snapshotTask;
         var storage = await storageTask;
         var pageFile = await pageFileTask;
         var services = await servicesTask;
         var browser = await browserTask;
+        var hygiene = await hygieneTask;
         var rollback = rollbackCenter.Analyze(excludeOperationId);
         var workload = workloadGuard.GetStatus();
 
@@ -174,6 +180,19 @@ public sealed class ActionPlanService
                 "Residuos de extensiones Edge",
                 $"{browser.CandidateCount} residuo(s), {FormatBytes(browser.TotalBytes)}. No están ejecutándose.",
                 "browsers.extensions.orphans.preview",
+                workload);
+        }
+
+        if (hygiene.StoppableCount > 0)
+        {
+            Add(
+                items,
+                hygiene.EstimatedReclaimMb >= 1024d
+                    ? "HIGH"
+                    : "MEDIUM",
+                "Residuos de laboratorio en ejecución",
+                $"{hygiene.StoppableCount} residuo(s) preclasificado(s), ~{hygiene.EstimatedReclaimMb:F0} MiB observados. Bots y automatizaciones sensibles permanecen protegidos.",
+                "processes.hygiene.analyze",
                 workload);
         }
 
