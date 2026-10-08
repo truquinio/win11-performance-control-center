@@ -196,6 +196,7 @@ public sealed class HostBridge : IDisposable
             pageFile,
             serviceStartup,
             browserExtensionRemediation,
+            processHygiene,
             rollbackCenter,
             workloadGuard);
         var maintenanceAutomation = new MaintenanceAutomationService(
