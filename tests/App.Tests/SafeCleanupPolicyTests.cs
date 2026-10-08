@@ -20,6 +20,7 @@ public sealed class SafeCleanupPolicyTests
     }
 
     [Fact]
+    [Trait("Layer", "RealWorldEval")]
     public void ProjectAndLabPaths_AreNeverApprovedByNameAlone()
     {
         var userRoot = Environment.GetFolderPath(
