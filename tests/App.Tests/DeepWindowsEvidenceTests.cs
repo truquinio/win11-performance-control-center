@@ -206,15 +206,15 @@ public sealed class DeepWindowsEvidenceTests
             payload,
             StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(
-            "\\"arguments\\"",
+            "\"arguments\"",
             payload,
             StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(
-            "\\"execute\\"",
+            "\"execute\"",
             payload,
             StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(
-            "\\"command\\"",
+            "\"command\"",
             payload,
             StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(
