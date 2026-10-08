@@ -21,8 +21,8 @@ public sealed class DeepWindowsEvidenceTests
 
         var preview = await service.PreviewAsync();
 
-        Assert.Equal(3, preview.TaskCount);
-        Assert.Equal(1, preview.EligibleCount);
+        Assert.Equal(4, preview.TaskCount);
+        Assert.Equal(2, preview.EligibleCount);
 
         var vendor = Assert.Single(
             preview.Tasks,
@@ -42,6 +42,24 @@ public sealed class DeepWindowsEvidenceTests
                 "PM2",
                 StringComparison.OrdinalIgnoreCase));
         Assert.True(pm2.Protected);
+
+        var staleCom = Assert.Single(
+            preview.Tasks,
+            item => item.ActionStatus == "STALE_COM_HANDLER");
+        Assert.False(staleCom.Protected);
+        Assert.Equal("COM_HANDLER", staleCom.ActionKind);
+        Assert.Contains(
+            "stale",
+            staleCom.Reason,
+            StringComparison.OrdinalIgnoreCase);
+
+        var staleDisabled = await service.DisableAsync(staleCom.EntryId);
+        Assert.True(staleDisabled.Success);
+        Assert.True(staleDisabled.RestoreAvailable);
+
+        var staleRestored = await service.RestoreAsync(staleCom.EntryId);
+        Assert.True(staleRestored.Success);
+        Assert.False(staleRestored.RestoreAvailable);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.DisableAsync(microsoft.EntryId));

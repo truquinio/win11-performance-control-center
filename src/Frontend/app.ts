@@ -509,8 +509,8 @@ class DemoProvider implements Provider {
         dryRun: true,
         message: "DEMO: tareas programadas clasificadas.",
         data: {
-          taskCount: 3,
-          eligibleCount: 1,
+          taskCount: 4,
+          eligibleCount: 2,
           protectedCount: 2,
           restoreAvailableCount: 0,
           tasks: [
@@ -548,7 +548,24 @@ class DemoProvider implements Provider {
               arguments: "pm2 resurrect",
               protected: true,
               reason: "Protegida por política local.",
-              restoreAvailable: false
+              restoreAvailable: false,
+              actionKind: "EXEC",
+              actionStatus: "NORMAL"
+            },
+            {
+              entryId: "444444444444444444444444",
+              fullName: "\\SoftLanding\\StaleCreativeTask",
+              taskName: "StaleCreativeTask",
+              taskPath: "\\SoftLanding\\",
+              state: "Ready",
+              execute: null,
+              arguments: null,
+              protected: false,
+              reason: "COM handler sin registro CLSID. La tarea está stale y puede deshabilitarse con rollback.",
+              restoreAvailable: false,
+              actionKind: "COM_HANDLER",
+              comHandlerClassId: "{F576B2F9-7850-4226-ADB0-E5993FED4F02}",
+              actionStatus: "STALE_COM_HANDLER"
             }
           ]
         }
@@ -2466,10 +2483,12 @@ function renderStructuredResult(  actionId: string,
 
     if (tasks.length) {
       content.append(createResultTable(
-        ["Tarea", "Estado", "Clasificación", "Motivo"],
+        ["Tarea", "Estado", "Acción", "Diagnóstico", "Clasificación", "Motivo"],
         tasks.map(item => [
           displayValue(item.fullName),
           displayValue(item.state),
+          displayValue(item.actionKind),
+          displayValue(item.actionStatus),
           item.protected === true ? "Protegida" : "Revisable",
           displayValue(item.reason)
         ])
