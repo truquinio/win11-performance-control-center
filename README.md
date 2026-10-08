@@ -51,7 +51,7 @@ La interfaz ofrece **Compact** para uso diario y **Developer** para Action Catal
 
 - 🧠 **CPU / EcoQoS** — análisis de procesos, aplicación controlada y rollback.
 - 🧩 **RAM / MemoryTrim** — presión de memoria, preview y recorte seleccionado.
-- 💾 **Almacenamiento** — espacio disponible, categorías recuperables y Safe Cleanup en dry-run.
+- 💾 **Almacenamiento** — espacio disponible, categorías recuperables, previsualización (dry-run) y limpieza real limitada a cachés regenerables con confirmación.
 - 🛡️ **Integridad** — línea base del sistema y DISM CheckHealth con elevación puntual.
 - 🌐 **Red** — adaptador activo, enlace y tráfico medido.
 - 🌡️ **Energía y temperatura** — plan de energía, ACPI y lectura NVIDIA cuando está disponible.
@@ -72,7 +72,7 @@ La interfaz ofrece **Compact** para uso diario y **Developer** para Action Catal
 | Acciones administrativas | UAC sólo cuando la acción lo requiere |
 | Comandos arbitrarios desde UI | No permitidos |
 | Reinicio automático | No |
-| Safe Cleanup | `DRY_RUN` en la versión actual |
+| Safe Cleanup | `DRY_RUN` para previsualizar; `disk.cleanup.execute` para limpieza controlada de cachés con confirmación explícita |
 
 El helper elevado vuelve a ejecutar el mismo ejecutable, valida el Action ID y usa un token efímero de respuesta.
 
@@ -168,7 +168,7 @@ docs/                    # arquitectura, seguridad y screenshots
 
 ## 📌 Estado
 
-**Preview / v0.1.0.** El repositorio contiene funcionalidades read-only y acciones controladas; Safe Cleanup continúa en dry-run.
+**Preview / v0.1.0.** El repositorio contiene diagnósticos de solo lectura y acciones controladas; Safe Cleanup distingue previsualización `DRY_RUN` y eliminación `WRITE` restringida con confirmación. El soporte de una función no equivale a una mejora de rendimiento demostrada.
 
 No hay una licencia de reutilización declarada en el repositorio en este momento.
 
