@@ -23,6 +23,7 @@ public sealed class ActionExecutor(
     PowerPlanTuningService powerPlanTuningService,
     PageFileTuningService pageFileTuningService,
     ProcessAnalysisService processService,
+    ProcessHygieneService processHygieneService,
     ProcessTuningService processTuningService,
     PageFileService pageFileService,
     IntegrityService integrityService,
@@ -294,6 +295,8 @@ public sealed class ActionExecutor(
             "system.reliability.analyze" => await ReliabilityAsync(),
             "system.crash.analyze" => await CrashIntelligenceAsync(),
             "memory.analyze" => await MemoryAsync(),
+            "processes.hygiene.analyze" => await Task.Run(ProcessHygieneAnalyze),
+            "processes.hygiene.stop" => await ProcessHygieneStopAsync(parameters),
             "memory.trim.preview" => await Task.Run(MemoryTrimPreview),
             "memory.trim" => await MemoryTrimAsync(parameters),
             "memory.pagefile.analyze" => await PageFileAsync(),
@@ -892,6 +895,23 @@ public sealed class ActionExecutor(
                 result.RestoreAvailable
             });
 
+    private static int GetRequiredInt32(
+        JsonElement? parameters,
+        string name)
+    {
+        if (parameters is not { ValueKind: JsonValueKind.Object } args ||
+            !args.TryGetProperty(name, out var value) ||
+            value.ValueKind != JsonValueKind.Number ||
+            !value.TryGetInt32(out var result) ||
+            result <= 0)
+        {
+            throw new InvalidOperationException(
+                "Falta parámetro entero positivo: " + name);
+        }
+
+        return result;
+    }
+
     private static string GetRequiredString(
         JsonElement? parameters,
         string name)
@@ -943,6 +963,44 @@ public sealed class ActionExecutor(
                 snapshot.MemoryUsedBytes,
                 snapshot.MemoryAvailableBytes
             });
+    }
+
+    private ActionResult ProcessHygieneAnalyze()
+    {
+        var report = processHygieneService.Analyze();
+        return new ActionResult(
+            true,
+            true,
+            report.StoppableCount == 0
+                ? $"Process Hygiene: no se detectaron residuos detenibles; {report.ProtectedCount} proceso(s) sensibles quedaron protegidos."
+                : $"Process Hygiene: {report.StoppableCount} residuo(s) detenible(s), ~{report.EstimatedReclaimMb:F1} MiB potenciales. No se detuvo nada.",
+            report);
+    }
+
+    private async Task<ActionResult> ProcessHygieneStopAsync(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(
+            parameters,
+            "Confirma la detención del residuo de laboratorio seleccionado.");
+        var processId = GetRequiredInt32(
+            parameters,
+            "processId");
+        var fingerprint = GetRequiredString(
+            parameters,
+            "fingerprint");
+
+        var result = await processHygieneService.StopAsync(
+            processId,
+            fingerprint);
+
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Success
+                ? $"Process Hygiene: {result.Identity} detenido y verificado (~{result.EstimatedReclaimMb:F1} MiB observados en la previsualización)."
+                : $"Process Hygiene: la detención de {result.Identity} no pudo verificarse ({result.Status}).",
+            result);
     }
 
     private async Task<ActionResult> PageFileAsync()
