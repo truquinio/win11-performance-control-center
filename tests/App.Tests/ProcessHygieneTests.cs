@@ -17,7 +17,7 @@ public sealed class ProcessHygieneTests
         var report = service.Analyze();
 
         Assert.Equal(3, report.StoppableCount);
-        Assert.Equal(2, report.ProtectedCount);
+        Assert.Equal(3, report.ProtectedCount);
         Assert.True(report.EstimatedReclaimMb > 1700);
 
         var edge = Assert.Single(
@@ -38,6 +38,16 @@ public sealed class ProcessHygieneTests
         Assert.Contains(
             "hooklab",
             qemu.Identity,
+            StringComparison.OrdinalIgnoreCase);
+
+        var activeEmulator = Assert.Single(
+            report.Items,
+            item => item.Category == "ACTIVE_ANDROID_EMULATOR");
+        Assert.True(activeEmulator.Protected);
+        Assert.False(activeEmulator.Stoppable);
+        Assert.Contains(
+            "hooklab_active",
+            activeEmulator.Identity,
             StringComparison.OrdinalIgnoreCase);
 
         var orphan = Assert.Single(
