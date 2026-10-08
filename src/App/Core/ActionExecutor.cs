@@ -1818,7 +1818,11 @@ public sealed class ActionExecutor(
             .Analyze();
         var processHygieneGuardsPass =
             hygiene.StoppableCount == 3 &&
-            hygiene.ProtectedCount == 2 &&
+            hygiene.ProtectedCount == 3 &&
+            hygiene.Items.Any(item =>
+                item.Category == "ACTIVE_ANDROID_EMULATOR" &&
+                item.Protected &&
+                !item.Stoppable) &&
             hygiene.Items
                 .Where(item => item.Protected)
                 .All(item => !item.Stoppable) &&
