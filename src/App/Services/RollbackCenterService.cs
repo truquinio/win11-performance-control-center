@@ -13,6 +13,7 @@ public sealed class RollbackCenterService
     private readonly string serviceStartupStatePath;
     private readonly string startupEntryStatePath;
     private readonly string scheduledTaskStatePath;
+    private readonly string edgePerformanceStatePath;
     private readonly string edgeQuarantineRoot;
 
     public RollbackCenterService(
@@ -22,7 +23,8 @@ public sealed class RollbackCenterService
         string? serviceStartupStatePath = null,
         string? edgeQuarantineRoot = null,
         string? startupEntryStatePath = null,
-        string? scheduledTaskStatePath = null)
+        string? scheduledTaskStatePath = null,
+        string? edgePerformanceStatePath = null)
     {
         this.recovery = recovery;
         this.pageFileStatePath = string.IsNullOrWhiteSpace(pageFileStatePath)
@@ -43,6 +45,10 @@ public sealed class RollbackCenterService
             string.IsNullOrWhiteSpace(scheduledTaskStatePath)
                 ? AppPaths.ScheduledTaskState
                 : Path.GetFullPath(scheduledTaskStatePath);
+        this.edgePerformanceStatePath =
+            string.IsNullOrWhiteSpace(edgePerformanceStatePath)
+                ? AppPaths.EdgePerformanceState
+                : Path.GetFullPath(edgePerformanceStatePath);
         this.edgeQuarantineRoot =
             string.IsNullOrWhiteSpace(edgeQuarantineRoot)
                 ? AppPaths.EdgeExtensionQuarantine
@@ -141,6 +147,18 @@ public sealed class RollbackCenterService
                     ["entryId"] = task.EntryId
                 },
                 true,
+                "SAFE"));
+        }
+
+        if (HasNonEmptyState(edgePerformanceStatePath))
+        {
+            entries.Add(new RollbackCenterEntry(
+                "edge-performance",
+                "Edge Performance",
+                "Políticas y autoarranque anteriores guardados por la app.",
+                "browsers.edge.performance.restore",
+                new Dictionary<string, object?>(),
+                false,
                 "SAFE"));
         }
 

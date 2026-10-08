@@ -49,6 +49,7 @@ public sealed class HostBridge : IDisposable
         string? serviceStartupStatePath = null;
         string? startupEntryStatePath = null;
         string? scheduledTaskStatePath = null;
+        string? edgePerformanceStatePath = null;
         string? powerPlanStatePath = null;
         string? pageFileStatePath = null;
         string? workloadModeStatePath = null;
@@ -65,6 +66,7 @@ public sealed class HostBridge : IDisposable
             serviceStartupStatePath = Path.Combine(root, "State", "service-startup.json");
             startupEntryStatePath = Path.Combine(root, "State", "startup-entries.json");
             scheduledTaskStatePath = Path.Combine(root, "State", "scheduled-tasks.json");
+            edgePerformanceStatePath = Path.Combine(root, "State", "edge-performance.json");
             powerPlanStatePath = Path.Combine(root, "State", "power-plan.json");
             pageFileStatePath = Path.Combine(root, "State", "pagefile.json");
             workloadModeStatePath = Path.Combine(root, "State", "workload-mode.json");
@@ -169,6 +171,9 @@ public sealed class HostBridge : IDisposable
                 edgeUserDataRoot,
                 edgeQuarantineRoot,
                 edgeRunning);
+        var edgePerformance = new EdgePerformanceService(
+            edgePerformanceStatePath,
+            evaluationRoot is not null);
         var multimedia = new MultimediaService();
         var startup = new StartupAuditService();
         var updates = new WindowsUpdateAuditService();
@@ -188,7 +193,8 @@ public sealed class HostBridge : IDisposable
             serviceStartupStatePath,
             edgeQuarantineRoot,
             startupEntryStatePath,
-            scheduledTaskStatePath);
+            scheduledTaskStatePath,
+            edgePerformanceStatePath);
         var actionPlan = new ActionPlanService(
             catalog,
             snapshot,
@@ -257,6 +263,7 @@ public sealed class HostBridge : IDisposable
             browsers,
             browserExtensions,
             browserExtensionRemediation,
+            edgePerformance,
             multimedia,
             startup,
             updates,
