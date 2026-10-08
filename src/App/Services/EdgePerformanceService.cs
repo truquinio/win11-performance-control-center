@@ -130,11 +130,11 @@ public sealed class EdgePerformanceService
             if (!File.Exists(statePath))
                 PersistState(SyntheticSnapshot());
             evaluationOptimized = true;
-            var report = AnalyzeSynthetic();
+            var evaluationReport = AnalyzeSynthetic();
             return new EdgePerformanceChangeResult(
                 true,
                 "OPTIMIZED",
-                report,
+                evaluationReport,
                 true,
                 "EVALUATION");
         }
