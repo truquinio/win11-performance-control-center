@@ -192,7 +192,7 @@ public sealed partial class ProcessHygieneService
             TryExtractUserDataDir(command, out var userDataDir) &&
             Regex.IsMatch(
                 userDataDir,
-                @"sig-edge-headless-profiled+",
+                @"sig-edge-headless-profile\d+",
                 RegexOptions.IgnoreCase))
         {
             var related = all
