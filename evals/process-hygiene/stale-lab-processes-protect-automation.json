@@ -1,7 +1,7 @@
 {
   "id": "stale-lab-processes-protect-automation",
   "kind": "process_hygiene_regression",
-  "description": "Historical 2026-10-08 incident: stale Spotify Android lab emulators, SIG Edge headless profiles and orphan Uvicorn servers were consuming RAM/commit, while the live SIG 8877 server and PM2-owned Playwright browser had to remain untouched.",
+  "description": "Historical 2026-10-08 incident: stale Spotify Android lab QEMU without a launcher, SIG Edge headless profiles and orphan Uvicorn servers were candidates for cleanup, while an active Android emulator with its emulator.exe launcher, the live SIG 8877 server and PM2-owned Playwright browser had to remain untouched.",
   "expectedStoppableCategories": [
     "HEADLESS_SIG_TEST",
     "ANDROID_LAB",
@@ -9,7 +9,8 @@
   ],
   "expectedProtectedCategories": [
     "ACTIVE_DEV_SERVER",
-    "PROTECTED_HEADLESS_BROWSER"
+    "PROTECTED_HEADLESS_BROWSER",
+    "ACTIVE_ANDROID_EMULATOR"
   ],
   "requiresCurrentFingerprint": true,
   "workloadGuardRequired": true,
