@@ -259,32 +259,49 @@ public sealed class EdgePerformanceService
                 throw new InvalidOperationException(
                     "No se pudo abrir Run para restaurar Edge.");
 
-            foreach (var currentName in run.GetValueNames()
-                         .Where(name => name.StartsWith(
-                             "MicrosoftEdgeAutoLaunch_",
-                             StringComparison.OrdinalIgnoreCase)))
-            {
-                run.DeleteValue(
-                    currentName,
-                    throwOnMissingValue: false);
-            }
-
             foreach (var entry in snapshot.AutoLaunchEntries)
             {
-                run.SetValue(
-                    entry.Name,
-                    entry.Value,
-                    RegistryValueKind.String);
+                var current = Convert.ToString(
+                    run.GetValue(
+                        entry.Name,
+                        null,
+                        RegistryValueOptions.DoNotExpandEnvironmentNames));
+                if (current is not null &&
+                    !string.Equals(
+                        current,
+                        entry.Value,
+                        StringComparison.Ordinal))
+                {
+                    return new EdgePerformanceChangeResult(
+                        false,
+                        "RESTORE_CONFLICT",
+                        Analyze(),
+                        true,
+                        "Una entrada MicrosoftEdgeAutoLaunch cambió después de la optimización. No se sobrescribió; el snapshot se conserva.");
+                }
+
+                if (current is null)
+                {
+                    run.SetValue(
+                        entry.Name,
+                        entry.Value,
+                        RegistryValueKind.String);
+                }
             }
         }
 
-        File.Delete(statePath);
+        var verified = SnapshotMatchesCurrent(snapshot);
+        if (verified)
+            File.Delete(statePath);
+
         return new EdgePerformanceChangeResult(
-            true,
-            "RESTORED",
+            verified,
+            verified ? "RESTORED" : "VERIFY_FAILED",
             Analyze(),
-            false,
-            "Configuración anterior restaurada. Edge no fue cerrado ni reiniciado.");
+            !verified,
+            verified
+                ? "Configuración anterior restaurada y verificada. Edge no fue cerrado ni reiniciado."
+                : "El rollback se aplicó parcialmente, pero no coincide con el snapshot. Se conserva el snapshot para revisión.");
     }
 
     private EdgePerformanceReport AnalyzeSynthetic()
@@ -484,6 +501,57 @@ public sealed class EdgePerformanceService
         {
             return null;
         }
+    }
+
+    private bool SnapshotMatchesCurrent(
+        EdgePerformanceSnapshot snapshot)
+    {
+        if (evaluationMode)
+            return !evaluationOptimized;
+
+        using var currentUser = RegistryKey.OpenBaseKey(
+            RegistryHive.CurrentUser,
+            RegistryView.Registry64);
+        using var recommended = currentUser.OpenSubKey(
+            RecommendedSubKey);
+        using var policy = currentUser.OpenSubKey(
+            EdgePolicySubKey);
+        using var run = currentUser.OpenSubKey(RunSubKey);
+
+        foreach (var pair in snapshot.Recommended)
+        {
+            var current = CaptureRegistryValue(
+                recommended,
+                pair.Key);
+            if (current != pair.Value)
+                return false;
+        }
+
+        if (CaptureRegistryValue(
+                policy,
+                "LaunchEdgeOnWindowsStartupEnabled") !=
+            snapshot.LaunchOnStartup)
+        {
+            return false;
+        }
+
+        foreach (var entry in snapshot.AutoLaunchEntries)
+        {
+            var current = Convert.ToString(
+                run?.GetValue(
+                    entry.Name,
+                    null,
+                    RegistryValueOptions.DoNotExpandEnvironmentNames));
+            if (!string.Equals(
+                    current,
+                    entry.Value,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private EdgePerformanceSnapshot? LoadState()
