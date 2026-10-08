@@ -9,6 +9,7 @@ public sealed class ActionPlanService
     private readonly SystemSnapshotService snapshotService;
     private readonly StorageWatchService storageWatch;
     private readonly PageFileService pageFileService;
+    private readonly StorageMediaService storageMediaService;
     private readonly ServiceStartupRemediationService serviceStartup;
     private readonly BrowserExtensionRemediationService browserRemediation;
     private readonly RollbackCenterService rollbackCenter;
@@ -19,6 +20,7 @@ public sealed class ActionPlanService
         SystemSnapshotService snapshotService,
         StorageWatchService storageWatch,
         PageFileService pageFileService,
+        StorageMediaService storageMediaService,
         ServiceStartupRemediationService serviceStartup,
         BrowserExtensionRemediationService browserRemediation,
         RollbackCenterService rollbackCenter,
@@ -28,6 +30,7 @@ public sealed class ActionPlanService
         this.snapshotService = snapshotService;
         this.storageWatch = storageWatch;
         this.pageFileService = pageFileService;
+        this.storageMediaService = storageMediaService;
         this.serviceStartup = serviceStartup;
         this.browserRemediation = browserRemediation;
         this.rollbackCenter = rollbackCenter;
@@ -40,6 +43,7 @@ public sealed class ActionPlanService
         var snapshotTask = snapshotService.CaptureAsync();
         var storageTask = storageWatch.AuditAsync();
         var pageFileTask = pageFileService.AnalyzeAsync();
+        var mediaTask = storageMediaService.AnalyzeAsync();
         var servicesTask = serviceStartup.PreviewAsync();
         var browserTask = Task.Run(browserRemediation.Preview);
 
@@ -47,12 +51,14 @@ public sealed class ActionPlanService
             snapshotTask,
             storageTask,
             pageFileTask,
+            mediaTask,
             servicesTask,
             browserTask);
 
         var snapshot = await snapshotTask;
         var storage = await storageTask;
         var pageFile = await pageFileTask;
+        var media = await mediaTask;
         var services = await servicesTask;
         var browser = await browserTask;
         var rollback = rollbackCenter.Analyze(excludeOperationId);
@@ -139,18 +145,45 @@ public sealed class ActionPlanService
                 workload);
         }
 
-        var dEntry = pageFile.Entries.FirstOrDefault(entry =>
-            entry.Name.StartsWith(
-                @"D:\",
-                StringComparison.OrdinalIgnoreCase));
-        if (dEntry?.MaximumSizeMb is ulong maxMb &&
-            maxMb > 10UL * 1024UL)
+        var recommendation = media.PageFileRecommendation;
+        var primaryPageFile = pageFile.Entries
+            .OrderByDescending(entry =>
+                entry.MaximumSizeMb ??
+                entry.AllocatedMb)
+            .FirstOrDefault();
+        var currentPageFileDrive = primaryPageFile is null
+            ? null
+            : NormalizeDrive(
+                Path.GetPathRoot(primaryPageFile.Name));
+
+        var exceedsCap = pageFile.Entries.Any(entry =>
+            entry.MaximumSizeMb is ulong maximum &&
+            maximum > 10UL * 1024UL);
+
+        var placementMismatch =
+            recommendation.Available &&
+            !string.IsNullOrWhiteSpace(
+                recommendation.TargetDrive) &&
+            !string.IsNullOrWhiteSpace(
+                currentPageFileDrive) &&
+            !string.Equals(
+                recommendation.TargetDrive,
+                currentPageFileDrive,
+                StringComparison.OrdinalIgnoreCase);
+
+        if (exceedsCap || placementMismatch)
         {
+            var reason = placementMismatch
+                ? $"El pagefile principal está en {currentPageFileDrive}, pero la política recomienda {recommendation.TargetDrive} ({recommendation.TargetMediaType}). {recommendation.Reason}"
+                : "Hay un pagefile configurado por encima de 10 GiB. El perfil de la app mantiene un máximo de 8 GiB.";
+
             Add(
                 items,
                 "MEDIUM",
-                "Pagefile de D: supera el techo configurado",
-                $"Máximo actual: {maxMb / 1024d:F1} GiB. El perfil de la app limita D: a 8 GiB.",
+                placementMismatch
+                    ? "Pagefile en unidad no recomendada"
+                    : "Pagefile supera el techo configurado",
+                reason,
                 "memory.pagefile.capped",
                 workload);
         }
@@ -250,6 +283,17 @@ public sealed class ActionPlanService
             action.RequiresAdmin,
             deferred,
             deferred ? workload.Reason : null));
+    }
+
+    private static string? NormalizeDrive(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        return value.Trim()
+            .TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar);
     }
 
     private static int PriorityRank(string priority) =>
