@@ -193,7 +193,8 @@ public sealed class HostBridge : IDisposable
             serviceStartupStatePath,
             edgeQuarantineRoot,
             startupEntryStatePath,
-            scheduledTaskStatePath);
+            scheduledTaskStatePath,
+            edgePerformanceStatePath);
         var actionPlan = new ActionPlanService(
             catalog,
             snapshot,
