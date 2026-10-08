@@ -195,6 +195,7 @@ public sealed class HostBridge : IDisposable
             snapshot,
             storageWatch,
             pageFile,
+            storageMedia,
             serviceStartup,
             browserExtensionRemediation,
             rollbackCenter,
