@@ -39,6 +39,7 @@ public sealed class ActionExecutor(
     InstalledAppsService installedAppsService,
     PrivacyAuditService privacyAuditService,
     DeveloperToolingService developerToolingService,
+    AndroidAvdService androidAvdService,
     ThermalEnergyService thermalEnergyService,
     BootSleepAuditService bootSleepAuditService,
     ExplorerAuditService explorerAuditService,
@@ -346,6 +347,7 @@ public sealed class ActionExecutor(
             "apps.inventory" => await Task.Run(InstalledAppsInventory),
             "privacy.audit" => await Task.Run(PrivacyAudit),
             "developer.audit" => await Task.Run(DeveloperAudit),
+            "developer.android.avd.audit" => await AndroidAvdAuditAsync(),
             "lab.reliability.status" => await Task.Run(ReliabilityLabStatus),
             "lab.outcomes.status" => await Task.Run(OutcomeAudit),
             "thermal.audit" => await Task.Run(ThermalAudit),
@@ -1752,6 +1754,18 @@ public sealed class ActionExecutor(
                 destructiveEvalsRunHere = false,
                 note = "Los evals destructivos se ejecutan únicamente sobre fixtures/CI, Sandbox o VM disposable."
             });
+    }
+
+    private async Task<ActionResult> AndroidAvdAuditAsync()
+    {
+        var report = await androidAvdService.AnalyzeAsync();
+        return new ActionResult(
+            true,
+            false,
+            !report.Available
+                ? "Android AVD: no se encontró un directorio AVD accesible."
+                : $"Android AVD: {report.AvdCount} laboratorio(s), {report.ActiveCount} activo(s), {report.InactiveLogicalBytes / 1073741824d:F1} GiB lógicos inactivos para revisar.",
+            report);
     }
 
     private ActionResult DeveloperAudit() =>
