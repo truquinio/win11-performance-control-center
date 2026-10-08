@@ -184,6 +184,105 @@ class DemoProvider implements Provider {
   async runAction(id: string, parameters: Record<string, unknown> = {}): Promise<ActionResult> {
     await delay(450);
 
+    if (id === "processes.hygiene.analyze") {
+      return {
+        success: true,
+        dryRun: true,
+        message: "DEMO: 3 residuos detenibles y 2 procesos protegidos.",
+        data: {
+          capturedAt: new Date().toISOString(),
+          stoppableCount: 3,
+          protectedCount: 2,
+          estimatedReclaimMb: 1878,
+          items: [
+            {
+              processId: 100,
+              processName: "msedge.exe",
+              category: "HEADLESS_SIG_TEST",
+              identity: "sig-edge-headless-profile3",
+              reason: "Navegador Edge headless con perfil dedicado de pruebas SIG.",
+              protected: false,
+              stoppable: true,
+              fingerprint: "AAAAAAAAAAAAAAAAAAAAAAAA",
+              estimatedReclaimMb: 150,
+              ageMinutes: 120,
+              relatedProcessIds: [100, 101]
+            },
+            {
+              processId: 200,
+              processName: "qemu-system-x86_64-headless.exe",
+              category: "ANDROID_LAB",
+              identity: "spotify_api28_hooklab2",
+              reason: "Emulador Android marcado como laboratorio/prueba.",
+              protected: false,
+              stoppable: true,
+              fingerprint: "BBBBBBBBBBBBBBBBBBBBBBBB",
+              estimatedReclaimMb: 1536,
+              ageMinutes: 480,
+              relatedProcessIds: [200]
+            },
+            {
+              processId: 300,
+              processName: "python.exe",
+              category: "ORPHAN_UVICORN",
+              identity: "127.0.0.1:8773",
+              reason: "Servidor Uvicorn cuyo proceso iniciador ya no existe.",
+              protected: false,
+              stoppable: true,
+              fingerprint: "CCCCCCCCCCCCCCCCCCCCCCCC",
+              estimatedReclaimMb: 102,
+              ageMinutes: 240,
+              relatedProcessIds: [300, 301]
+            },
+            {
+              processId: 400,
+              processName: "python.exe",
+              category: "ACTIVE_DEV_SERVER",
+              identity: "127.0.0.1:8877",
+              reason: "Servidor de desarrollo con cadena activa.",
+              protected: true,
+              stoppable: false,
+              fingerprint: "DDDDDDDDDDDDDDDDDDDDDDDD",
+              estimatedReclaimMb: 132,
+              ageMinutes: 20,
+              relatedProcessIds: [400, 401]
+            },
+            {
+              processId: 500,
+              processName: "chrome-headless-shell.exe",
+              category: "PROTECTED_HEADLESS_BROWSER",
+              identity: "Playwright / Chromium",
+              reason: "Pertenece a PM2/bot/automatización protegida.",
+              protected: true,
+              stoppable: false,
+              fingerprint: "EEEEEEEEEEEEEEEEEEEEEEEE",
+              estimatedReclaimMb: 100,
+              ageMinutes: 30,
+              relatedProcessIds: [500]
+            }
+          ]
+        }
+      };
+    }
+
+    if (id === "processes.hygiene.stop") {
+      return {
+        success: true,
+        dryRun: false,
+        message: "DEMO: residuo detenido y verificado.",
+        data: {
+          success: true,
+          status: "EVALUATION",
+          category: "ANDROID_LAB",
+          identity: "spotify_api28_hooklab2",
+          stoppedProcessIds: [200],
+          stillAliveProcessIds: [],
+          estimatedReclaimMb: 1536,
+          detail: "Detención sintética verificada; no se tocó el host."
+        }
+      };
+    }
+
     if (id === "memory.trim" || id === "cpu.ecoqos.apply" || id === "cpu.ecoqos.restore") {
       const processIds = Array.isArray(parameters.processIds)
         ? parameters.processIds.filter((value): value is number => typeof value === "number")
@@ -922,6 +1021,8 @@ const demoCatalog: ActionDefinition[] = [
   { id: "system.reliability.analyze", title: "Reliability Analyzer", description: "Correlaciona eventos de arranque y apagado.", category: "Reliability", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "system.crash.analyze", title: "Crash Intelligence", description: "Agrupa fallos, hangs, WHEA y apagados no limpios sin inventar causas.", category: "Reliability", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "memory.analyze", title: "Analizar memoria", description: "Mide presión y uso de RAM.", category: "Memory", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "processes.hygiene.analyze", title: "Process Hygiene", description: "Detecta residuos de laboratorio y protege bots/automatizaciones.", category: "Memory", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "DRY_RUN" },
+  { id: "processes.hygiene.stop", title: "Detener residuo seleccionado", description: "Solo detiene un residuo preclasificado si PID y huella siguen coincidiendo.", category: "Memory", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "processId", type: "INTEGER", required: true, description: "PID exacto" }, { name: "fingerprint", type: "STRING", required: true, description: "Huella efímera" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "memory.trim.preview", title: "Previsualizar MemoryTrim", description: "Identifica working sets altos sin modificar memoria.", category: "Memory", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "DRY_RUN" },
   { id: "memory.trim", title: "MemoryTrim seleccionado", description: "Recorta working sets sólo de procesos seleccionados.", category: "Memory", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "processIds", type: "INTEGER_ARRAY", required: true, description: "PIDs seleccionados" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "memory.pagefile.analyze", title: "Analizar archivo de paginación", description: "Lee configuración y uso del pagefile.", category: "Memory", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
@@ -1096,7 +1197,7 @@ const moduleDefinitions: Record<string, {
     kicker: "RENDIMIENTO",
     title: "CPU y memoria",
     description: "Métricas locales y análisis seguros antes de aplicar optimizaciones.",
-    actionIds: ["memory.analyze", "memory.trim.preview", "memory.pagefile.analyze", "cpu.ecoqos.analyze"]
+    actionIds: ["memory.analyze", "processes.hygiene.analyze", "memory.trim.preview", "memory.pagefile.analyze", "cpu.ecoqos.analyze"]
   },
   cleanup: {
     kicker: "LIMPIEZA",
@@ -1131,8 +1232,8 @@ const moduleDefinitions: Record<string, {
   memory: {
     kicker: "MEMORIA",
     title: "RAM",
-    description: "Presión de memoria, MemoryTrim y pagefile limitado a un máximo razonable con rollback.",
-    actionIds: ["memory.analyze", "memory.trim.preview", "memory.pagefile.analyze", "memory.pagefile.capped", "memory.pagefile.restore"]
+    description: "Presión de memoria, residuos de laboratorio, MemoryTrim y pagefile limitado con rollback.",
+    actionIds: ["memory.analyze", "processes.hygiene.analyze", "memory.trim.preview", "memory.pagefile.analyze", "memory.pagefile.capped", "memory.pagefile.restore"]
   },
   cpu: {
     kicker: "CPU / ECOQOS",
@@ -2651,6 +2752,88 @@ function renderStructuredResult(  actionId: string,
       ["Detalle", displayValue(data.detail)],
       ["Rollback", data.restoreAvailable === true ? "Disponible" : "—"]
     ]));
+    return;
+  }
+
+  if (actionId === "processes.hygiene.analyze") {
+    const items = asArray(data.items)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+
+    content.append(createResultGrid([
+      ["Detenibles", displayValue(data.stoppableCount)],
+      ["Protegidos", displayValue(data.protectedCount)],
+      ["RAM potencial", typeof data.estimatedReclaimMb === "number"
+        ? Number(data.estimatedReclaimMb).toFixed(1) + " MiB" : "—"],
+      ["Política", "PID + huella + reclasificación"]
+    ]));
+
+    if (items.length) {
+      content.append(createResultTable(
+        ["Tipo", "Identidad", "PID", "RAM", "Edad", "Decisión", "Motivo"],
+        items.map(item => [
+          displayValue(item.category),
+          displayValue(item.identity),
+          displayValue(item.processId),
+          typeof item.estimatedReclaimMb === "number"
+            ? Number(item.estimatedReclaimMb).toFixed(1) + " MiB" : "—",
+          typeof item.ageMinutes === "number"
+            ? formatDuration(Number(item.ageMinutes) * 60) : "—",
+          item.protected === true
+            ? "Protegido"
+            : item.stoppable === true
+              ? "Puede detenerse"
+              : "Solo observar",
+          displayValue(item.reason)
+        ])
+      ));
+
+      const controls = document.createElement("div");
+      controls.className = "result-actions";
+      for (const item of items.filter(candidate =>
+        candidate.stoppable === true &&
+        candidate.protected !== true &&
+        typeof candidate.processId === "number" &&
+        typeof candidate.fingerprint === "string").slice(0, 12)) {
+        const button = document.createElement("button");
+        button.className = "btn btn-secondary";
+        button.textContent = "Detener · " + displayValue(item.identity);
+        button.addEventListener("click", () => {
+          if (!window.confirm(
+            "¿Detener únicamente " + displayValue(item.identity) +
+            "?\n\nLa app volverá a verificar PID, huella y clasificación antes de detenerlo. " +
+            "Bots, PM2, Desktop Commander, ChatGPT, Claude y procesos no clasificados quedan fuera."
+          )) return;
+          void runAction(
+            "processes.hygiene.stop",
+            button,
+            {
+              processId: Number(item.processId),
+              fingerprint: String(item.fingerprint),
+              confirmed: true
+            });
+        });
+        controls.append(button);
+      }
+      if (controls.childElementCount) content.append(controls);
+    }
+    return;
+  }
+
+  if (actionId === "processes.hygiene.stop") {
+    content.append(createResultGrid([
+      ["Estado", displayValue(data.status)],
+      ["Tipo", displayValue(data.category)],
+      ["Elemento", displayValue(data.identity)],
+      ["Detenidos", asArray(data.stoppedProcessIds).map(displayValue).join(", ") || "—"],
+      ["Siguen vivos", asArray(data.stillAliveProcessIds).map(displayValue).join(", ") || "0"],
+      ["RAM observada", typeof data.estimatedReclaimMb === "number"
+        ? Number(data.estimatedReclaimMb).toFixed(1) + " MiB" : "—"]
+    ]));
+    const detail = document.createElement("p");
+    detail.className = "result-message";
+    detail.textContent = displayValue(data.detail);
+    content.append(detail);
     return;
   }
 
