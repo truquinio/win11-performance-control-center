@@ -544,6 +544,49 @@ class DemoProvider implements Provider {
       };
     }
 
+    if (id === "browsers.automation.audit") {
+      return {
+        success: true,
+        dryRun: false,
+        message: "DEMO: Chrome Playwright y Chromium headless separados, sin cerrar procesos.",
+        data: {
+          capturedAt: new Date().toISOString(),
+          totalBrowserProcesses: 16,
+          workingSetBytes: 1940000000,
+          privateBytes: 1300000000,
+          sampleCount: 3,
+          accountingNotice: "La suma de working sets puede duplicar páginas compartidas. La memoria privada representa compromiso, no RAM exclusiva.",
+          safetyNotice: "Solo observación, no se ejecuta ningún cierre ni EcoQoS.",
+          families: [
+            {
+              family: "PLAYWRIGHT_CHROME", processCount: 13,
+              workingSetBytes: 1500000000, privateBytes: 1100000000,
+              peakPrivateBytes: 1550000000, status: "OBSERVED",
+              detail: "Una muestra no demuestra fuga. El navegador se reduce al acabar el trabajo.",
+              confirmedOwners: ["LINKEDIN_BOT"],
+              recentSamples: []
+            },
+            {
+              family: "PLAYWRIGHT_HEADLESS", processCount: 3,
+              workingSetBytes: 145000000, privateBytes: 125000000,
+              peakPrivateBytes: 300000000, status: "TRANSIENT_RECOVERED",
+              detail: "Un pico temporal volvió al nivel base: no intervenir.",
+              confirmedOwners: ["SEPE_AGENT"],
+              recentSamples: []
+            }
+          ],
+          processes: [
+            {
+              processId: 12345, parentProcessId: 23456,
+              family: "PLAYWRIGHT_CHROME", role: "renderer",
+              owner: "LINKEDIN_BOT", attribution: "CONFIRMED",
+              workingSetBytes: 368000000, privateBytes: 320000000
+            }
+          ]
+        }
+      };
+    }
+
     if (id === "system.crash.analyze") {
       return {
         success: true,
@@ -1136,6 +1179,7 @@ const demoCatalog: ActionDefinition[] = [
   { id: "system.registry.evidence", title: "Evidencia Registry", description: "Audita AppInit, IFEO y Winlogon sin limpiar el registro.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "system.com.evidence", title: "Evidencia COM", description: "Busca servidores COM locales ausentes con escaneo acotado y read-only.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "system.certificates.audit", title: "Auditar certificados personales", description: "Lee vencidos/próximos a vencer sin eliminarlos.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "browsers.automation.audit", title: "Medir Chrome del bot, SEPE y Edge", description: "Agrupa procesos Playwright, headless y Edge; compara picos y verifica recuperación sin cerrar nada.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "browsers.inventory", title: "Inventario de navegadores", description: "Detecta navegadores y perfiles locales.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "browsers.edge.performance.audit", title: "Edge Performance", description: "Mide memoria/procesos y revisa políticas de rendimiento/autoarranque.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "browsers.edge.performance.optimize", title: "Optimizar Edge", description: "Perfil reversible: sin background/boost, Sleeping Tabs 5 min, auto-discard, Efficiency Mode y sin autoarranque.", category: "Browsers", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
@@ -1309,7 +1353,7 @@ const moduleDefinitions: Record<string, {
     kicker: "NAVEGADORES",
     title: "Navegadores",
     description: "Rendimiento de Edge, integridad de extensiones y limpieza reversible de residuos sin perder sesiones ni funciones.",
-    actionIds: ["browsers.inventory", "browsers.edge.performance.audit", "browsers.extensions.health", "browsers.extensions.orphans.preview"]
+    actionIds: ["browsers.automation.audit", "browsers.inventory", "browsers.edge.performance.audit", "browsers.extensions.health", "browsers.extensions.orphans.preview"]
   },
   multimedia: {
     kicker: "MULTIMEDIA",
@@ -1321,7 +1365,7 @@ const moduleDefinitions: Record<string, {
     kicker: "MEMORIA",
     title: "RAM",
     description: "Presión de memoria, residuos de laboratorio, MemoryTrim y pagefile limitado con rollback.",
-    actionIds: ["memory.analyze", "processes.hygiene.analyze", "memory.trim.preview", "memory.pagefile.analyze", "memory.pagefile.capped", "memory.pagefile.restore"]
+    actionIds: ["memory.analyze", "browsers.automation.audit", "processes.hygiene.analyze", "memory.trim.preview", "memory.pagefile.analyze", "memory.pagefile.capped", "memory.pagefile.restore"]
   },
   cpu: {
     kicker: "CPU / ECOQOS",
@@ -2998,6 +3042,88 @@ function renderStructuredResult(  actionId: string,
     detail.className = "result-message";
     detail.textContent = displayValue(data.detail);
     content.append(detail);
+    return;
+  }
+
+  if (actionId === "browsers.automation.audit") {
+    const groups = asArray(data.families)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+    const processes = asArray(data.processes)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+
+    content.append(createResultGrid([
+      ["Procesos observados", displayValue(data.totalBrowserProcesses)],
+      ["Working sets sumados", typeof data.workingSetBytes === "number"
+        ? formatBytes(data.workingSetBytes) : "—"],
+      ["Memoria privada", typeof data.privateBytes === "number"
+        ? formatBytes(data.privateBytes) : "—"],
+      ["Capturas", displayValue(data.sampleCount)],
+      ["Ejecución", "Solo lectura, sin cierres"]
+    ]));
+
+    if (groups.length) {
+      content.append(createResultTable(
+        ["Familia", "Procesos", "Working set", "Privada", "Estado", "Propietario confirmado"],
+        groups.map(item => [
+          displayValue(item.family),
+          displayValue(item.processCount),
+          typeof item.workingSetBytes === "number"
+            ? formatBytes(item.workingSetBytes) : "—",
+          typeof item.privateBytes === "number"
+            ? formatBytes(item.privateBytes) : "—",
+          displayValue(item.status),
+          asArray(item.confirmedOwners).map(displayValue).join(", ") || "Sin atribución"
+        ])
+      ));
+      const detail = document.createElement("p");
+      detail.className = "result-message";
+      detail.textContent = groups.map(item =>
+        displayValue(item.family) + ": " + displayValue(item.detail)
+      ).join(" ");
+      content.append(detail);
+    }
+
+    if (processes.length) {
+      content.append(createResultTable(
+        ["PID", "PPID", "Familia", "Rol", "Dueño", "Working set", "Privada"],
+        processes.slice(0, 40).map(item => [
+          displayValue(item.processId),
+          displayValue(item.parentProcessId),
+          displayValue(item.family),
+          displayValue(item.role),
+          displayValue(item.owner),
+          typeof item.workingSetBytes === "number"
+            ? formatBytes(item.workingSetBytes) : "—",
+          typeof item.privateBytes === "number"
+            ? formatBytes(item.privateBytes) : "—"
+        ])
+      ));
+    }
+
+    const note = document.createElement("p");
+    note.className = "result-message";
+    note.textContent = displayValue(data.accountingNotice) + " " +
+      displayValue(data.safetyNotice);
+    content.append(note);
+
+    const actions = document.createElement("div");
+    actions.className = "result-actions";
+    for (const [label, next] of [
+      ["Volver a medir", "browsers.automation.audit"],
+      ["Revisar Edge", "browsers.edge.performance.audit"],
+      ["Revisar residuos de laboratorio", "processes.hygiene.analyze"]
+    ] as const) {
+      const button = document.createElement("button");
+      button.className = "btn btn-secondary";
+      button.textContent = label;
+      button.addEventListener("click", () => {
+        void runAction(next, button);
+      });
+      actions.append(button);
+    }
+    content.append(actions);
     return;
   }
 
