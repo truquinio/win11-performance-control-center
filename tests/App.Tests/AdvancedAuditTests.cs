@@ -58,6 +58,10 @@ public sealed class AdvancedAuditTests
     [InlineData(999, "SearchHost")]
     [InlineData(999, "RuntimeBroker")]
     [InlineData(999, "msedgewebview2")]
+    [InlineData(999, "adb")]
+    [InlineData(999, "emulator")]
+    [InlineData(999, "qemu-system-x86_64")]
+    [InlineData(999, "qemu-system-x86_64-headless")]
     public void ProcessSafetyPolicy_BlocksKnownCriticalPatterns(
         int processId,
         string name)
