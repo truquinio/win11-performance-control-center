@@ -34,6 +34,7 @@ public sealed class ActionExecutor(
     BrowserExtensionHealthService browserExtensionHealthService,
     BrowserExtensionRemediationService browserExtensionRemediationService,
     EdgePerformanceService edgePerformanceService,
+    BrowserAutomationTelemetryService browserAutomationTelemetryService,
     MultimediaService multimediaService,
     StartupAuditService startupAuditService,
     WindowsUpdateAuditService windowsUpdateAuditService,
@@ -326,6 +327,7 @@ public sealed class ActionExecutor(
             "system.registry.evidence" => await Task.Run(RegistryEvidence),
             "system.com.evidence" => await Task.Run(ComEvidence),
             "system.certificates.audit" => await Task.Run(CertificateEvidence),
+            "browsers.automation.audit" => await Task.Run(BrowserAutomationAudit),
             "browsers.inventory" => await Task.Run(BrowserInventory),
             "browsers.edge.performance.audit" => await Task.Run(EdgePerformanceAudit),
             "browsers.edge.performance.optimize" => await Task.Run(() => EdgePerformanceOptimize(parameters)),
@@ -1493,6 +1495,21 @@ public sealed class ActionExecutor(
                 _ => "Activación: no se pudo determinar el estado de licencia."
             },
             new { analysis.Status, analysis.LicenseStatus, analysis.Description });
+    }
+
+    private ActionResult BrowserAutomationAudit()
+    {
+        var report = browserAutomationTelemetryService.Analyze();
+        var review = report.Families.Count(group =>
+            group.Status == "SUSTAINED_REVIEW");
+
+        return new ActionResult(
+            true,
+            false,
+            review > 0
+                ? $"Navegadores automatizados: {review} grupo(s) con uso privado sostenido a revisar. No se cerró ningún proceso."
+                : $"Navegadores automatizados: {report.TotalBrowserProcesses} proceso(s) observados; un pico aislado no demuestra una fuga.",
+            report);
     }
 
     private ActionResult BrowserInventory()
