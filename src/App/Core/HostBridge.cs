@@ -138,6 +138,8 @@ public sealed class HostBridge : IDisposable
             workloadModeStatePath,
             evaluationRoot is not null);
         var processes = new ProcessAnalysisService();
+        var processHygiene = new ProcessHygieneService(
+            evaluationRoot is not null);
         var ecoQosState = new EcoQosStateStore(statePath);
         var tuning = new ProcessTuningService(ecoQosState);
         var pageFile = new PageFileService();
@@ -207,6 +209,7 @@ public sealed class HostBridge : IDisposable
             serviceStartup,
             startupEntries,
             scheduledTasks,
+            processHygiene,
             maintenancePolicyStatePath);
         var diagnosticBundle = new DiagnosticBundleService(
             snapshot,
@@ -243,6 +246,7 @@ public sealed class HostBridge : IDisposable
             powerPlanTuning,
             pageFileTuning,
             processes,
+            processHygiene,
             tuning,
             pageFile,
             integrity,
