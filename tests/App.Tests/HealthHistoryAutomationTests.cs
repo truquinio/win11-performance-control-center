@@ -246,7 +246,7 @@ public sealed class HealthHistoryAutomationTests
         Assert.True(run.Success);
         var report = Assert.IsType<MaintenanceRunReport>(run.Data);
         Assert.True(report.Executed);
-        Assert.Equal(9, report.Items.Count);
+        Assert.Equal(10, report.Items.Count);
         var catalog = new ActionCatalog();
         Assert.DoesNotContain(
             report.Policy.FixedReadOnlyScope,
