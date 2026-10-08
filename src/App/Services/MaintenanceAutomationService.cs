@@ -14,6 +14,7 @@ public sealed class MaintenanceAutomationService
         "system.crash.analyze",
         "drivers.usb.analyze",
         "browsers.extensions.health",
+        "browsers.automation.audit",
         "startup.services.preview",
         "startup.entries.preview",
         "startup.tasks.preview",
@@ -28,6 +29,7 @@ public sealed class MaintenanceAutomationService
     private readonly CrashIntelligenceService crashIntelligenceService;
     private readonly UsbDiagnosticsService usbDiagnosticsService;
     private readonly BrowserExtensionHealthService browserExtensionHealthService;
+    private readonly BrowserAutomationTelemetryService browserAutomationTelemetryService;
     private readonly ServiceStartupRemediationService serviceStartupService;
     private readonly StartupEntryRemediationService startupEntryService;
     private readonly ScheduledTaskRemediationService scheduledTaskService;
@@ -41,6 +43,7 @@ public sealed class MaintenanceAutomationService
         CrashIntelligenceService crashIntelligenceService,
         UsbDiagnosticsService usbDiagnosticsService,
         BrowserExtensionHealthService browserExtensionHealthService,
+        BrowserAutomationTelemetryService browserAutomationTelemetryService,
         ServiceStartupRemediationService serviceStartupService,
         StartupEntryRemediationService startupEntryService,
         ScheduledTaskRemediationService scheduledTaskService,
@@ -58,6 +61,7 @@ public sealed class MaintenanceAutomationService
         this.crashIntelligenceService = crashIntelligenceService;
         this.usbDiagnosticsService = usbDiagnosticsService;
         this.browserExtensionHealthService = browserExtensionHealthService;
+        this.browserAutomationTelemetryService = browserAutomationTelemetryService;
         this.serviceStartupService = serviceStartupService;
         this.startupEntryService = startupEntryService;
         this.scheduledTaskService = scheduledTaskService;
@@ -190,6 +194,19 @@ public sealed class MaintenanceAutomationService
                 return (
                     report.BrokenCount > 0 ? "WARNING" : "OK",
                     $"{report.InstalledCount} instalada(s), {report.BrokenCount} rota(s), {report.DataOnlyCount} residuo(s).");
+            }));
+
+        await CaptureAsync(
+            items,
+            "browsers.automation.audit",
+            () => Task.Run(() =>
+            {
+                var report = browserAutomationTelemetryService.Analyze();
+                var sustained = report.Families.Count(family =>
+                    family.Status == "SUSTAINED_REVIEW");
+                return (
+                    sustained > 0 ? "WARNING" : "OK",
+                    $"{report.TotalBrowserProcesses} proceso(s) Chromium/Edge, {sustained} grupo(s) a revisar; sin cambios.");
             }));
 
         await CaptureAsync(

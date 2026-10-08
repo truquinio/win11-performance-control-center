@@ -50,6 +50,7 @@ public sealed class HostBridge : IDisposable
         string? startupEntryStatePath = null;
         string? scheduledTaskStatePath = null;
         string? edgePerformanceStatePath = null;
+        string? browserAutomationHistoryPath = null;
         string? powerPlanStatePath = null;
         string? pageFileStatePath = null;
         string? workloadModeStatePath = null;
@@ -67,6 +68,7 @@ public sealed class HostBridge : IDisposable
             startupEntryStatePath = Path.Combine(root, "State", "startup-entries.json");
             scheduledTaskStatePath = Path.Combine(root, "State", "scheduled-tasks.json");
             edgePerformanceStatePath = Path.Combine(root, "State", "edge-performance.json");
+            browserAutomationHistoryPath = Path.Combine(root, "State", "browser-automation-history.json");
             powerPlanStatePath = Path.Combine(root, "State", "power-plan.json");
             pageFileStatePath = Path.Combine(root, "State", "pagefile.json");
             workloadModeStatePath = Path.Combine(root, "State", "workload-mode.json");
@@ -174,6 +176,9 @@ public sealed class HostBridge : IDisposable
         var edgePerformance = new EdgePerformanceService(
             edgePerformanceStatePath,
             evaluationRoot is not null);
+        var browserAutomation = new BrowserAutomationTelemetryService(
+            browserAutomationHistoryPath,
+            evaluationRoot is not null);
         var multimedia = new MultimediaService();
         var startup = new StartupAuditService();
         var updates = new WindowsUpdateAuditService();
@@ -213,6 +218,7 @@ public sealed class HostBridge : IDisposable
             crashIntelligence,
             usbDiagnostics,
             browserExtensions,
+            browserAutomation,
             serviceStartup,
             startupEntries,
             scheduledTasks,
@@ -264,6 +270,7 @@ public sealed class HostBridge : IDisposable
             browserExtensions,
             browserExtensionRemediation,
             edgePerformance,
+            browserAutomation,
             multimedia,
             startup,
             updates,

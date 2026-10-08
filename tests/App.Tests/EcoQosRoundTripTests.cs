@@ -233,8 +233,12 @@ public sealed class EcoQosRoundTripTests
     {
         var process = Process.Start(new ProcessStartInfo
         {
-            FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
-            Arguments = "/c ping 127.0.0.1 -n 30 >nul",
+            // Never weaken process protection just to satisfy the test.
+            // The subprocess is a disposable ping workload, not a terminal.
+            FileName = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "PING.EXE"),
+            Arguments = "127.0.0.1 -n 30",
             UseShellExecute = false,
             CreateNoWindow = true
         });

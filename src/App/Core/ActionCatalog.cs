@@ -112,6 +112,8 @@ public sealed class ActionCatalog
                 "Escaneo bounded y read-only de CLSID con servidores locales ausentes. Nunca elimina registros COM.", ActionCategory.System, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
             new ActionDefinition("system.certificates.audit", "Auditar certificados personales",
                 "Lee certificados personales próximos a vencer, vencidos o aún no válidos; nunca elimina certificados.", ActionCategory.System, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
+            new ActionDefinition("browsers.automation.audit", "Medir Chrome del bot, SEPE y Edge",
+                "Captura procesos y árboles padres de forma ligera, separa Playwright Chrome, headless de SEPE y Edge, y compara memoria privada/residente con capturas anteriores sin cerrar procesos.", ActionCategory.Browsers, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
             new ActionDefinition("browsers.inventory", "Inventario de navegadores",
                 "Detecta navegadores y perfiles locales sin abrirlos ni modificarlos.", ActionCategory.Browsers, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
             new ActionDefinition("browsers.edge.performance.audit", "Edge Performance",
