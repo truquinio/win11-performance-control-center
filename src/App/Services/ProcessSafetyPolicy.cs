@@ -40,7 +40,11 @@ public static class ProcessSafetyPolicy
             "Widgets",
             "WidgetService",
             "PhoneExperienceHost",
-            "msedgewebview2"
+            "msedgewebview2",
+            "adb",
+            "emulator",
+            "qemu-system-x86_64",
+            "qemu-system-x86_64-headless"
         };
 
     public static bool IsEligible(
