@@ -132,8 +132,10 @@ public sealed class HostBridge : IDisposable
         var systemRemediation = new SystemRemediationService();
         var powerPlanTuning = new PowerPlanTuningService(
             powerPlanStatePath);
+        var storageMedia = new StorageMediaService();
         var pageFileTuning = new PageFileTuningService(
-            pageFileStatePath);
+            pageFileStatePath,
+            storageMedia);
         var workloadGuard = new WorkloadGuardService(
             workloadModeStatePath,
             evaluationRoot is not null);
@@ -245,6 +247,7 @@ public sealed class HostBridge : IDisposable
             processes,
             tuning,
             pageFile,
+            storageMedia,
             integrity,
             drivers,
             usbDiagnostics,
