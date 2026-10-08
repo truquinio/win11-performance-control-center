@@ -377,6 +377,74 @@ class DemoProvider implements Provider {
       };
     }
 
+    if (id === "browsers.edge.performance.audit") {
+      return {
+        success: true,
+        dryRun: false,
+        message: "DEMO: Edge Performance requiere optimización.",
+        data: {
+          processCount: 24,
+          visibleWindowCount: 1,
+          workingSetBytes: 5.5 * 1024 ** 3,
+          privateBytes: 6.1 * 1024 ** 3,
+          policy: {
+            backgroundModeEnabled: 0,
+            startupBoostEnabled: 0,
+            sleepingTabsEnabled: null,
+            sleepingTabsTimeout: null,
+            autoDiscardSleepingTabsEnabled: null,
+            efficiencyModeEnabled: null,
+            efficiencyMode: null,
+            launchEdgeOnWindowsStartupEnabled: null,
+            mandatoryPerformanceOverridesPresent: true
+          },
+          autoLaunchEntryCount: 1,
+          restoreAvailable: false,
+          optimized: false,
+          guidance: "Pendiente: sleeping tabs, timeout 5 min, auto-discard, efficiency mode, Windows startup, Run auto-launch."
+        }
+      };
+    }
+
+    if (id === "browsers.edge.performance.optimize" ||
+        id === "browsers.edge.performance.restore") {
+      const optimized = id.endsWith(".optimize");
+      return {
+        success: true,
+        dryRun: false,
+        message: optimized
+          ? "DEMO: perfil Edge aplicado."
+          : "DEMO: perfil Edge restaurado.",
+        data: {
+          success: true,
+          status: optimized ? "OPTIMIZED" : "RESTORED",
+          restoreAvailable: optimized,
+          detail: "DEMO",
+          report: {
+            processCount: 12,
+            visibleWindowCount: 1,
+            workingSetBytes: 1.8 * 1024 ** 3,
+            privateBytes: 2.4 * 1024 ** 3,
+            policy: {
+              backgroundModeEnabled: optimized ? 0 : 1,
+              startupBoostEnabled: optimized ? 0 : 1,
+              sleepingTabsEnabled: optimized ? 1 : null,
+              sleepingTabsTimeout: optimized ? 300 : null,
+              autoDiscardSleepingTabsEnabled: optimized ? 1 : null,
+              efficiencyModeEnabled: optimized ? 1 : null,
+              efficiencyMode: optimized ? 0 : null,
+              launchEdgeOnWindowsStartupEnabled: optimized ? 0 : null,
+              mandatoryPerformanceOverridesPresent: false
+            },
+            autoLaunchEntryCount: optimized ? 0 : 1,
+            restoreAvailable: optimized,
+            optimized,
+            guidance: optimized ? "Optimizado." : "Restaurado."
+          }
+        }
+      };
+    }
+
     if (id === "browsers.extensions.health") {
       return {
         success: true,
@@ -1069,6 +1137,9 @@ const demoCatalog: ActionDefinition[] = [
   { id: "system.com.evidence", title: "Evidencia COM", description: "Busca servidores COM locales ausentes con escaneo acotado y read-only.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "system.certificates.audit", title: "Auditar certificados personales", description: "Lee vencidos/próximos a vencer sin eliminarlos.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "browsers.inventory", title: "Inventario de navegadores", description: "Detecta navegadores y perfiles locales.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "browsers.edge.performance.audit", title: "Edge Performance", description: "Mide memoria/procesos y revisa políticas de rendimiento/autoarranque.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "browsers.edge.performance.optimize", title: "Optimizar Edge", description: "Perfil reversible: sin background/boost, Sleeping Tabs 5 min, auto-discard, Efficiency Mode y sin autoarranque.", category: "Browsers", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "browsers.edge.performance.restore", title: "Restaurar configuración Edge", description: "Restaura la configuración capturada antes de optimizar.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "browsers.extensions.health", title: "Integridad de extensiones Edge", description: "Explica qué está correcto, qué son residuos y qué requiere reparación.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "browsers.extensions.orphans.preview", title: "Revisar residuos de extensiones", description: "Muestra datos de extensiones ya desinstaladas y cuánto espacio ocupan.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "browsers.extensions.orphans.quarantine", title: "Poner residuos en cuarentena", description: "Con Edge cerrado, mueve residuos a una cuarentena reversible.", category: "Browsers", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
@@ -1237,8 +1308,8 @@ const moduleDefinitions: Record<string, {
   browsers: {
     kicker: "NAVEGADORES",
     title: "Navegadores",
-    description: "Diagnóstico comprensible de Edge con limpieza opcional y reversible de residuos.",
-    actionIds: ["browsers.inventory", "browsers.extensions.health", "browsers.extensions.orphans.preview"]
+    description: "Rendimiento de Edge, integridad de extensiones y limpieza reversible de residuos sin perder sesiones ni funciones.",
+    actionIds: ["browsers.inventory", "browsers.edge.performance.audit", "browsers.extensions.health", "browsers.extensions.orphans.preview"]
   },
   multimedia: {
     kicker: "MULTIMEDIA",
@@ -2074,6 +2145,80 @@ function renderStructuredResult(  actionId: string,
         displayValue(item.executablePath)
       ])
     ));
+    return;
+  }
+
+  if (actionId === "browsers.edge.performance.audit" ||
+      actionId === "browsers.edge.performance.optimize" ||
+      actionId === "browsers.edge.performance.restore") {
+    const root = actionId === "browsers.edge.performance.audit"
+      ? data
+      : (asRecord(data.report) ?? {});
+    const policy = asRecord(root.policy);
+    const optimized = root.optimized === true;
+    const restoreAvailable = actionId === "browsers.edge.performance.audit"
+      ? root.restoreAvailable === true
+      : data.restoreAvailable === true;
+
+    content.append(createResultGrid([
+      ["Estado", optimized ? "Optimizado" : "Revisar"],
+      ["Procesos Edge", displayValue(root.processCount)],
+      ["Ventanas visibles", displayValue(root.visibleWindowCount)],
+      ["RAM (working set)", typeof root.workingSetBytes === "number" ? formatBytes(root.workingSetBytes) : "—"],
+      ["Memoria privada", typeof root.privateBytes === "number" ? formatBytes(root.privateBytes) : "—"],
+      ["AutoLaunch", displayValue(root.autoLaunchEntryCount)],
+      ["Sleeping Tabs", policy?.sleepingTabsEnabled === 1 ? "ON" : "No optimizado"],
+      ["Timeout", policy?.sleepingTabsTimeout === 300 ? "5 min" : displayValue(policy?.sleepingTabsTimeout)],
+      ["Efficiency Mode", policy?.efficiencyModeEnabled === 1 && policy?.efficiencyMode === 0 ? "Siempre activo" : "No optimizado"],
+      ["Background / Boost", policy?.backgroundModeEnabled === 0 && policy?.startupBoostEnabled === 0 ? "OFF / OFF" : "Revisar"],
+      ["Rollback", restoreAvailable ? "Disponible" : "Sin snapshot"]
+    ]));
+
+    const guidance = document.createElement("div");
+    guidance.className = "result-guidance";
+    const title = document.createElement("strong");
+    title.textContent = optimized ? "Configuración correcta" : "Qué puede mejorar";
+    const detail = document.createElement("span");
+    detail.textContent = String(root.guidance ?? data.detail ?? "Sin detalles.");
+    guidance.append(title, detail);
+    content.append(guidance);
+
+    const controls = document.createElement("div");
+    controls.className = "result-actions";
+
+    if (!optimized) {
+      const optimize = document.createElement("button");
+      optimize.className = "btn btn-primary";
+      optimize.textContent = "Optimizar Edge";
+      optimize.addEventListener("click", () => {
+        if (!window.confirm(
+          "Se aplicarán políticas reversibles de rendimiento de Edge.\n\nNo se cerrará Edge ni se borrarán sesiones, favoritos o extensiones. ¿Continuar?"
+        )) return;
+        void runAction(
+          "browsers.edge.performance.optimize",
+          optimize,
+          { confirmed: true });
+      });
+      controls.append(optimize);
+    }
+
+    if (restoreAvailable) {
+      const restore = document.createElement("button");
+      restore.className = "btn btn-secondary";
+      restore.textContent = "Restaurar configuración anterior";
+      restore.addEventListener("click", () => {
+        if (!window.confirm(
+          "¿Restaurar las políticas y entradas de autoarranque capturadas antes de la optimización?"
+        )) return;
+        void runAction(
+          "browsers.edge.performance.restore",
+          restore,
+          { confirmed: true });
+      });
+      controls.append(restore);
+    }
+
+    if (controls.childElementCount) content.append(controls);
     return;
   }
 
