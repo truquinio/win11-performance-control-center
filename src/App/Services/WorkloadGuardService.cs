@@ -17,6 +17,7 @@ public sealed class WorkloadGuardService
             "network.winsock.reset",
             "drivers.rescan",
             "drivers.usb.restart",
+            "processes.hygiene.stop",
             "multimedia.audio.restart",
             "windows.update.services.restart",
             "explorer.restart"
