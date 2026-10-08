@@ -132,7 +132,31 @@ public sealed class HostBridge : IDisposable
         var systemRemediation = new SystemRemediationService();
         var powerPlanTuning = new PowerPlanTuningService(
             powerPlanStatePath);
-        var storageMedia = new StorageMediaService();
+        var storageMedia = evaluationRoot is null
+            ? new StorageMediaService()
+            : new StorageMediaService(
+                () =>
+                [
+                    new StorageVolumeMedia(
+                        "C:",
+                        0,
+                        "Evaluation SSD",
+                        "SSD",
+                        128L * 1024 * 1024 * 1024,
+                        32L * 1024 * 1024 * 1024,
+                        25d,
+                        true),
+                    new StorageVolumeMedia(
+                        "D:",
+                        1,
+                        "Evaluation HDD",
+                        "HDD",
+                        1024L * 1024 * 1024 * 1024,
+                        120L * 1024 * 1024 * 1024,
+                        11.7d,
+                        false)
+                ],
+                @"C:\");
         var pageFileTuning = new PageFileTuningService(
             pageFileStatePath,
             storageMedia);
@@ -175,7 +199,42 @@ public sealed class HostBridge : IDisposable
         var apps = new InstalledAppsService();
         var privacy = new PrivacyAuditService();
         var developer = new DeveloperToolingService();
-        var androidAvds = new AndroidAvdService();
+        AndroidAvdService androidAvds;
+        if (evaluationRoot is null)
+        {
+            androidAvds = new AndroidAvdService();
+        }
+        else
+        {
+            var avdFixture = Path.Combine(
+                evaluationRoot,
+                "AndroidAvdFixture");
+            var activeAvd = Path.Combine(
+                avdFixture,
+                "active.avd");
+            var inactiveAvd = Path.Combine(
+                avdFixture,
+                "inactive.avd");
+            Directory.CreateDirectory(activeAvd);
+            Directory.CreateDirectory(inactiveAvd);
+            File.WriteAllText(
+                Path.Combine(activeAvd, "config.ini"),
+                "hw.ramSize=2048\nhw.cpu.ncore=4\nhw.gpu.mode=auto\ndisk.dataPartition.size=6G\n");
+            File.WriteAllText(
+                Path.Combine(inactiveAvd, "config.ini"),
+                "hw.ramSize=1536\nhw.cpu.ncore=2\nhw.gpu.mode=swiftshader_indirect\ndisk.dataPartition.size=4G\n");
+            File.WriteAllBytes(
+                Path.Combine(activeAvd, "userdata-qemu.img"),
+                new byte[128]);
+            File.WriteAllBytes(
+                Path.Combine(inactiveAvd, "userdata-qemu.img"),
+                new byte[256]);
+            androidAvds = new AndroidAvdService(
+                avdFixture,
+                () => new HashSet<string>(
+                    ["active"],
+                    StringComparer.OrdinalIgnoreCase));
+        }
         var thermal = new ThermalEnergyService();
         var bootSleep = new BootSleepAuditService();
         var explorer = new ExplorerAuditService();
