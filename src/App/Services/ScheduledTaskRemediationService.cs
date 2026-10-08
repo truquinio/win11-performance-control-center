@@ -5,12 +5,16 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Win32;
 using Win11PerformanceControlCenter.App.Core;
 
 namespace Win11PerformanceControlCenter.App.Services;
 
 public sealed class ScheduledTaskRemediationService
 {
+    private const string SyntheticStaleComClsid =
+        "{F576B2F9-7850-4226-ADB0-E5993FED4F02}";
+
     private static readonly string[] ProtectedKeywords =
     [
         "security", "defender", "antivirus", "malwarebytes",
@@ -58,7 +62,10 @@ public sealed class ScheduledTaskRemediationService
                         task.Arguments,
                         protection.Protected,
                         protection.Reason,
-                        restore);
+                        restore,
+                        task.ActionKind,
+                        task.ComHandlerClassId,
+                        protection.ActionStatus);
                 })
                 .OrderBy(item => item.State.Equals(
                     "Disabled",
@@ -88,7 +95,10 @@ public sealed class ScheduledTaskRemediationService
                     snapshot.Arguments,
                     true,
                     "La tarea guardada ya no existe; el snapshot se conserva como evidencia.",
-                    true));
+                    true,
+                    "UNKNOWN",
+                    null,
+                    "SNAPSHOT_ONLY"));
             }
 
             return new ScheduledTaskPreview(
@@ -333,7 +343,7 @@ public sealed class ScheduledTaskRemediationService
                     var path = NormalizeTaskPath(
                         Convert.ToString(item["TaskPath"]));
                     var fullName = path + name;
-                    var action = ReadExecAction(item["Actions"]);
+                    var action = ReadTaskAction(item["Actions"]);
 
                     result.Add(new ScheduledTaskDescriptor(
                         MakeEntryId(fullName),
@@ -342,7 +352,9 @@ public sealed class ScheduledTaskRemediationService
                         path,
                         NormalizeTaskState(item["State"]),
                         action.Execute,
-                        action.Arguments));
+                        action.Arguments,
+                        action.Kind,
+                        action.ComHandlerClassId));
                 }
             }
         }
@@ -361,42 +373,52 @@ public sealed class ScheduledTaskRemediationService
             .ToArray();
     }
 
-    private static (string? Execute, string? Arguments) ReadExecAction(
+    private static TaskActionDescriptor ReadTaskAction(
         object? raw)
     {
         if (raw is not Array actions)
-            return (null, null);
+            return new("UNKNOWN", null, null, null);
 
         foreach (var action in actions)
         {
             if (action is not ManagementBaseObject item)
                 continue;
 
-            var executeProperty = item.Properties
-                .Cast<PropertyData>()
-                .FirstOrDefault(property =>
-                    property.Name.Equals(
-                        "Execute",
-                        StringComparison.OrdinalIgnoreCase));
-            var execute = Convert.ToString(
-                executeProperty?.Value);
-            if (string.IsNullOrWhiteSpace(execute))
-                continue;
+            var execute = ReadActionProperty(item, "Execute");
+            if (!string.IsNullOrWhiteSpace(execute))
+            {
+                return new(
+                    "EXEC",
+                    execute,
+                    ReadActionProperty(item, "Arguments"),
+                    null);
+            }
 
-            var argumentsProperty = item.Properties
-                .Cast<PropertyData>()
-                .FirstOrDefault(property =>
-                    property.Name.Equals(
-                        "Arguments",
-                        StringComparison.OrdinalIgnoreCase));
-
-            return (
-                execute,
-                Convert.ToString(
-                    argumentsProperty?.Value));
+            var classId = ReadActionProperty(item, "ClassId");
+            if (!string.IsNullOrWhiteSpace(classId))
+            {
+                return new(
+                    "COM_HANDLER",
+                    null,
+                    null,
+                    classId.Trim());
+            }
         }
 
-        return (null, null);
+        return new("UNKNOWN", null, null, null);
+    }
+
+    private static string? ReadActionProperty(
+        ManagementBaseObject item,
+        string name)
+    {
+        var property = item.Properties
+            .Cast<PropertyData>()
+            .FirstOrDefault(candidate =>
+                candidate.Name.Equals(
+                    name,
+                    StringComparison.OrdinalIgnoreCase));
+        return Convert.ToString(property?.Value);
     }
 
     private static string NormalizeTaskState(object? raw)
@@ -479,7 +501,8 @@ public sealed class ScheduledTaskRemediationService
             " ",
             task.FullName,
             task.Execute ?? string.Empty,
-            task.Arguments ?? string.Empty);
+            task.Arguments ?? string.Empty,
+            task.ComHandlerClassId ?? string.Empty);
 
         if (ProtectedKeywords.Any(keyword =>
                 combined.Contains(
@@ -491,12 +514,39 @@ public sealed class ScheduledTaskRemediationService
                 "Protegida por política local: seguridad, Windows, nube, IA o automatización.");
         }
 
+        if (task.ActionKind.Equals(
+                "COM_HANDLER",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var com = ResolveComHandler(task.ComHandlerClassId);
+            return com.Status switch
+            {
+                "MISSING_REGISTRATION" => new(
+                    false,
+                    "COM handler sin registro CLSID. La tarea está stale y puede deshabilitarse con rollback; nunca se elimina automáticamente.",
+                    "STALE_COM_HANDLER"),
+                "MISSING_TARGET" => new(
+                    false,
+                    "COM handler registrado pero su servidor local ya no existe. La tarea está stale y puede deshabilitarse con rollback.",
+                    "COM_TARGET_MISSING"),
+                "REGISTERED" => new(
+                    true,
+                    "COM handler registrado. Se conserva porque no hay evidencia suficiente para modificarlo.",
+                    "COM_REGISTERED"),
+                _ => new(
+                    true,
+                    "No se pudo validar de forma concluyente el COM handler; política fail-closed.",
+                    "COM_UNKNOWN")
+            };
+        }
+
         var executable = ResolveExecutable(task.Execute);
         if (string.IsNullOrWhiteSpace(executable))
         {
             return new(
                 true,
-                "No se pudo identificar un ejecutable de forma segura.");
+                "No se pudo identificar un ejecutable de forma segura.",
+                "ACTION_UNKNOWN");
         }
 
         var windows = Environment.GetFolderPath(
@@ -518,6 +568,124 @@ public sealed class ScheduledTaskRemediationService
         return new(
             false,
             "Tarea de terceros revisable. Deshabilitarla afecta futuras ejecuciones y no mata procesos actuales.");
+    }
+
+    private ComHandlerResolution ResolveComHandler(
+        string? classId)
+    {
+        if (string.IsNullOrWhiteSpace(classId) ||
+            !Guid.TryParse(classId, out _))
+        {
+            return new("UNKNOWN", null);
+        }
+
+        if (evaluationMode &&
+            classId.Equals(
+                SyntheticStaleComClsid,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return new("MISSING_REGISTRATION", null);
+        }
+
+        var normalized = classId.StartsWith('{')
+            ? classId
+            : "{" + classId + "}";
+
+        var registrationFound = false;
+        foreach (var view in new[]
+                 {
+                     RegistryView.Registry64,
+                     RegistryView.Registry32
+                 })
+        {
+            try
+            {
+                using var root = RegistryKey.OpenBaseKey(
+                    RegistryHive.ClassesRoot,
+                    view);
+                using var clsid = root.OpenSubKey(
+                    @"CLSID\" + normalized);
+                if (clsid is null)
+                    continue;
+
+                registrationFound = true;
+                foreach (var serverName in new[]
+                         {
+                             "InprocServer32",
+                             "LocalServer32"
+                         })
+                {
+                    using var server = clsid.OpenSubKey(serverName);
+                    var raw = Convert.ToString(
+                        server?.GetValue(
+                            null,
+                            null,
+                            RegistryValueOptions
+                                .DoNotExpandEnvironmentNames));
+                    if (string.IsNullOrWhiteSpace(raw))
+                        continue;
+
+                    var path = ResolveComServerPath(raw);
+                    if (path is null)
+                        return new("REGISTERED", null);
+
+                    return File.Exists(path)
+                        ? new("REGISTERED", path)
+                        : new("MISSING_TARGET", path);
+                }
+            }
+            catch (Exception ex) when (ex is
+                IOException or
+                UnauthorizedAccessException or
+                System.Security.SecurityException)
+            {
+                return new("UNKNOWN", null);
+            }
+        }
+
+        return registrationFound
+            ? new("REGISTERED", null)
+            : new("MISSING_REGISTRATION", null);
+    }
+
+    private static string? ResolveComServerPath(string raw)
+    {
+        var value = Environment
+            .ExpandEnvironmentVariables(raw.Trim());
+
+        string candidate;
+        if (value.StartsWith('"'))
+        {
+            var end = value.IndexOf('"', 1);
+            if (end <= 1)
+                return null;
+            candidate = value[1..end];
+        }
+        else
+        {
+            var dll = value.IndexOf(
+                ".dll",
+                StringComparison.OrdinalIgnoreCase);
+            var exe = value.IndexOf(
+                ".exe",
+                StringComparison.OrdinalIgnoreCase);
+            var end = new[]
+                {
+                    dll >= 0 ? dll + 4 : -1,
+                    exe >= 0 ? exe + 4 : -1
+                }
+                .Where(index => index > 0)
+                .DefaultIfEmpty(-1)
+                .Min();
+            if (end <= 0)
+                return null;
+            candidate = value[..end];
+        }
+
+        if (!Path.IsPathFullyQualified(candidate))
+            return null;
+
+        return SafeFullPath(candidate);
     }
 
     private static string NormalizeTaskPath(string? path)
@@ -712,7 +880,9 @@ public sealed class ScheduledTaskRemediationService
             @"\DemoVendor\",
             "Ready",
             @"C:\Program Files\DemoVendor\updater.exe",
-            "--background"),
+            "--background",
+            "EXEC",
+            null),
         new ScheduledTaskDescriptor(
             MakeEntryId(@"\Microsoft\Windows\Defrag\ScheduledDefrag"),
             @"\Microsoft\Windows\Defrag\ScheduledDefrag",
@@ -720,6 +890,8 @@ public sealed class ScheduledTaskRemediationService
             @"\Microsoft\Windows\Defrag\",
             "Ready",
             @"C:\Windows\System32\defrag.exe",
+            null,
+            "EXEC",
             null),
         new ScheduledTaskDescriptor(
             MakeEntryId(@"\Automation\PM2 resurrect"),
@@ -728,7 +900,19 @@ public sealed class ScheduledTaskRemediationService
             @"\Automation\",
             "Ready",
             @"C:\Program Files\nodejs\node.exe",
-            "pm2 resurrect")
+            "pm2 resurrect",
+            "EXEC",
+            null),
+        new ScheduledTaskDescriptor(
+            MakeEntryId(@"\SoftLanding\StaleCreativeTask"),
+            @"\SoftLanding\StaleCreativeTask",
+            "StaleCreativeTask",
+            @"\SoftLanding\",
+            "Ready",
+            null,
+            null,
+            "COM_HANDLER",
+            SyntheticStaleComClsid)
     ];
 
     private sealed record ScheduledTaskDescriptor(
@@ -738,11 +922,24 @@ public sealed class ScheduledTaskRemediationService
         string TaskPath,
         string State,
         string? Execute,
-        string? Arguments);
+        string? Arguments,
+        string ActionKind,
+        string? ComHandlerClassId);
+
+    private sealed record TaskActionDescriptor(
+        string Kind,
+        string? Execute,
+        string? Arguments,
+        string? ComHandlerClassId);
+
+    private sealed record ComHandlerResolution(
+        string Status,
+        string? ServerPath);
 
     private sealed record TaskProtection(
         bool Protected,
-        string Reason);
+        string Reason,
+        string ActionStatus = "NORMAL");
 }
 
 public sealed record ScheduledTaskCandidate(
@@ -755,7 +952,10 @@ public sealed record ScheduledTaskCandidate(
     string? Arguments,
     bool Protected,
     string Reason,
-    bool RestoreAvailable);
+    bool RestoreAvailable,
+    string ActionKind = "UNKNOWN",
+    string? ComHandlerClassId = null,
+    string ActionStatus = "NORMAL");
 
 public sealed record ScheduledTaskPreview(
     int TaskCount,
