@@ -89,7 +89,83 @@ for (const id of requiredIds) {
   }
 }
 
+
+
+const processHygieneDir = path.join(root, "evals", "process-hygiene");
+const requiredProcessHygieneId = "stale-lab-processes-protect-automation";
+
+if (!fs.existsSync(processHygieneDir)) {
+  throw new Error(
+    "REAL_WORLD_EVAL_CONTRACT_FAIL missing evals/process-hygiene"
+  );
+}
+
+const processFiles = fs.readdirSync(processHygieneDir)
+  .filter(name => name.endsWith(".json"))
+  .sort();
+
+const processIds = new Set();
+for (const name of processFiles) {
+  const full = path.join(processHygieneDir, name);
+  const scenario = JSON.parse(fs.readFileSync(full, "utf8"));
+  const required = [
+    "id",
+    "kind",
+    "description",
+    "expectedStoppableCategories",
+    "expectedProtectedCategories",
+    "requiresCurrentFingerprint",
+    "workloadGuardRequired",
+    "arbitraryPidKillAllowed"
+  ];
+
+  for (const field of required) {
+    if (!(field in scenario)) {
+      throw new Error(
+        "REAL_WORLD_EVAL_CONTRACT_FAIL " + name + " missing " + field
+      );
+    }
+  }
+
+  if (scenario.kind !== "process_hygiene_regression") {
+    throw new Error(
+      "REAL_WORLD_EVAL_CONTRACT_FAIL invalid process hygiene kind " +
+      scenario.kind
+    );
+  }
+
+  if (!Array.isArray(scenario.expectedStoppableCategories) ||
+      scenario.expectedStoppableCategories.length === 0 ||
+      !Array.isArray(scenario.expectedProtectedCategories) ||
+      scenario.expectedProtectedCategories.length === 0) {
+    throw new Error(
+      "REAL_WORLD_EVAL_CONTRACT_FAIL " + scenario.id +
+      " requires stoppable and protected categories"
+    );
+  }
+
+  if (scenario.requiresCurrentFingerprint !== true ||
+      scenario.workloadGuardRequired !== true ||
+      scenario.arbitraryPidKillAllowed !== false) {
+    throw new Error(
+      "REAL_WORLD_EVAL_CONTRACT_FAIL " + scenario.id +
+      " weakens process hygiene safety"
+    );
+  }
+
+  processIds.add(scenario.id);
+}
+
+if (!processIds.has(requiredProcessHygieneId)) {
+  throw new Error(
+    "REAL_WORLD_EVAL_CONTRACT_FAIL required process regression missing: " +
+    requiredProcessHygieneId
+  );
+}
+
 console.log(
   "REAL_WORLD_EVAL_CONTRACT_OK regressions=" + files.length +
-  " required=" + requiredIds.size
+  " required=" + requiredIds.size +
+  " processHygiene=" + processFiles.length +
+  " processRequired=1"
 );
