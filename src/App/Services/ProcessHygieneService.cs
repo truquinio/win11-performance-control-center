@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Management;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -231,11 +232,35 @@ public sealed partial class ProcessHygieneService
                     RegexOptions.IgnoreCase);
                 if (lab)
                 {
+                    var launcher = all.FirstOrDefault(candidate =>
+                        candidate.Name.Equals(
+                            "emulator.exe",
+                            StringComparison.OrdinalIgnoreCase) &&
+                        AvdRegex().Match(
+                            candidate.CommandLine ?? string.Empty)
+                            .Groups["avd"]
+                            .Value
+                            .Equals(
+                                avd,
+                                StringComparison.OrdinalIgnoreCase));
+
+                    if (launcher is not null)
+                    {
+                        return CreateItem(
+                            process,
+                            "ACTIVE_ANDROID_EMULATOR",
+                            avd,
+                            "AVD de laboratorio con emulator.exe activo asociado; se protege y no se detiene.",
+                            protectedItem: true,
+                            stoppable: false,
+                            [process, launcher]);
+                    }
+
                     return CreateItem(
                         process,
                         "ANDROID_LAB",
                         avd,
-                        "Emulador Android cuyo AVD está marcado como laboratorio/prueba.",
+                        "QEMU de laboratorio sin emulator.exe activo asociado; candidato a residuo solo tras revalidación.",
                         protectedItem: false,
                         stoppable: true,
                         [process]);
@@ -521,7 +546,13 @@ public sealed partial class ProcessHygieneService
                 }
             }
         }
-        catch
+        catch (ManagementException)
+        {
+        }
+        catch (COMException)
+        {
+        }
+        catch (UnauthorizedAccessException)
         {
         }
 
