@@ -27,6 +27,8 @@ public sealed class OutcomeAuditService
             ["drivers.rescan"] = new("POSTCHECK", "Reescanea PnP y vuelve a analizar códigos de problema.", false),
             ["drivers.usb.restart"] = new("POSTCHECK", "Reinicia, reescanea y verifica el código de problema del dispositivo exacto.", false),
             ["processes.hygiene.stop"] = new("POSTCHECK", "Vuelve a comprobar que los PID previsualizados ya no existan; la huella debe coincidir antes de detener.", false),
+            ["browsers.edge.performance.optimize"] = new("POSTCHECK", "Relee políticas efectivas y autoarranque de Edge después de aplicar el perfil; conserva snapshot.", true),
+            ["browsers.edge.performance.restore"] = new("POSTCHECK", "Restaura políticas/autoarranque capturados y vuelve a auditar Edge.", false),
             ["browsers.extensions.orphans.quarantine"] = new("POSTCHECK", "Mueve a cuarentena app-owned y conserva rollback.", true),
             ["browsers.extensions.orphans.restore"] = new("POSTCHECK", "Devuelve el lote y comprueba su restauración.", false),
             ["multimedia.audio.restart"] = new("POSTCHECK", "Reinicia Windows Audio y vuelve a inventariar dispositivos.", false),
