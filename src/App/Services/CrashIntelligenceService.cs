@@ -70,6 +70,27 @@ public sealed class CrashIntelligenceService
                 "Windows registró evidencia WHEA; conviene revisar hardware/drivers antes de atribuir la causa.");
         }
 
+        if ((provider.Equals(
+                    "Application Error",
+                    StringComparison.OrdinalIgnoreCase) ||
+                provider.Equals(
+                    "Windows Error Reporting",
+                    StringComparison.OrdinalIgnoreCase)) &&
+            (message.Contains(
+                    "qemu-system",
+                    StringComparison.OrdinalIgnoreCase) ||
+                message.Contains(
+                    "Android Emulator",
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return new(
+                "Desarrollo Android",
+                "MEDIUM",
+                "Android Emulator / QEMU crash",
+                "memory.analyze",
+                "Windows registró un fallo del emulador/QEMU. Se recomienda revisar presión de memoria y recursos antes de modificar el AVD; el evento por sí solo no demuestra una causa raíz.");
+        }
+
         if (provider.Equals(
                 "Application Error",
                 StringComparison.OrdinalIgnoreCase) &&
