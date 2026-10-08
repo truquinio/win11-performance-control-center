@@ -33,6 +33,7 @@ public sealed class ActionExecutor(
     BrowserInventoryService browserService,
     BrowserExtensionHealthService browserExtensionHealthService,
     BrowserExtensionRemediationService browserExtensionRemediationService,
+    EdgePerformanceService edgePerformanceService,
     MultimediaService multimediaService,
     StartupAuditService startupAuditService,
     WindowsUpdateAuditService windowsUpdateAuditService,
@@ -326,6 +327,9 @@ public sealed class ActionExecutor(
             "system.com.evidence" => await Task.Run(ComEvidence),
             "system.certificates.audit" => await Task.Run(CertificateEvidence),
             "browsers.inventory" => await Task.Run(BrowserInventory),
+            "browsers.edge.performance.audit" => await Task.Run(EdgePerformanceAudit),
+            "browsers.edge.performance.optimize" => await Task.Run(() => EdgePerformanceOptimize(parameters)),
+            "browsers.edge.performance.restore" => await Task.Run(() => EdgePerformanceRestore(parameters)),
             "browsers.extensions.health" => await Task.Run(BrowserExtensionHealth),
             "browsers.extensions.orphans.preview" => await Task.Run(BrowserExtensionOrphansPreview),
             "browsers.extensions.orphans.quarantine" => await BrowserExtensionOrphansQuarantineAsync(parameters),
@@ -1499,6 +1503,52 @@ public sealed class ActionExecutor(
             false,
             $"Navegadores: {inventory.Browsers.Count} instalaciones o perfiles detectados.",
             new { browsers = inventory.Browsers });
+    }
+
+    private ActionResult EdgePerformanceAudit()
+    {
+        var report = edgePerformanceService.Analyze();
+        return new ActionResult(
+            true,
+            false,
+            report.Optimized
+                ? $"Edge Performance: perfil optimizado. {report.ProcessCount} proceso(s), {report.WorkingSetBytes / 1073741824d:F2} GiB de working set."
+                : $"Edge Performance: {report.Guidance}",
+            report);
+    }
+
+    private ActionResult EdgePerformanceOptimize(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(
+            parameters,
+            "Confirma la optimización reversible de Edge.");
+        var result = edgePerformanceService.Optimize();
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Success
+                ? "Edge Performance: perfil aplicado y verificado. No se cerró Edge ni se tocaron sesiones, favoritos o extensiones."
+                : "Edge Performance: no se pudo verificar completamente el perfil.",
+            result);
+    }
+
+    private ActionResult EdgePerformanceRestore(
+        JsonElement? parameters)
+    {
+        RequireConfirmed(
+            parameters,
+            "Confirma el rollback de Edge Performance.");
+        var result = edgePerformanceService.Restore();
+        return new ActionResult(
+            result.Success,
+            false,
+            result.Status == "NO_SNAPSHOT"
+                ? "Edge Performance: no existe snapshot para restaurar."
+                : result.Success
+                    ? "Edge Performance: configuración anterior restaurada."
+                    : "Edge Performance: rollback no verificado.",
+            result);
     }
 
     private ActionResult BrowserExtensionHealth()
