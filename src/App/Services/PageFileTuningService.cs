@@ -12,10 +12,15 @@ public sealed class PageFileTuningService
     private const string MemoryManagementPath =
         @"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management";
     private readonly string statePath;
+    private readonly StorageMediaService storageMediaService;
 
-    public PageFileTuningService(string? statePath = null)
+    public PageFileTuningService(
+        string? statePath = null,
+        StorageMediaService? storageMediaService = null)
     {
         AppPaths.EnsureDirectories();
+        this.storageMediaService =
+            storageMediaService ?? new StorageMediaService();
         this.statePath = string.IsNullOrWhiteSpace(statePath)
             ? AppPaths.PageFileState
             : Path.GetFullPath(statePath);
@@ -24,13 +29,30 @@ public sealed class PageFileTuningService
             Directory.CreateDirectory(directory);
     }
 
-    public Task<PageFileTuningResult> ApplyCappedProfileAsync() =>
-        Task.Run(() =>
-        {
-            const string cEntry = @"C:\pagefile.sys 512 512";
-            const string dEntry = @"D:\pagefile.sys 4096 8192";
-            var desired = new[] { cEntry, dEntry };
+    public async Task<PageFileTuningResult> ApplyCappedProfileAsync()
+    {
+        var media = await storageMediaService.AnalyzeAsync();
+        var recommendation = media.PageFileRecommendation;
 
+        if (!recommendation.Available ||
+            recommendation.PagingFiles.Count == 0)
+        {
+            return new PageFileTuningResult(
+                false,
+                recommendation.Status,
+                null,
+                null,
+                false,
+                false,
+                recommendation.TargetDrive,
+                recommendation.TargetMediaType,
+                [.. recommendation.PagingFiles],
+                recommendation.Reason);
+        }
+
+        return await Task.Run(() =>
+        {
+            var desired = recommendation.PagingFiles.ToArray();
             var before = CaptureCurrent();
             if (before is null)
             {
@@ -40,18 +62,11 @@ public sealed class PageFileTuningService
                     null,
                     null,
                     false,
-                    false);
-            }
-
-            if (!IsFixedReadyDrive("D"))
-            {
-                return new PageFileTuningResult(
                     false,
-                    "D_DRIVE_UNAVAILABLE",
-                    before.AutomaticManaged,
-                    before.AutomaticManaged,
-                    false,
-                    false);
+                    recommendation.TargetDrive,
+                    recommendation.TargetMediaType,
+                    desired,
+                    recommendation.Reason);
             }
 
             if (!before.AutomaticManaged &&
@@ -63,7 +78,11 @@ public sealed class PageFileTuningService
                     before.AutomaticManaged,
                     before.AutomaticManaged,
                     false,
-                    false);
+                    false,
+                    recommendation.TargetDrive,
+                    recommendation.TargetMediaType,
+                    desired,
+                    recommendation.Reason);
             }
 
             if (LoadSnapshot() is null)
@@ -77,7 +96,11 @@ public sealed class PageFileTuningService
                     before.AutomaticManaged,
                     null,
                     true,
-                    false);
+                    false,
+                    recommendation.TargetDrive,
+                    recommendation.TargetMediaType,
+                    desired,
+                    recommendation.Reason);
             }
 
             if (!WritePagingFiles(desired))
@@ -88,7 +111,11 @@ public sealed class PageFileTuningService
                     before.AutomaticManaged,
                     false,
                     true,
-                    false);
+                    false,
+                    recommendation.TargetDrive,
+                    recommendation.TargetMediaType,
+                    desired,
+                    recommendation.Reason);
             }
 
             var after = CaptureCurrent();
@@ -99,12 +126,19 @@ public sealed class PageFileTuningService
 
             return new PageFileTuningResult(
                 success,
-                success ? "CAPPED_4_8_GB" : "VERIFY_FAILED",
+                success
+                    ? "CAPPED_4_8_GB_MEDIA_AWARE"
+                    : "VERIFY_FAILED",
                 before.AutomaticManaged,
                 after?.AutomaticManaged,
                 true,
-                success);
+                success,
+                recommendation.TargetDrive,
+                recommendation.TargetMediaType,
+                desired,
+                recommendation.Reason);
         });
+    }
 
     public Task<PageFileTuningResult> RestoreAsync() =>
         Task.Run(() =>
@@ -313,23 +347,6 @@ public sealed class PageFileTuningService
                 StringComparer.OrdinalIgnoreCase);
     }
 
-    private static bool IsFixedReadyDrive(string driveLetter)
-    {
-        try
-        {
-            var drive = new DriveInfo(driveLetter + @":\");
-            return drive.IsReady &&
-                   drive.DriveType == DriveType.Fixed;
-        }
-        catch (Exception ex) when (ex is
-            IOException or
-            UnauthorizedAccessException or
-            ArgumentException)
-        {
-            return false;
-        }
-    }
-
     private PageFileTuningSnapshot? LoadSnapshot()
     {
         try
@@ -367,4 +384,8 @@ public sealed record PageFileTuningResult(
     bool? BeforeAutomatic,
     bool? AfterAutomatic,
     bool RestoreAvailable,
-    bool RebootRequired);
+    bool RebootRequired,
+    string? TargetDrive = null,
+    string? TargetMediaType = null,
+    string[]? DesiredPagingFiles = null,
+    string? RecommendationReason = null);
