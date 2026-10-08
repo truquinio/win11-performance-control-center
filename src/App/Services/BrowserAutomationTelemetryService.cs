@@ -130,12 +130,16 @@ public sealed class BrowserAutomationTelemetryService
             var previousPeak = samples
                 .Take(Math.Max(0, samples.Length - 1))
                 .TakeLast(24)
-                .Max(sample => sample.PrivateBytes);
+                .Select(sample => sample.PrivateBytes)
+                .DefaultIfEmpty(0L)
+                .Max();
 
             var workingSetPeak = samples
                 .Take(Math.Max(0, samples.Length - 1))
                 .TakeLast(24)
-                .Max(sample => sample.WorkingSetBytes);
+                .Select(sample => sample.WorkingSetBytes)
+                .DefaultIfEmpty(0L)
+                .Max();
             // SEPE incident: roughly 376 MiB -> 145 MiB within a
             // short-lived headless render. It is transient, not a leak.
             var recovered =
