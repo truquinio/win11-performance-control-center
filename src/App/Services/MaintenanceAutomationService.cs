@@ -16,7 +16,8 @@ public sealed class MaintenanceAutomationService
         "browsers.extensions.health",
         "startup.services.preview",
         "startup.entries.preview",
-        "startup.tasks.preview"
+        "startup.tasks.preview",
+        "processes.hygiene.analyze"
     ];
 
     private readonly string statePath;
@@ -30,6 +31,7 @@ public sealed class MaintenanceAutomationService
     private readonly ServiceStartupRemediationService serviceStartupService;
     private readonly StartupEntryRemediationService startupEntryService;
     private readonly ScheduledTaskRemediationService scheduledTaskService;
+    private readonly ProcessHygieneService processHygieneService;
 
     public MaintenanceAutomationService(
         WorkloadGuardService workloadGuard,
@@ -42,6 +44,7 @@ public sealed class MaintenanceAutomationService
         ServiceStartupRemediationService serviceStartupService,
         StartupEntryRemediationService startupEntryService,
         ScheduledTaskRemediationService scheduledTaskService,
+        ProcessHygieneService processHygieneService,
         string? statePath = null)
     {
         AppPaths.EnsureDirectories();
@@ -58,6 +61,7 @@ public sealed class MaintenanceAutomationService
         this.serviceStartupService = serviceStartupService;
         this.startupEntryService = startupEntryService;
         this.scheduledTaskService = scheduledTaskService;
+        this.processHygieneService = processHygieneService;
 
         var directory = Path.GetDirectoryName(this.statePath);
         if (!string.IsNullOrWhiteSpace(directory))
@@ -220,6 +224,20 @@ public sealed class MaintenanceAutomationService
                     "OK",
                     $"{report.EligibleCount} tarea(s) revisable(s), {report.ProtectedCount} protegida(s).");
             });
+
+        await CaptureAsync(
+            items,
+            "processes.hygiene.analyze",
+            () => Task.Run(() =>
+            {
+                var report = processHygieneService.Analyze();
+                return (
+                    report.StoppableCount > 0
+                        ? "WARNING"
+                        : "OK",
+                    $"{report.StoppableCount} residuo(s) detenible(s), {report.ProtectedCount} proceso(s) protegido(s), {report.EstimatedReclaimMb:F1} MiB potenciales.");
+            }));
+
 
         return new MaintenanceRunReport(
             DateTimeOffset.UtcNow,
