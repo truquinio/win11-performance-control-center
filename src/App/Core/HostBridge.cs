@@ -218,6 +218,7 @@ public sealed class HostBridge : IDisposable
             crashIntelligence,
             usbDiagnostics,
             browserExtensions,
+            browserAutomation,
             serviceStartup,
             startupEntries,
             scheduledTasks,
