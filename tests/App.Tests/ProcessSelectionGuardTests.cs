@@ -55,9 +55,12 @@ public sealed class ProcessSelectionGuardTests
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = Environment.GetEnvironmentVariable("ComSpec") ??
-                "cmd.exe",
-            Arguments = "/c ping 127.0.0.1 -n 6 >nul",
+            // Use a disposable workload, not an interactive shell.
+            // PowerShell/cmd are protected by the EcoBoost policy.
+            FileName = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "PING.EXE"),
+            Arguments = "127.0.0.1 -n 12",
             UseShellExecute = false,
             CreateNoWindow = true
         };
