@@ -402,7 +402,9 @@ public sealed partial class ProcessHygieneService
         if (!match.Success)
             return false;
 
-        path = match.Groups["path"].Value.Trim('"');
+        path = match.Groups["quoted"].Success
+            ? match.Groups["quoted"].Value
+            : match.Groups["plain"].Value;
         return path.Length > 0;
     }
 
@@ -425,7 +427,7 @@ public sealed partial class ProcessHygieneService
             "|",
             process.ProcessId,
             process.Name,
-            process.StartedAt?.UtcTicks ?? 0,
+            process.StartedAt?.UtcDateTime.Ticks ?? 0,
             process.CommandLine ?? string.Empty);
         return Convert.ToHexString(
             SHA256.HashData(
