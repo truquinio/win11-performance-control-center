@@ -20,6 +20,34 @@ public sealed class SafeCleanupPolicyTests
     }
 
     [Fact]
+    public void ProjectAndLabPaths_AreNeverApprovedByNameAlone()
+    {
+        var userRoot = Environment.GetFolderPath(
+            Environment.SpecialFolder.UserProfile);
+
+        foreach (var path in new[]
+                 {
+                     Path.Combine(userRoot, "D-TEMP-simulation"),
+                     Path.Combine(userRoot, "sig-castelldefels"),
+                     Path.Combine(userRoot, "UrbanEye"),
+                     Path.Combine(userRoot, "android-avd-lab"),
+                     Path.Combine(userRoot, "project", "cache"),
+                     Path.Combine(userRoot, "project", "TEMP")
+                 })
+        {
+            var target = new StorageAnalysisService.CacheTarget(
+                "future.project-like-path",
+                "project-like path",
+                path);
+
+            Assert.False(
+                StorageAnalysisService.IsProductionApprovedTarget(
+                    target,
+                    path));
+        }
+    }
+
+    [Fact]
     public void HibernationReduction_RequiresUacAndIsNotImplicit()
     {
         var catalog = new ActionCatalog();
