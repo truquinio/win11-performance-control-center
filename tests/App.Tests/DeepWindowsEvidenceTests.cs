@@ -53,6 +53,14 @@ public sealed class DeepWindowsEvidenceTests
             staleCom.Reason,
             StringComparison.OrdinalIgnoreCase);
 
+        var staleDisabled = await service.DisableAsync(staleCom.EntryId);
+        Assert.True(staleDisabled.Success);
+        Assert.True(staleDisabled.RestoreAvailable);
+
+        var staleRestored = await service.RestoreAsync(staleCom.EntryId);
+        Assert.True(staleRestored.Success);
+        Assert.False(staleRestored.RestoreAvailable);
+
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.DisableAsync(microsoft.EntryId));
         await Assert.ThrowsAsync<InvalidOperationException>(
