@@ -146,7 +146,7 @@ public sealed class ActionCatalog
                 "Con UAC: restaura exactamente una entrada Run/RunOnce deshabilitada previamente por la app.", ActionCategory.Startup, ActionRisk.SAFE, true, ConnectivityRequirement.OFFLINE, false, ActionMode.WRITE,
                 [new ActionParameterDefinition("entryId", ActionParameterType.STRING, true, "ID exacto con snapshot"), new ActionParameterDefinition("confirmed", ActionParameterType.BOOLEAN, true, "Confirmación explícita del rollback")]),
             new ActionDefinition("startup.tasks.preview", "Revisar tareas programadas",
-                "Clasifica tareas programadas en protegidas y revisables; Microsoft, Windows, seguridad y automatización sensible fallan cerradas.", ActionCategory.Startup, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
+                "Clasifica tareas protegidas/revisables y detecta COM handlers stale. Microsoft, Windows, seguridad y automatización sensible fallan cerradas.", ActionCategory.Startup, ActionRisk.SAFE, false, ConnectivityRequirement.OFFLINE, false, ActionMode.READ),
             new ActionDefinition("startup.task.disable", "Deshabilitar tarea programada",
                 "Con UAC: deshabilita solo la tarea seleccionada, guarda snapshot y no termina procesos ya iniciados.", ActionCategory.Startup, ActionRisk.CAUTION, true, ConnectivityRequirement.OFFLINE, true, ActionMode.WRITE,
                 [new ActionParameterDefinition("entryId", ActionParameterType.STRING, true, "ID exacto obtenido de la previsualización"), new ActionParameterDefinition("confirmed", ActionParameterType.BOOLEAN, true, "Confirmación explícita")]),
