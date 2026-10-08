@@ -602,6 +602,20 @@ public sealed partial class ProcessHygieneService
                 1536L * 1024 * 1024,
                 now.AddHours(-8)),
             new(
+                210,
+                1,
+                "emulator.exe",
+                @"emulator.exe -avd spotify_api28_hooklab_active -port 5570 -memory 2048",
+                80 * 1024 * 1024,
+                now.AddMinutes(-15)),
+            new(
+                211,
+                210,
+                "qemu-system-x86_64.exe",
+                @"qemu-system-x86_64.exe -avd spotify_api28_hooklab_active -port 5570 -memory 2048",
+                1800L * 1024 * 1024,
+                now.AddMinutes(-15)),
+            new(
                 300,
                 301,
                 "python.exe",
