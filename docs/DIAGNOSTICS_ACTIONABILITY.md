@@ -46,3 +46,15 @@ Entries associated with Windows, security software, OpenAI/ChatGPT, Claude, Desk
 ## Testing
 
 Evaluation mode uses synthetic USB devices and synthetic startup entries. No test disables real startup items or restarts real USB devices.
+
+
+## Android development workload protection
+
+MemoryTrim and EcoQoS candidate selection fail closed for Android tooling processes used by the local emulator lab:
+
+- `adb`
+- `emulator`
+- `qemu-system-x86_64`
+- `qemu-system-x86_64-headless`
+
+Crash Intelligence recognizes QEMU/Android Emulator application failures as an Android-development incident and recommends resource analysis without asserting a root cause from a single Windows event.
