@@ -353,11 +353,71 @@ class DemoProvider implements Provider {
       return {
         success: true,
         dryRun: false,
-        message: "DEMO: pagefile administrado automáticamente.",
+        message: "DEMO: pagefile y medios de almacenamiento analizados.",
         data: {
-          automaticallyManaged: true,
+          automaticallyManaged: false,
           entries: [
-            { name: "C:\\\\pagefile.sys", allocatedMb: 4096, currentUsageMb: 620, peakUsageMb: 1240 }
+            { name: "D:\\pagefile.sys", allocatedMb: 8192, currentUsageMb: 380, peakUsageMb: 2100, initialSizeMb: 4096, maximumSizeMb: 8192 }
+          ],
+          systemDrive: "C:",
+          volumes: [
+            { drive: "C:", diskIndex: 0, model: "Demo SSD", mediaType: "SSD", sizeBytes: 128 * 1024 ** 3, freeBytes: 28 * 1024 ** 3, freePercent: 21.9, systemDrive: true },
+            { drive: "D:", diskIndex: 1, model: "Demo HDD", mediaType: "HDD", sizeBytes: 1000 * 1024 ** 3, freeBytes: 47 * 1024 ** 3, freePercent: 4.7, systemDrive: false }
+          ],
+          recommendation: {
+            available: true,
+            status: "SSD_PREFERRED",
+            targetDrive: "C:",
+            targetMediaType: "SSD",
+            pagingFiles: ["C:\\pagefile.sys 4096 8192"],
+            freeAfterMaxBytes: 20 * 1024 ** 3,
+            freeAfterMaxPercent: 15.6,
+            reason: "Se prioriza C: porque está en SSD y conserva margen suficiente."
+          }
+        }
+      };
+    }
+
+    if (id === "memory.pagefile.capped") {
+      return {
+        success: true,
+        dryRun: false,
+        message: "DEMO: pagefile configurado en C: (SSD), 4–8 GB.",
+        data: {
+          status: "CAPPED_4_8_GB_MEDIA_AWARE",
+          beforeAutomatic: false,
+          afterAutomatic: false,
+          restoreAvailable: true,
+          rebootRequired: true,
+          targetDrive: "C:",
+          targetMediaType: "SSD",
+          desiredPagingFiles: ["C:\\pagefile.sys 4096 8192"],
+          recommendationReason: "SSD preferido con margen suficiente.",
+          automaticallyManaged: false,
+          entries: [
+            { name: "C:\\pagefile.sys", initialSizeMb: 4096, maximumSizeMb: 8192, allocatedMb: 4096, currentUsageMb: 380, peakUsageMb: 2100 }
+          ]
+        }
+      };
+    }
+
+    if (id === "developer.android.avd.audit") {
+      return {
+        success: true,
+        dryRun: false,
+        message: "DEMO: 3 AVD, 1 activo y protegido.",
+        data: {
+          capturedAt: new Date().toISOString(),
+          avdHome: "D:\\Android\\avd",
+          available: true,
+          partial: false,
+          avdCount: 3,
+          activeCount: 1,
+          inactiveLogicalBytes: 18.5 * 1024 ** 3,
+          items: [
+            { name: "spotify_api28_hooklab2", path: "D:\\Android\\avd\\spotify_api28_hooklab2.avd", logicalBytes: 9.4 * 1024 ** 3, lastWriteAt: new Date().toISOString(), active: true, lockArtifactsPresent: true, ramMb: 2048, cpuCores: 4, gpuMode: "auto", dataPartitionSize: "6G", status: "ACTIVE_PROTECTED", reason: "AVD activo; nunca es candidato a limpieza." },
+            { name: "spotify_api28_root", path: "D:\\Android\\avd\\spotify_api28_root.avd", logicalBytes: 10 * 1024 ** 3, lastWriteAt: new Date(Date.now() - 86400000).toISOString(), active: false, lockArtifactsPresent: false, ramMb: 2048, cpuCores: 4, gpuMode: "auto", dataPartitionSize: "6G", status: "INACTIVE_REVIEW", reason: "AVD inactivo; requiere revisión explícita." },
+            { name: "spotify_api28_play_control", path: "D:\\Android\\avd\\spotify_api28_play_control.avd", logicalBytes: 8.5 * 1024 ** 3, lastWriteAt: new Date(Date.now() - 43200000).toISOString(), active: false, lockArtifactsPresent: true, ramMb: 2048, cpuCores: 4, gpuMode: "auto", dataPartitionSize: "6G", status: "INACTIVE_REVIEW", reason: "AVD inactivo; requiere revisión explícita." }
           ]
         }
       };
@@ -925,7 +985,7 @@ const demoCatalog: ActionDefinition[] = [
   { id: "memory.trim.preview", title: "Previsualizar MemoryTrim", description: "Identifica working sets altos sin modificar memoria.", category: "Memory", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "DRY_RUN" },
   { id: "memory.trim", title: "MemoryTrim seleccionado", description: "Recorta working sets sólo de procesos seleccionados.", category: "Memory", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "processIds", type: "INTEGER_ARRAY", required: true, description: "PIDs seleccionados" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "memory.pagefile.analyze", title: "Analizar archivo de paginación", description: "Lee configuración y uso del pagefile.", category: "Memory", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "memory.pagefile.capped", title: "Aplicar pagefile 4–8 GB en D:", description: "Mantiene 512 MB en C: y limita D: a 4 GB inicial / 8 GB máximo.", category: "Memory", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "memory.pagefile.capped", title: "Aplicar pagefile 4–8 GB recomendado", description: "Detecta SSD/HDD y espacio libre; prefiere un SSD seguro y mantiene 8 GB como máximo.", category: "Memory", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "memory.pagefile.restore", title: "Restaurar configuración de pagefile", description: "Restaura la configuración previa guardada.", category: "Memory", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "cpu.ecoqos.analyze", title: "Analizar EcoQoS", description: "Detecta candidatos sin aplicar cambios.", category: "CPU", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "cpu.ecoqos.apply", title: "Aplicar EcoQoS seleccionado", description: "Aplica EcoQoS sólo a procesos seleccionados.", category: "CPU", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "processIds", type: "INTEGER_ARRAY", required: true, description: "PIDs seleccionados" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
@@ -973,6 +1033,7 @@ const demoCatalog: ActionDefinition[] = [
   { id: "apps.inventory", title: "Inventario de aplicaciones", description: "Enumera aplicaciones instaladas.", category: "Apps", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "privacy.audit", title: "Auditar privacidad", description: "Lee configuraciones seleccionadas sin modificarlas.", category: "Privacy", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "developer.audit", title: "Auditar developer tooling", description: "Detecta toolchains y versiones.", category: "Developer", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "developer.android.avd.audit", title: "Auditar laboratorios Android AVD", description: "Mide AVDs, último uso y actividad; protege el AVD activo.", category: "Developer", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "lab.reliability.status", title: "Reliability Lab", description: "Verifica regresiones históricas y barreras de seguridad sin tocar el Windows real.", category: "Developer", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "lab.outcomes.status", title: "Outcome coverage", description: "Audita post-check, rollback y evidencia de acciones WRITE.", category: "Developer", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "thermal.audit", title: "Auditar energía y temperaturas", description: "Lee plan de energía y sensores disponibles.", category: "Thermal", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
@@ -1180,7 +1241,7 @@ const moduleDefinitions: Record<string, {
     kicker: "DEVELOPER",
     title: "Developer Performance",
     description: "Toolchains, versiones y señales relevantes para desarrollo.",
-    actionIds: ["developer.audit"]
+    actionIds: ["developer.audit", "developer.android.avd.audit"]
   },
   "reliability-lab": {
     kicker: "REAL-WORLD RELIABILITY",
@@ -2216,13 +2277,39 @@ function renderStructuredResult(  actionId: string,
     const entries = asArray(data.entries)
       .map(asRecord)
       .filter((item): item is Record<string, unknown> => item !== null);
+    const volumes = asArray(data.volumes)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+    const recommendation = asRecord(data.recommendation);
+
     content.append(createResultGrid([
       ["Administración", data.automaticallyManaged === true
         ? "Automática" : data.automaticallyManaged === false ? "Manual" : "No determinada"],
       ["Pagefiles", String(entries.length)],
-      ["Perfil recomendado", "C: 512 MB + D: 4096–8192 MB"],
-      ["Techo recomendado", "8 GB en D: (< 10 GB)"]
+      ["Destino recomendado", recommendation?.available === true
+        ? displayValue(recommendation.targetDrive) + " · " + displayValue(recommendation.targetMediaType)
+        : "Sin destino seguro"],
+      ["Perfil", recommendation?.available === true ? "4096–8192 MB" : "No aplicar"],
+      ["Libre tras máximo", typeof recommendation?.freeAfterMaxBytes === "number"
+        ? formatBytes(recommendation.freeAfterMaxBytes) : "—"],
+      ["Motivo", displayValue(recommendation?.reason)]
     ]));
+
+    if (volumes.length) {
+      content.append(createResultTable(
+        ["Unidad", "Medio", "Modelo", "Libre", "Sistema"],
+        volumes.map(item => [
+          displayValue(item.drive),
+          displayValue(item.mediaType),
+          displayValue(item.model),
+          typeof item.freeBytes === "number"
+            ? formatBytes(item.freeBytes) + " · " + displayValue(item.freePercent) + "%"
+            : "—",
+          item.systemDrive === true ? "Sí" : "No"
+        ])
+      ));
+    }
+
     if (entries.length) {
       content.append(createResultTable(
         ["Archivo", "Inicial", "Máximo", "Asignado", "Uso actual", "Pico"],
@@ -2233,6 +2320,48 @@ function renderStructuredResult(  actionId: string,
           typeof item.allocatedMb === "number" ? item.allocatedMb + " MB" : "—",
           typeof item.currentUsageMb === "number" ? item.currentUsageMb + " MB" : "—",
           typeof item.peakUsageMb === "number" ? item.peakUsageMb + " MB" : "—"
+        ])
+      ));
+    }
+    return;
+  }
+
+  if (actionId === "memory.pagefile.capped") {
+    content.append(createResultGrid([
+      ["Estado", displayValue(data.status)],
+      ["Destino", displayValue(data.targetDrive)],
+      ["Medio", displayValue(data.targetMediaType)],
+      ["Reinicio", data.rebootRequired === true ? "Necesario" : "No"],
+      ["Rollback", data.restoreAvailable === true ? "Disponible" : "—"],
+      ["Motivo", displayValue(data.recommendationReason)]
+    ]));
+    return;
+  }
+
+  if (actionId === "developer.android.avd.audit") {
+    const items = asArray(data.items)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+
+    content.append(createResultGrid([
+      ["AVD", displayValue(data.avdCount)],
+      ["Activos", displayValue(data.activeCount)],
+      ["Inactivos", typeof data.inactiveLogicalBytes === "number"
+        ? formatBytes(data.inactiveLogicalBytes) : "—"],
+      ["Escaneo", data.partial === true ? "Parcial / presupuesto agotado" : "Completo"],
+      ["Política", "Activo = protegido"]
+    ]));
+
+    if (items.length) {
+      content.append(createResultTable(
+        ["AVD", "Tamaño", "Estado", "RAM / CPU", "GPU", "Motivo"],
+        items.map(item => [
+          displayValue(item.name),
+          typeof item.logicalBytes === "number" ? formatBytes(item.logicalBytes) : "—",
+          item.active === true ? "ACTIVO · PROTEGIDO" : "Inactivo · revisar",
+          displayValue(item.ramMb) + " MB · " + displayValue(item.cpuCores) + " core(s)",
+          displayValue(item.gpuMode),
+          displayValue(item.reason)
         ])
       ));
     }
