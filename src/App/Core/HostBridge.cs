@@ -143,6 +143,68 @@ public sealed class HostBridge : IDisposable
         var ecoQosState = new EcoQosStateStore(statePath);
         var tuning = new ProcessTuningService(ecoQosState);
         var pageFile = new PageFileService();
+        var storageMedia = evaluationRoot is null
+            ? new StorageMediaService()
+            : new StorageMediaService(
+                () =>
+                [
+                    new StorageVolumeMedia(
+                        "C:", 0, "Synthetic SSD", "SSD",
+                        "System", "NTFS",
+                        128L * 1024 * 1024 * 1024,
+                        32L * 1024 * 1024 * 1024,
+                        25d, true),
+                    new StorageVolumeMedia(
+                        "D:", 1, "Synthetic DATA", "SSD",
+                        "DATA", "NTFS",
+                        1000L * 1024 * 1024 * 1024,
+                        50L * 1024 * 1024 * 1024,
+                        5d, false)
+                ],
+                () =>
+                [
+                    new PageFileSettingInfo(
+                        @"C:\pagefile.sys", 512, 512),
+                    new PageFileSettingInfo(
+                        @"D:\pagefile.sys", 4096, 8192)
+                ],
+                "C:");
+        AndroidAvdService androidAvd;
+        if (evaluationRoot is null)
+        {
+            androidAvd = new AndroidAvdService();
+        }
+        else
+        {
+            var avdHome = Path.Combine(
+                evaluationRoot,
+                "AndroidAvdFixture");
+            var activeAvd = Path.Combine(
+                avdHome,
+                "active.avd");
+            var inactiveAvd = Path.Combine(
+                avdHome,
+                "inactive.avd");
+            Directory.CreateDirectory(activeAvd);
+            Directory.CreateDirectory(inactiveAvd);
+            File.WriteAllText(
+                Path.Combine(activeAvd, "config.ini"),
+                "hw.ramSize=2048\nhw.cpu.ncore=4\nhw.gpu.mode=auto\n");
+            File.WriteAllText(
+                Path.Combine(inactiveAvd, "config.ini"),
+                "hw.ramSize=1024\nhw.cpu.ncore=2\nhw.gpu.mode=auto\n");
+            File.WriteAllBytes(
+                Path.Combine(activeAvd, "userdata-qemu.img"),
+                new byte[2048]);
+            File.WriteAllBytes(
+                Path.Combine(inactiveAvd, "userdata-qemu.img"),
+                new byte[1024]);
+            androidAvd = new AndroidAvdService(
+                avdHome,
+                () => new HashSet<string>(
+                    ["active"],
+                    StringComparer.OrdinalIgnoreCase));
+        }
         var integrity = new IntegrityService();
         var drivers = new DriverService();
         var usbDiagnostics = new UsbDiagnosticsService(
@@ -250,6 +312,8 @@ public sealed class HostBridge : IDisposable
             processHygiene,
             tuning,
             pageFile,
+            storageMedia,
+            androidAvd,
             integrity,
             drivers,
             usbDiagnostics,
