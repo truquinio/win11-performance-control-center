@@ -86,6 +86,30 @@ public sealed class ProcessHygieneTests
 
     [Fact]
     [Trait("Layer", "RealWorldEval")]
+    public async Task ActionPlan_SurfacesLargeStaleLabFootprint()
+    {
+        using var root = new TestDataRoot();
+        using var bridge = HostBridge.CreateDefault(root.Path);
+
+        var result = await RunAsync(
+            bridge,
+            "system.actionplan.preview");
+
+        Assert.True(result.Success);
+        var report = Assert.IsType<ActionPlanReport>(
+            result.Data);
+        var hygiene = Assert.Single(
+            report.Items,
+            item => item.ActionId == "processes.hygiene.analyze");
+        Assert.Equal("HIGH", hygiene.Priority);
+        Assert.Contains(
+            "laboratorio",
+            hygiene.Title,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    [Trait("Layer", "RealWorldEval")]
     public async Task HostBridge_InUseMode_BlocksHygieneStopBeforeMutation()
     {
         using var root = new TestDataRoot();
