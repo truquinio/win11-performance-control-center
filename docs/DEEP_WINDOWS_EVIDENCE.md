@@ -68,3 +68,20 @@ It deliberately excludes:
 - raw registry/COM/certificate details.
 
 The evidence file contains only summary counts by status. The bundle is local-only and is never uploaded automatically.
+
+
+## Stale COM-handler scheduled tasks
+
+Scheduled-task analysis also inspects COM-handler actions. For non-Microsoft, non-running, non-protected tasks:
+
+- an unregistered CLSID is reported as `STALE_COM_HANDLER`;
+- a registered COM server whose local EXE/DLL no longer exists is reported as `COM_TARGET_MISSING`;
+- a valid registered COM handler remains protected unless there is stronger evidence that it is safe to change.
+
+Stale COM tasks can be **disabled**, never deleted, through the existing UAC + snapshot + post-check flow. This covers real cases such as leftover SoftLanding tasks whose COM registration has disappeared.
+
+## Project-path cleanup invariant
+
+Storage cleanup never promotes an arbitrary folder to a delete target because its name contains `TEMP`, `cache`, `SIG`, `UrbanEye`, or similar text. Production cleanup is based on exact canonical allowlisted paths only.
+
+A regression eval explicitly protects project/lab-shaped paths so repositories, AVDs and generated project workspaces cannot become cleanup targets merely because they look temporary.
