@@ -1667,37 +1667,69 @@ public sealed class ActionExecutor(
 
     private static ActionResult ReliabilityLabStatus()
     {
-        var directory = Path.Combine(
-            AppContext.BaseDirectory,
-            "evals",
-            "regressions");
+        var roots = new[]
+        {
+            new
+            {
+                Area = "storage",
+                Directory = Path.Combine(
+                    AppContext.BaseDirectory,
+                    "evals",
+                    "regressions")
+            },
+            new
+            {
+                Area = "process-hygiene",
+                Directory = Path.Combine(
+                    AppContext.BaseDirectory,
+                    "evals",
+                    "process-hygiene")
+            }
+        };
         var required = new[]
         {
             "claude-mcp-survives-cleanup",
             "running-app-skips-cache",
-            "recent-vs-old-cache"
+            "recent-vs-old-cache",
+            "stale-lab-processes-protect-automation"
         };
 
         var scenarios = new List<object>();
-        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ids = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
         var invalidJsonCount = 0;
 
-        if (Directory.Exists(directory))
+        foreach (var rootInfo in roots)
         {
-            foreach (var file in Directory.EnumerateFiles(directory, "*.json")
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            if (!Directory.Exists(rootInfo.Directory))
+                continue;
+
+            foreach (var file in Directory
+                         .EnumerateFiles(
+                             rootInfo.Directory,
+                             "*.json")
+                         .OrderBy(
+                             path => path,
+                             StringComparer.OrdinalIgnoreCase))
             {
                 try
                 {
-                    using var document = JsonDocument.Parse(File.ReadAllText(file));
+                    using var document = JsonDocument.Parse(
+                        File.ReadAllText(file));
                     var root = document.RootElement;
-                    var id = root.TryGetProperty("id", out var idNode)
+                    var id = root.TryGetProperty(
+                            "id",
+                            out var idNode)
                         ? idNode.GetString()
                         : null;
-                    var kind = root.TryGetProperty("kind", out var kindNode)
+                    var kind = root.TryGetProperty(
+                            "kind",
+                            out var kindNode)
                         ? kindNode.GetString()
                         : null;
-                    var description = root.TryGetProperty("description", out var descriptionNode)
+                    var description = root.TryGetProperty(
+                            "description",
+                            out var descriptionNode)
                         ? descriptionNode.GetString()
                         : null;
 
@@ -1706,9 +1738,12 @@ public sealed class ActionExecutor(
 
                     scenarios.Add(new
                     {
-                        id = id ?? Path.GetFileNameWithoutExtension(file),
+                        id = id ??
+                            Path.GetFileNameWithoutExtension(file),
                         kind = kind ?? "UNKNOWN",
-                        description = description ?? "Sin descripción",
+                        description = description ??
+                            "Sin descripción",
+                        area = rootInfo.Area,
                         file = Path.GetFileName(file)
                     });
                 }
@@ -1720,6 +1755,7 @@ public sealed class ActionExecutor(
                         id = Path.GetFileNameWithoutExtension(file),
                         kind = "INVALID_JSON",
                         description = "Manifest inválido",
+                        area = rootInfo.Area,
                         file = Path.GetFileName(file)
                     });
                 }
@@ -1737,40 +1773,70 @@ public sealed class ActionExecutor(
             new
             {
                 name = "Claude Extensions",
-                protectedPath = StorageAnalysisService.IsProtectedPath(
-                    Path.Combine(local, "Claude", "Claude Extensions"))
+                protectedPath =
+                    StorageAnalysisService.IsProtectedPath(
+                        Path.Combine(
+                            local,
+                            "Claude",
+                            "Claude Extensions"))
             },
             new
             {
                 name = ".venv",
-                protectedPath = StorageAnalysisService.IsProtectedPath(
-                    Path.Combine(local, "Synthetic", ".venv"))
+                protectedPath =
+                    StorageAnalysisService.IsProtectedPath(
+                        Path.Combine(
+                            local,
+                            "Synthetic",
+                            ".venv"))
             },
             new
             {
                 name = "WhatsApp",
-                protectedPath = StorageAnalysisService.IsProtectedPath(
-                    Path.Combine(local, "Synthetic", "WhatsApp"))
+                protectedPath =
+                    StorageAnalysisService.IsProtectedPath(
+                        Path.Combine(
+                            local,
+                            "Synthetic",
+                            "WhatsApp"))
             }
         };
 
-        var broadTarget = new StorageAnalysisService.CacheTarget(
-            "future.broad-cleanup",
-            "Target amplio desconocido",
-            local);
+        var broadTarget =
+            new StorageAnalysisService.CacheTarget(
+                "future.broad-cleanup",
+                "Target amplio desconocido",
+                local);
         var broadTargetBlocked =
             !StorageAnalysisService.IsProductionApprovedTarget(
                 broadTarget,
                 local);
 
+        var hygiene =
+            new ProcessHygieneService(
+                evaluationMode: true)
+            .Analyze();
+        var processHygieneGuardsPass =
+            hygiene.StoppableCount == 3 &&
+            hygiene.ProtectedCount == 2 &&
+            hygiene.Items
+                .Where(item => item.Protected)
+                .All(item => !item.Stoppable) &&
+            hygiene.Items
+                .Where(item => item.Stoppable)
+                .All(item => !item.Protected);
+
         var allGuardsPass =
             guardChecks.All(check => check.protectedPath) &&
-            broadTargetBlocked;
+            broadTargetBlocked &&
+            processHygieneGuardsPass;
         var manifestsValid =
             scenarios.Count >= required.Length &&
             missing.Length == 0 &&
             invalidJsonCount == 0;
-        var success = allGuardsPass && manifestsValid;
+        var success =
+            allGuardsPass &&
+            manifestsValid;
 
         return new ActionResult(
             success,
@@ -1780,16 +1846,30 @@ public sealed class ActionExecutor(
                 : $"Reliability Lab WARNING: faltan {missing.Length} regresiones o alguna barrera crítica no está activa.",
             new
             {
-                status = success ? "OK" : "WARNING",
-                regressionScenarioCount = scenarios.Count,
-                requiredScenarioCount = required.Length,
-                invalidManifestCount = invalidJsonCount,
+                status = success
+                    ? "OK"
+                    : "WARNING",
+                regressionScenarioCount =
+                    scenarios.Count,
+                requiredScenarioCount =
+                    required.Length,
+                invalidManifestCount =
+                    invalidJsonCount,
                 missingScenarios = missing,
                 runtimeGuards = guardChecks,
-                broadUnknownTargetBlocked = broadTargetBlocked,
+                broadUnknownTargetBlocked =
+                    broadTargetBlocked,
+                processHygieneGuardsPass,
+                processHygiene = new
+                {
+                    hygiene.StoppableCount,
+                    hygiene.ProtectedCount,
+                    hygiene.EstimatedReclaimMb
+                },
                 scenarios,
                 destructiveEvalsRunHere = false,
-                note = "Los evals destructivos se ejecutan únicamente sobre fixtures/CI, Sandbox o VM disposable."
+                note =
+                    "Los evals destructivos se ejecutan únicamente sobre fixtures/CI, Sandbox o VM disposable."
             });
     }
 
