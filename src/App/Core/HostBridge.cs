@@ -175,6 +175,7 @@ public sealed class HostBridge : IDisposable
         var apps = new InstalledAppsService();
         var privacy = new PrivacyAuditService();
         var developer = new DeveloperToolingService();
+        var androidAvds = new AndroidAvdService();
         var thermal = new ThermalEnergyService();
         var bootSleep = new BootSleepAuditService();
         var explorer = new ExplorerAuditService();
@@ -261,6 +262,7 @@ public sealed class HostBridge : IDisposable
             apps,
             privacy,
             developer,
+            androidAvds,
             thermal,
             bootSleep,
             explorer,
