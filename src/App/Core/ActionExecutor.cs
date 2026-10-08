@@ -25,6 +25,7 @@ public sealed class ActionExecutor(
     ProcessAnalysisService processService,
     ProcessTuningService processTuningService,
     PageFileService pageFileService,
+    StorageMediaService storageMediaService,
     IntegrityService integrityService,
     DriverService driverService,
     UsbDiagnosticsService usbDiagnosticsService,
@@ -947,17 +948,27 @@ public sealed class ActionExecutor(
 
     private async Task<ActionResult> PageFileAsync()
     {
-        var analysis = await pageFileService.AnalyzeAsync();
+        var analysisTask = pageFileService.AnalyzeAsync();
+        var mediaTask = storageMediaService.AnalyzeAsync();
+        await Task.WhenAll(analysisTask, mediaTask);
+
+        var analysis = await analysisTask;
+        var media = await mediaTask;
+        var recommendation = media.PageFileRecommendation;
+
         return new ActionResult(
             true,
             false,
-            analysis.Entries.Count == 0
-                ? "Pagefile: Windows no devolvió datos de uso."
-                : $"Pagefile: {analysis.Entries.Count} archivo(s) de paginación detectados.",
+            recommendation.Available
+                ? $"Pagefile: {analysis.Entries.Count} archivo(s) detectados. Recomendación: {recommendation.TargetDrive} ({recommendation.TargetMediaType}) con 4–8 GB máximo."
+                : $"Pagefile: {analysis.Entries.Count} archivo(s) detectados. No hay una ubicación segura para aplicar el perfil 4–8 GB.",
             new
             {
                 automaticallyManaged = analysis.AutomaticallyManaged,
-                entries = analysis.Entries
+                entries = analysis.Entries,
+                systemDrive = media.SystemDrive,
+                volumes = media.Volumes,
+                recommendation
             });
     }
 
@@ -966,17 +977,21 @@ public sealed class ActionExecutor(
     {
         RequireConfirmed(
             parameters,
-            "Confirma el perfil C: 512 MB + D: 4–8 GB.");
+            "Confirma el perfil pagefile 4–8 GB en la unidad recomendada según medio y espacio libre.");
         var result = await pageFileTuningService.ApplyCappedProfileAsync();
         var verification = await pageFileService.AnalyzeAsync();
+
+        var target = string.IsNullOrWhiteSpace(result.TargetDrive)
+            ? "unidad no determinada"
+            : $"{result.TargetDrive} ({result.TargetMediaType ?? "UNKNOWN"})";
 
         return new ActionResult(
             result.Success,
             false,
             result.Status == "ALREADY_CAPPED"
-                ? "Pagefile: ya está en el perfil recomendado C: 512 MB + D: 4–8 GB. No se cambió nada."
+                ? $"Pagefile: ya coincide con el perfil recomendado en {target}. No se cambió nada."
                 : result.Success
-                    ? "Pagefile configurado: C: 512 MB + D: 4 GB inicial / 8 GB máximo. Reinicia para aplicar completamente."
+                    ? $"Pagefile configurado en {target}: 4 GB inicial / 8 GB máximo. Reinicia para aplicar completamente."
                     : $"Pagefile: no se pudo verificar el perfil limitado ({result.Status}).",
             new
             {
@@ -985,6 +1000,10 @@ public sealed class ActionExecutor(
                 result.AfterAutomatic,
                 result.RestoreAvailable,
                 result.RebootRequired,
+                result.TargetDrive,
+                result.TargetMediaType,
+                result.DesiredPagingFiles,
+                result.RecommendationReason,
                 verification.AutomaticallyManaged,
                 entries = verification.Entries
             });
