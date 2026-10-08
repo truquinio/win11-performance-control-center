@@ -38,6 +38,8 @@ public static class AppPaths
         Path.Combine(State, "maintenance-policy.json");
     public static string ScheduledTaskState =>
         Path.Combine(State, "scheduled-tasks.json");
+    public static string EdgePerformanceState =>
+        Path.Combine(State, "edge-performance.json");
     public static string DiagnosticExports =>
         Path.Combine(Root, "Exports");
 
