@@ -6,9 +6,9 @@ The product uses a lightweight hybrid architecture:
 
 `HTML/CSS/TypeScript UI → Provider/IPC → C# Core → Windows services/APIs`
 
-The TypeScript frontend is modular: `contracts.ts`, `providers/local.ts`, `providers/demo.ts`, `module-definitions.ts` and generated catalog metadata are bundled by esbuild into one `web/app.js`. Action metadata originates from C# `ActionCatalog.All` via `tools/CatalogExporter`; TypeScript enums/record types are generated from `Models/Contracts.cs`. A contract test rejects drift in action IDs, parameters, action ordering and generated model types. The browser never compiles or evaluates backend C#.
+The TypeScript frontend is modular: `contracts.ts`, `providers/local.ts`, `providers/demo.ts`, `module-definitions.ts`, and `components/{formatting,result-primitives,action-results}.ts` are bundled by esbuild into one `web/app.js`. The renderer receives its execution callback and the current catalog through explicit dependency injection; it has no second copy of ActionCatalog. `app.ts` owns the UI state and lifecycle rather than a 1,700-line action-results conditional. Action metadata originates from C# `ActionCatalog.All` via `tools/CatalogExporter`; TypeScript enums/record types are generated from `Models/Contracts.cs`. A contract test rejects drift in action IDs, parameters, action ordering and generated model types. The browser never compiles or evaluates backend C#.
 
-`ActionExecutor` retains a single allowlisted dispatch boundary, with platform/startup and system/memory methods moved into partial class files. It does not expose a generic command endpoint.
+`ActionExecutor` retains a single allowlisted dispatch boundary, with platform/startup, system/memory, and storage operations moved into separate partial class files (`ActionExecutor.Storage.cs` for storage/hibernation). The corresponding Windows services stay responsible for OS access. The executor does not expose a generic command endpoint.
 
 The same frontend is used by both targets:
 
