@@ -2574,7 +2574,15 @@ async function runAction(
   const isWrite = action?.mode === "WRITE";
   // A cleanup attempt consumes its previous preview even if the backend
   // fails or returns a partial outcome. Require a new preview to retry.
-  if (id === "disk.cleanup.execute") cleanupPreviewReady = false;
+  if (id === "disk.cleanup.execute" || id === "disk.cleanup.safe") {
+    cleanupPreviewReady = false;
+    const cleanupButton = document.querySelector<HTMLButtonElement>(
+      'button[data-action="disk.cleanup.execute"]');
+    if (cleanupButton) {
+      cleanupButton.disabled = true;
+      cleanupButton.title = "Primero previsualizá la limpieza.";
+    }
+  }
   if (button) {
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
@@ -2630,6 +2638,18 @@ async function runAction(
     const message = error instanceof Error ? error.message : String(error);
     pushActivity(id, message, "warn");
     toast("Acción fallida", message, "error");
+    // Keep the failure visible after the toast expires and across navigation;
+    // a rejected local bridge call is evidence, not an empty result panel.
+    if (originView !== "dashboard") {
+      const failed: ActionResult = {
+        success: false,
+        dryRun: false,
+        message,
+        data: { status: "ERROR", actionId: id }
+      };
+      latestResultByView.set(originView, { id, result: failed });
+      if (activeView === originView) renderActionResult(id, failed);
+    }
   } finally {
     actionInFlight = false;
     if (button) {

@@ -194,6 +194,15 @@ const expression = String.raw`
   }
 
   const developerButtons = [...document.querySelectorAll(".developer-nav")].filter(visible);
+  const developerMetrics = [...document.querySelectorAll(".metrics-grid .metric-card")].filter(visible);
+  const developerActions = [...document.querySelectorAll(".actions-grid .action-card")].filter(visible);
+  if (developerMetrics.length !== 8 ||
+      !visible(document.querySelector(".developer-driver-card")) ||
+      visible(document.querySelector(".developer-reboot-card")))
+    errors.push("Developer debe mostrar 8 métricas con Drivers y Activación; reinicio sigue en Interlocks");
+  if (developerActions.length !== 6 ||
+      !visible(document.querySelector(".action-memory")))
+    errors.push("Developer debe mostrar 6 acciones recomendadas, incluida MemoryTrim");
   // Browser tests explicitly approve the safe cleanup confirmation dialog.
   window.confirm = () => true;
   let moduleButtonsSeen = 0;
@@ -553,6 +562,7 @@ const fakeBridge = String.raw`
   const listeners = [];
   const seen = { snapshot: 0, catalog: 0 };
   const requests = [];
+  let failNextRun = false;
   const reply = (requestId, ok, result, error) => setTimeout(() => {
     for (const listener of listeners)
       listener({ data: { requestId, ok, result, error } });
@@ -601,6 +611,10 @@ const fakeBridge = String.raw`
       }
       if (message.method === "system.reliability")
         return reply(message.requestId, true, []);
+      if (message.method === "actions.run" && failNextRun) {
+        failNextRun = false;
+        return reply(message.requestId, false, null, "Fallo de acción inyectado para QA");
+      }
       return reply(message.requestId, true, {
         success: true, dryRun: false, message: "ok",
         data: { status: "OK", items: [] }
@@ -608,7 +622,10 @@ const fakeBridge = String.raw`
     }
   };
   if (!window.chrome) window.chrome = host;
-  window.__wpccFakeBridge = { requests };
+  window.__wpccFakeBridge = {
+    requests,
+    setFailNextRun() { failNextRun = true; }
+  };
 })();
 `;
 await call("Page.enable");
@@ -647,6 +664,34 @@ const degradedExpression = String.raw`
     errors.push("La línea base de salud no se ejecutó tras la recuperación");
   if (document.querySelectorAll("#toast-host .toast").length > 2)
     errors.push("El arranque degradado acumuló avisos repetidos");
+
+  // Regression: failed LOCAL action must remain visible after its toast expires
+  // and its result must not leak across module navigation.
+  const system = document.querySelector('.nav-item[data-view="system"]');
+  system?.click();
+  await wait(40);
+  const button = document.querySelector('#module-actions button[data-action="drivers.analyze"]');
+  if (!button) {
+    errors.push("No se pudo probar error de acción local");
+  } else {
+    fake().setFailNextRun();
+    button.click();
+    for (let i = 0; i < 200 && button.hasAttribute("aria-busy"); i++) await wait(25);
+    const panel = document.querySelector("#module-result-panel");
+    if (panel?.classList.contains("is-hidden") ||
+        !panel?.textContent?.includes("Fallo de acción inyectado para QA") ||
+        document.querySelector("#module-result-status")?.textContent?.trim() !== "WARNING")
+      errors.push("El error de acción local no permanece visible en su módulo");
+    document.querySelector('.nav-item[data-view="cleanup"]')?.click();
+    await wait(25);
+    if (!panel?.classList.contains("is-hidden"))
+      errors.push("El error de acción local se filtró a otro módulo");
+    system.click();
+    await wait(25);
+    if (panel?.classList.contains("is-hidden") ||
+        !panel?.textContent?.includes("Fallo de acción inyectado para QA"))
+      errors.push("Se perdió la evidencia del fallo al volver al módulo");
+  }
 
   return { errors, requests: fake().requests };
 })()

@@ -1,6 +1,6 @@
 # Visual specification
 
-Authoritative visual references are the two user-supplied screenshots.
+Visual targets are the user-approved Compact and Developer mockups and the acceptance criteria below. The checked-in `docs/screenshots/dashboard-compact.png` is a valid Compact reference, but `docs/screenshots/dashboard-developer.png` currently shows an obsolete Compact layout with broken icons; **do not use it as evidence of Developer pixel parity**. Until the approved Developer mockup is available locally, validate Developer against the written specification plus fresh captured screenshots and report visual pixel-parity as unverified.
 
 ## Compact mode
 - Default mode.
