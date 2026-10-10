@@ -6,7 +6,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = relative => fs.readFileSync(path.join(root, relative), "utf8");
 const catalog = read("src/App/Core/ActionCatalog.cs");
 const executor = read("src/App/Core/ActionExecutor.cs");
-const frontend = read("src/Frontend/app.ts");
+// Trace interactive follow-ups across the authored UI modules, never the
+// generated catalog (which would incorrectly certify every action as visible).
+const frontend = [
+  "src/Frontend/app.ts",
+  "src/Frontend/components/action-results.ts"
+].map(read).join("\n");
 const html = read("src/Frontend/index.html");
 const definitions = [...catalog.matchAll(/new ActionDefinition\("([^"]+)"/g)];
 const execBlock = executor.match(/return action\.Id switch\s*\{([\s\S]*?)_ => throw/)?.[1] ?? "";

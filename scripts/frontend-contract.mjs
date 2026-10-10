@@ -5,6 +5,14 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const html = fs.readFileSync(path.join(root, "src", "Frontend", "index.html"), "utf8");
 const app = fs.readFileSync(path.join(root, "src", "Frontend", "app.ts"), "utf8");
+const actionRenderer = fs.readFileSync(path.join(root, "src", "Frontend", "components", "action-results.ts"), "utf8");
+if (app.includes("function renderStructuredResult(") ||
+    !app.includes("configureResultRenderer({") ||
+    !actionRenderer.includes("export function renderStructuredResult(") ||
+    !actionRenderer.includes("getCurrentCatalog()"))
+  throw new Error("El frontend volvió a acoplar renderizado, catálogo o ejecución al monolito.");
+if (app.split(/\r?\n/).length > 1500)
+  throw new Error("app.ts volvió a exceder el límite modular de 1500 líneas.");
 const modules = fs.readFileSync(path.join(root, "src", "Frontend", "module-definitions.ts"), "utf8");
 const localProvider = fs.readFileSync(path.join(root, "src", "Frontend", "providers", "local.ts"), "utf8");
 const generatedCatalog = JSON.parse(fs.readFileSync(path.join(root, "src", "Frontend", "generated", "action-catalog.json"), "utf8"));
