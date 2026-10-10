@@ -426,18 +426,21 @@ function renderRecoveryCategories(data: Record<string, unknown>): void {
     const bytes = typeof item.bytes === "number" ? formatBytes(item.bytes) : "—";
     const risk = displayValue(item.risk);
     const riskLower = risk.toLowerCase();
+    const recoverable = riskLower === "safe";
 
     row.insertCell().textContent = label;
     row.insertCell().textContent = label.includes("Windows")
       ? "Temporales del sistema detectados"
       : "Archivos regenerables detectados";
     row.insertCell().textContent = bytes;
-    row.insertCell().textContent = bytes;
+    // Only SAFE categories contribute to backend EstimatedBytes. Never
+    // show CAUTION/EN_USO bytes as recoverable capacity.
+    row.insertCell().textContent = recoverable ? bytes : "—";
 
     const riskCell = row.insertCell();
     const chip = document.createElement("span");
-    chip.className = "risk-chip " + (riskLower.includes("low") || riskLower.includes("safe") ? "safe" : "caution");
-    chip.textContent = riskLower.includes("low") || riskLower.includes("safe") ? "Seguro" : "Precaución";
+    chip.className = "risk-chip " + (recoverable ? "safe" : "caution");
+    chip.textContent = recoverable ? "Seguro" : "Precaución";
     riskCell.append(chip);
 
     row.insertCell().textContent = "Revisar";

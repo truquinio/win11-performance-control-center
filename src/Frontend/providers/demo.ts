@@ -196,9 +196,10 @@ export class DemoProvider implements Provider {
         dryRun: id === "disk.cleanup.safe",
         message: "DEMO: análisis de almacenamiento simulado.",
         data: {
-          estimatedBytes: 13.4 * 1024 ** 3,
+          // Mirror the C# estimator: only categories with risk SAFE count.
+          estimatedBytes: 5.2 * 1024 ** 3,
           categories: [
-            { label: "Temporales de usuario", bytes: 5.2 * 1024 ** 3, risk: "LOW" },
+            { label: "Temporales de usuario", bytes: 5.2 * 1024 ** 3, risk: "SAFE" },
             { label: "Temporales de Windows", bytes: 8.2 * 1024 ** 3, risk: "CAUTION" }
           ]
         }

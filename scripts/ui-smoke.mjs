@@ -256,6 +256,14 @@ const expression = String.raw`
       if (document.body.classList.contains("demo") &&
           !document.querySelector("#module-result-subtitle")?.textContent?.toLowerCase().includes("simulad"))
         errors.push("La demo presenta un resultado simulado como evidencia local: " + label);
+      if (actionButton.dataset.action === "disk.cleanup.safe") {
+        const cautionRow = [...document.querySelectorAll("#recovery-body tr")].find(
+          row => row.cells[0]?.textContent?.includes("Temporales de Windows"));
+        if (!cautionRow || cautionRow.cells[3]?.textContent?.trim() !== "—")
+          errors.push("Recuperable incluye cachés de categoría CAUTION no autorizadas");
+        if (!document.querySelector("#storage-recoverable")?.textContent?.includes("5.2"))
+          errors.push("DEMO calcula un recuperable diferente de la suma SAFE del backend");
+      }
       moduleActionsExecuted++;
     }
   }
