@@ -21,7 +21,8 @@ try {
         throw ".NET SDK no está disponible en PATH."
     }
 
-    if (-not (Test-Path "node_modules\typescript\bin\tsc")) {
+    if (-not (Test-Path "node_modules\typescript\bin\tsc") -or
+        -not (Test-Path "node_modules\esbuild\lib\main.js")) {
         npm ci --no-audit --no-fund
         if ($LASTEXITCODE -ne 0) { throw "npm ci falló." }
     }
