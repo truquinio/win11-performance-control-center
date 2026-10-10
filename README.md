@@ -204,3 +204,12 @@ La vista de integridad distingue residuos inactivos de extensiones realmente rot
 ## Actionability
 
 La app sigue el patrón detectar -> explicar -> proponer -> confirmar -> ejecutar -> verificar -> rollback. Las acciones administrativas usan UAC con IDs allowlisted y parámetros tipados; no se expone una shell arbitraria. Véase docs/ACTIONABILITY.md.
+
+
+## Limpieza reversible C y D (10/10/2026)
+
+Esta rama incorpora el análisis acotado de duplicados SHA-256 y cambia disk.cleanup.execute para enviar cachés permitidas a la Papelera, registrando las rutas originales en un manifiesto. La previsualización no modifica archivos; el resultado de duplicados indica si es parcial. Los bytes enviados a la Papelera no se presentan como espacio físico recuperado.
+
+No elimina duplicados de forma automática, ni entra en repositorios activos, perfiles de navegador, discos de emulador, keystores o bases de datos del bot. Más detalles y límites en [Limpieza C y D — reconstrucción segura](docs/STORAGE_REBUILD.md).
+
+El seguimiento adicional disk.directories.watch conserva una referencia de cambios por carpeta entre capturas completas; cualquier medicion parcial queda excluida de la diferencia. No actua sobre archivos ni inicia agentes en segundo plano.

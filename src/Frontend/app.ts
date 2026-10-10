@@ -302,12 +302,12 @@ function renderModuleView(view: string): void {
         ? "Solicitar UAC"
         : action.mode === "READ" ? "Analizar" : "Previsualizar";
     if (action.id === "disk.cleanup.execute") {
-      button.textContent = "Limpiar (confirmar)";
+      button.textContent = "A Papelera (confirmar)";
       button.disabled = !cleanupPreviewReady;
       button.title = cleanupPreviewReady ? "Limpiar solo cachés antiguas, con confirmación." : "Primero previsualizá la limpieza.";
       button.addEventListener("click", () => {
         if (!cleanupPreviewReady) return;
-        if (!window.confirm("¿Eliminar únicamente cachés regenerables con más de 7 días?\nNo se tocarán sesiones, extensiones instaladas, WhatsApp ni documentos.")) return;
+        if (!window.confirm("¿Enviar a la Papelera únicamente cachés regenerables con más de 7 días?\nNo se tocarán sesiones, extensiones instaladas, WhatsApp ni documentos.")) return;
         void runAction(action.id, button, { confirmed: true });
       });
     } else if (action.id === "disk.hibernate.reduce") {
@@ -1245,6 +1245,55 @@ function renderStructuredResult(  actionId: string,
     return;
   }
 
+  if (actionId === "disk.directories.watch") {
+    const items = asArray(data.items)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+    content.append(createResultGrid([
+      ["Carpetas medidas", String(items.length)],
+      ["Baseline inicial", data.baselineCreated ? "Si" : "No"],
+      ["Estado", data.partial ? "PARCIAL (sin inferencias)" : "Comparacion disponible"],
+      ["Archivos borrados", "0"]
+    ]));
+    if (items.length) {
+      content.append(createResultTable(
+        ["Carpeta", "Tamano medido", "Cambio comprobable", "Cobertura"],
+        items.map(item => [
+          displayValue(item.path),
+          typeof item.measuredBytes === "number" ? formatBytes(item.measuredBytes) : "?",
+          typeof item.growthBytes === "number"
+            ? (item.growthBytes >= 0 ? "+" : "-") + formatBytes(Math.abs(item.growthBytes))
+            : "No comparable",
+          item.complete ? "Completa" : "Parcial"
+        ])
+      ));
+    }
+    return;
+  }
+  if (actionId === "disk.duplicates.scan") {
+    const groups = asArray(data.duplicates)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+    content.append(createResultGrid([
+      ["Archivos inspeccionados", displayValue(data.scannedFiles)],
+      ["Grupos SHA-256", String(groups.length)],
+      ["Ahorro logico potencial", typeof data.logicalPotentialBytes === "number"
+        ? formatBytes(data.logicalPotentialBytes) : "No disponible"],
+      ["Estado", data.partial ? "PARCIAL: no se reviso todo" : "Carpetas elegidas completas"],
+      ["Espacio liberado", "0 B (solo lectura)"]
+    ]));
+    if (groups.length) {
+      content.append(createResultTable(
+        ["SHA-256", "Tamano por copia", "Archivos identicos"],
+        groups.slice(0, 12).map(item => [
+          String(item.sha256 ?? "").slice(0, 16),
+          typeof item.fileBytes === "number" ? formatBytes(item.fileBytes) : "?",
+          asArray(item.paths).map(displayValue).join(" | ")
+        ])
+      ));
+    }
+    return;
+  }
   if (actionId === "disk.scan" ||
       actionId === "disk.cleanup.safe") {
     const categories = asArray(data.categories)
@@ -2142,7 +2191,13 @@ function renderSnapshot(snapshot: SystemSnapshot): void {
   byId("ram-value").textContent = document.body.dataset.mode === "compact"
     ? formatBytes(snapshot.memoryUsedBytes)
     : formatBytes(snapshot.memoryUsedBytes) + " / " + formatBytes(snapshot.memoryTotalBytes);
-  byId("ram-sub").textContent = memoryPercent.toFixed(0) + "% en uso · " + formatBytes(snapshot.memoryAvailableBytes) + " disponibles";
+  const ramDetail = memoryPercent.toFixed(0) + "% en uso · " + formatBytes(snapshot.memoryAvailableBytes) + " disponibles";
+  const ramSub = byId("ram-sub");
+  ramSub.textContent = document.body.dataset.mode === "compact"
+    ? memoryPercent.toFixed(0) + "% en uso"
+    : ramDetail;
+  ramSub.setAttribute("title", ramDetail);
+  ramSub.setAttribute("aria-label", ramDetail);
   setBar("ram-bar", memoryPercent);
 
   byId("disk-label").textContent = "Disco " + snapshot.diskDrive;

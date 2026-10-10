@@ -390,6 +390,18 @@ export const demoCatalog: ActionDefinition[] = [
     "parameters": null
   },
   {
+    "id": "disk.duplicates.scan",
+    "title": "Buscar duplicados verificados",
+    "description": "Muestreo acotado de C: y D: por tamaÃ±o y SHA-256; sin borrar archivos. Indica siempre si el resultado es parcial.",
+    "category": "Storage",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
     "id": "disk.cleanup.safe",
     "title": "Limpieza segura",
     "description": "Previsualiza la limpieza; no borra archivos en esta fase.",
@@ -403,7 +415,7 @@ export const demoCatalog: ActionDefinition[] = [
   },
   {
     "id": "disk.cleanup.execute",
-    "title": "Eliminar cachés regenerables",
+    "title": "Enviar caches regenerables a Papelera",
     "description": "Requiere previsualización y confirmación. Solo limpia archivos antiguos de rutas permitidas, nunca extensiones instaladas, perfiles, sesiones ni documentos.",
     "category": "Storage",
     "risk": "CAUTION",
@@ -436,6 +448,18 @@ export const demoCatalog: ActionDefinition[] = [
     "id": "disk.volumes.audit",
     "title": "Auditar C: / D: y volúmenes",
     "description": "Mide espacio total/libre y clasifica presión de almacenamiento en todos los volúmenes fijos.",
+    "category": "Storage",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "disk.directories.watch",
+    "title": "Crecimiento por carpetas",
+    "description": "Compara capturas acotadas de carpetas en C: y D:; nunca deduce crecimiento de mediciones parciales.",
     "category": "Storage",
     "risk": "SAFE",
     "requiresAdmin": false,

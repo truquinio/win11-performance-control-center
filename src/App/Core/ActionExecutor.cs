@@ -57,6 +57,7 @@ public sealed partial class ActionExecutor(
     ElevatedActionClient elevatedActionClient)
 {
     private const int MaxProcessSelection = 20;
+    private DateTimeOffset? lastStorageCleanupPreview;
     private static readonly TimeSpan ReadActionBudget =
         TimeSpan.FromMinutes(4);
 
@@ -308,10 +309,12 @@ public sealed partial class ActionExecutor(
             "cpu.ecoqos.apply" => await EcoQoSApplyAsync(parameters),
             "cpu.ecoqos.restore" => await EcoQoSRestoreAsync(parameters),
             "disk.scan" => await StorageAsync(false),
+            "disk.duplicates.scan" => await StorageDuplicatesAsync(),
             "disk.cleanup.safe" => await StorageAsync(true),
             "disk.cleanup.execute" => await StorageCleanupAsync(parameters),
             "disk.appdata.rank" => await AppDataRankAsync(),
             "disk.volumes.audit" => await StorageVolumesAuditAsync(),
+            "disk.directories.watch" => await StorageDirectoryTrendAsync(),
             "disk.storage.watch" => await StorageWatchAsync(),
             "disk.hotspots.scan" => await StorageHotspotsAsync(),
             "disk.hibernate.status" => await HibernateAsync(false, null),
@@ -522,9 +525,33 @@ public sealed partial class ActionExecutor(
             });
     }
 
+    private async Task<ActionResult> StorageDuplicatesAsync()
+    {
+        var forensic = await new StorageForensicsService(
+            TimeSpan.FromSeconds(6), 3000, 128L * 1024 * 1024)
+            .ScanAsync(StorageForensicsService.DefaultRoots());
+        return new ActionResult(true, false,
+            forensic.Partial
+                ? $"Muestreo parcial: {forensic.ScannedFiles} archivos; {forensic.Duplicates.Count} grupos idÃƒÂ©nticos. No se eliminÃƒÂ³ nada."
+                : $"Escaneo completo de las carpetas seleccionadas: {forensic.Duplicates.Count} grupos idÃƒÂ©nticos. No se eliminÃƒÂ³ nada.",
+            new
+            {
+                forensic.ScannedRoots,
+                forensic.ScannedFiles,
+                forensic.SkippedLinks,
+                forensic.Errors,
+                forensic.Partial,
+                forensic.ElapsedMilliseconds,
+                forensic.Duplicates,
+                logicalPotentialBytes = forensic.Duplicates.Sum(d => d.ReclaimableLogicalBytes),
+                physicallyRecoveredBytes = 0L,
+                readOnly = true
+            });
+    }
     private async Task<ActionResult> StorageAsync(bool cleanupPreview)
     {
         var estimate = await storageService.AnalyzeSafeAsync();
+        if (cleanupPreview) lastStorageCleanupPreview = DateTimeOffset.UtcNow;
         return new ActionResult(
             true,
             cleanupPreview,
@@ -544,16 +571,23 @@ public sealed partial class ActionExecutor(
             !args.TryGetProperty("confirmed", out var flag) ||
             flag.ValueKind != JsonValueKind.True)
             throw new InvalidOperationException("Confirmá la limpieza después de previsualizarla.");
+        if (lastStorageCleanupPreview is not { } previewTime ||
+            DateTimeOffset.UtcNow - previewTime > TimeSpan.FromMinutes(5))
+            throw new InvalidOperationException(
+                "Previsualizacion previa requerida antes de enviar caches a la Papelera.");
+        lastStorageCleanupPreview = null; // A preview is single use.
         var summary = await storageService.CleanupSafeAsync();
         return new ActionResult(summary.FailedFiles == 0, false,
-            $"Limpieza: {summary.DeletedFiles} archivos eliminados, {summary.DeletedBytes / 1048576d:F1} MiB liberados. " +
+            $"Limpieza: {summary.DeletedFiles} archivos enviados a Papelera, {summary.DeletedBytes / 1048576d:F1} MiB lÃƒÂ³gicos trasladados (espacio libre no confirmado). " +
             $"Errores: {summary.FailedFiles}; categorías omitidas: {summary.SkippedCategories.Count}.",
             new
             {
                 summary.DeletedBytes,
                 summary.DeletedFiles,
                 summary.FailedFiles,
-                summary.SkippedCategories
+                summary.SkippedCategories,
+                recycleManifestPath = File.Exists(AppPaths.StorageRecycleManifest) ? AppPaths.StorageRecycleManifest : null,
+                physicallyRecoveredBytes = (long?)null
             });
     }
 
@@ -593,6 +627,24 @@ public sealed partial class ActionExecutor(
             });
     }
 
+    private async Task<ActionResult> StorageDirectoryTrendAsync()
+    {
+        var report = await new StorageDirectoryTrendService().ObserveAsync();
+        return new ActionResult(true, false,
+            report.BaselineCreated
+                ? "Crecimiento por carpetas: baseline creado sin modificar las carpetas."
+                : report.Partial
+                    ? "Crecimiento por carpetas: muestreo parcial; no se comparan medidas incompletas."
+                    : "Crecimiento por carpetas medido y comparado con el baseline previo.",
+            new
+            {
+                report.CapturedAt,
+                report.BaselineCreated,
+                report.Partial,
+                report.Items,
+                readOnly = true
+            });
+    }
     private async Task<ActionResult> StorageWatchAsync()
     {
         var report = await storageWatchService.WatchAsync();

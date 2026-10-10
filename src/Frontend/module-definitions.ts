@@ -14,7 +14,7 @@ export const moduleDefinitions: Record<string, {
     kicker: "LIMPIEZA",
     title: "Almacenamiento seguro",
     description: "Análisis multiunidad, tendencias y previsualización de espacio recuperable sin borrar archivos.",
-    actionIds: ["disk.scan", "disk.cleanup.safe", "disk.cleanup.execute", "disk.appdata.rank", "disk.volumes.audit", "disk.storage.watch", "disk.hotspots.scan", "disk.hibernate.status", "disk.hibernate.reduce"]
+    actionIds: ["disk.scan", "disk.duplicates.scan", "disk.cleanup.safe", "disk.cleanup.execute", "disk.appdata.rank", "disk.volumes.audit", "disk.directories.watch", "disk.storage.watch", "disk.hotspots.scan", "disk.hibernate.status", "disk.hibernate.reduce"]
   },
   system: {
     kicker: "SISTEMA",

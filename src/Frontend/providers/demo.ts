@@ -166,6 +166,26 @@ export class DemoProvider implements Provider {
       };
     }
 
+    if (id === "disk.directories.watch") {
+      return { success: true, dryRun: false,
+        message: "DEMO: baseline de carpetas simulado, sin acceso a discos.",
+        data: { baselineCreated: false, partial: true,
+          items: [
+            { path: "C:\\DEMO\\Temp", measuredBytes: 10485760, filesMeasured: 8, complete: true, growthBytes: 2097152 },
+            { path: "D:\\DEMO\\proyecto", measuredBytes: 4096, filesMeasured: 2, complete: false, growthBytes: null }
+          ] } };
+    }
+    if (id === "disk.duplicates.scan") {
+      return {
+        success: true, dryRun: false,
+        message: "DEMO: scan simulado de duplicados; no modifica archivos.",
+        data: { scannedFiles: 42, skippedLinks: 1, errors: 0, partial: true,
+          duplicates: [{ fileBytes: 1024, sha256: "DEMO-ONLY",
+            paths: ["D:\\DEMO\\copy1", "D:\\DEMO\\copy2"],
+            reclaimableLogicalBytes: 1024 }],
+          logicalPotentialBytes: 1024, physicallyRecoveredBytes: 0 }
+      };
+    }
     if (id === "disk.cleanup.execute") {
       return { success: true, dryRun: false, message: "DEMO: limpieza simulada; no se elimina ningún archivo.", data: { deletedBytes: 0, deletedFiles: 0, failedFiles: 0 } };
     }

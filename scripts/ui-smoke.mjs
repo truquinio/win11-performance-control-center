@@ -375,6 +375,13 @@ const expression = String.raw`
     errors.push("La RAM compacta muestra un valor combinado que se trunca en pantallas de 1366px");
   if (document.body.dataset.mode === "developer" && !ramText.includes("/"))
     errors.push("El modo Developer perdió la capacidad total de RAM");
+  const ramSub = document.querySelector("#ram-sub");
+  if (document.body.dataset.mode === "compact" && !ramSub?.textContent?.trim().endsWith("% en uso"))
+    errors.push("El subtítulo compacto de RAM se trunca en pantallas estrechas");
+  if (document.body.dataset.mode === "developer" && !ramSub?.textContent?.includes("disponibles"))
+    errors.push("El modo Developer no muestra la memoria disponible");
+  if (!ramSub?.getAttribute("aria-label")?.includes("disponibles"))
+    errors.push("Falta el detalle completo de RAM para accesibilidad");
 
   // Keyboard focus and the action buttons must survive the periodic
   // snapshot refresh (5 s) while a module view is open.
