@@ -605,6 +605,10 @@ const fakeBridge = String.raw`
     id: "disk.cleanup.safe", title: "Previsualizar limpieza segura", description: "Prueba",
     category: "Storage", risk: "SAFE", requiresAdmin: false,
     connectivity: "OFFLINE", reversible: false, mode: "DRY_RUN"
+  }, {
+    id: "memory.trim.preview", title: "Previsualizar MemoryTrim", description: "Prueba",
+    category: "Memory", risk: "SAFE", requiresAdmin: false,
+    connectivity: "OFFLINE", reversible: false, mode: "DRY_RUN"
   }];
   const host = window.chrome ?? {};
   host.webview = {
@@ -675,13 +679,13 @@ const degradedExpression = String.raw`
 
   const recovered = () =>
     document.querySelector("#cpu-value")?.textContent?.trim() === "37%" &&
-    document.querySelectorAll("#catalog-grid .catalog-item").length === 3 &&
+    document.querySelectorAll("#catalog-grid .catalog-item").length === 4 &&
     fake().requests.includes("actions.run:drivers.analyze");
   for (let i = 0; i < 180 && !recovered(); i++) await wait(50);
 
   if (document.querySelector("#cpu-value")?.textContent?.trim() !== "37%")
     errors.push("El snapshot no se recuperó tras un fallo de arranque");
-  if (document.querySelectorAll("#catalog-grid .catalog-item").length !== 3)
+  if (document.querySelectorAll("#catalog-grid .catalog-item").length !== 4)
     errors.push("El catálogo no se recuperó tras un fallo de arranque");
   if (!fake().requests.includes("actions.run:drivers.analyze"))
     errors.push("La línea base de salud no se ejecutó tras la recuperación");
@@ -739,6 +743,30 @@ const degradedExpression = String.raw`
       errors.push("Resultado de salud de extensiones fallido mostrado falsamente como OK");
     if (!document.querySelector("#module-result-content")?.textContent?.includes("Inspección fallida"))
       errors.push("Resultado de salud de extensiones fallido perdió su mensaje");
+  }
+
+  // Even if a failed analysis returns candidates, its WRITE follow-up
+  // must be inert while retaining the partial diagnostic evidence.
+  document.querySelector('.nav-item[data-view="memory"]')?.click();
+  await wait(35);
+  const trimPreview = document.querySelector(
+    '#module-actions button[data-action="memory.trim.preview"]');
+  if (!trimPreview) {
+    errors.push("No se pudo probar un análisis MemoryTrim fallido con candidatos");
+  } else {
+    fake().setNextActionResult({
+      success: false, dryRun: true, message: "Fallo con candidatos incompletos",
+      data: { observedProcesses: 1,
+        candidates: [{ name: "QA fixture", processId: 98765, workingSetBytes: 65536 }] }
+    });
+    trimPreview.click();
+    for (let i = 0; i < 200 && trimPreview.hasAttribute("aria-busy"); i++) await wait(25);
+    const unsafeButtons = [...document.querySelectorAll("#module-result-content button")]
+      .filter(control => !control.disabled);
+    if (unsafeButtons.length > 0)
+      errors.push("El resultado fallido habilita acciones WRITE a partir de candidatos parciales");
+    if (!document.querySelector("#module-result-content")?.textContent?.includes("Fallo con candidatos"))
+      errors.push("Se perdió la evidencia parcial de MemoryTrim");
   }
 
   // A second cleanup preview that fails must invalidate the previous

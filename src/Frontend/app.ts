@@ -510,6 +510,17 @@ function renderActionResult(
   content.append(message);
 
   renderStructuredResult(actionId, data, content);
+  if (!result.success) {
+    // Partial failure evidence remains readable, but it must never provide
+    // operational controls or create a WRITE flow from incomplete analysis.
+    content.querySelectorAll<
+      HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+    >("button, input, select, textarea").forEach(control => {
+      control.disabled = true;
+      control.setAttribute("aria-disabled", "true");
+      control.title = "Acción no disponible tras un análisis fallido.";
+    });
+  }
 }
 
 function createProcessSelection(
