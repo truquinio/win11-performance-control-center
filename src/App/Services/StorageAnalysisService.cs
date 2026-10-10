@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO;
 using System.Security;
+using Microsoft.VisualBasic.FileIO;
+using Win11PerformanceControlCenter.App.Core;
 using Win11PerformanceControlCenter.App.Models;
 
 namespace Win11PerformanceControlCenter.App.Services;
@@ -15,6 +17,8 @@ public sealed class StorageAnalysisService
     [
         "Claude Extensions",
         "WhatsApp",
+        "AndroidEmulator",
+        "emu_now",
         ".git",
         ".venv",
         "workspaceStorage",
@@ -31,6 +35,7 @@ public sealed class StorageAnalysisService
     private readonly Func<string?, bool> processRunning;
     private readonly Func<CacheTarget, string, bool> targetPolicy;
     private readonly string localAppDataRoot;
+    private readonly Action<string> recycleFile;
 
     internal sealed record CacheTarget(
         string Id, string Label, string Path, string Risk = "SAFE",
@@ -48,14 +53,14 @@ public sealed class StorageAnalysisService
     internal StorageAnalysisService(
         IReadOnlyList<CacheTarget> targets,
         Func<string?, bool> processRunning,
-        string evaluationRoot)
+        string evaluationRoot, Action<string>? recycler = null)
         : this(
             targets,
             processRunning,
             (target, path) =>
                 IsUnderRoot(path, evaluationRoot) &&
                 target.Id.StartsWith("eval.", StringComparison.Ordinal),
-            evaluationRoot)
+            evaluationRoot, recycler)
     {
     }
 
@@ -63,8 +68,9 @@ public sealed class StorageAnalysisService
         IReadOnlyList<CacheTarget> targets,
         Func<string?, bool> processRunning,
         Func<CacheTarget, string, bool> targetPolicy,
-        string localAppDataRoot)
+        string localAppDataRoot, Action<string>? recycler = null)
     {
+        this.recycleFile = recycler ?? RecycleFile;
         this.targets = targets ?? throw new ArgumentNullException(nameof(targets));
         this.processRunning = processRunning ?? throw new ArgumentNullException(nameof(processRunning));
         this.targetPolicy = targetPolicy ?? throw new ArgumentNullException(nameof(targetPolicy));
@@ -131,7 +137,7 @@ public sealed class StorageAnalysisService
             }
             var running = processRunning(target.ProcessName);
             categories.Add(new StorageCategory(target.Id, target.Label,
-                running ? 0 : Traverse(path, delete: false).bytes,
+                running ? 0 : Traverse(path, delete: false, tempOnly: target.Id is "temp.user" or "eval.temp.user").bytes,
                 running ? "EN_USO" : target.Risk));
         }
         return new StorageEstimate(
@@ -169,7 +175,7 @@ public sealed class StorageAnalysisService
                 skipped.Add(target.Label + ": aplicación en ejecución");
                 continue;
             }
-            var result = Traverse(path, delete: true);
+            var result = Traverse(path, delete: true, tempOnly: target.Id is "temp.user" or "eval.temp.user");
             deletedBytes += result.bytes;
             deletedFiles += result.files;
             failedFiles += result.failed;
@@ -427,7 +433,31 @@ public sealed class StorageAnalysisService
         { return null; }
     }
 
-    private static (long bytes, int files, int failed) Traverse(string root, bool delete)
+    private static readonly StorageRecycleJournal RecycleJournal =
+        new(AppPaths.StorageRecycleManifest);
+
+    private static void RecycleFile(string path)
+    {
+        var operationId = Guid.NewGuid().ToString("N");
+        var bytes = new FileInfo(path).Length;
+        // Fail closed if the intent cannot be committed before touching the file.
+        RecycleJournal.Append(operationId, path, bytes, "INTENT");
+        // Never silently fall back to a permanent delete on a recycle failure.
+        FileSystem.DeleteFile(path, UIOption.OnlyErrorDialogs,
+            RecycleOption.SendToRecycleBin, UICancelOption.ThrowException);
+        try
+        {
+            RecycleJournal.Append(operationId, path, bytes, "MOVED");
+        }
+        catch (IOException)
+        {
+            // Intent still identifies the original path if the final write fails.
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+    private (long bytes, int files, int failed) Traverse(string root, bool delete, bool tempOnly)
     {
         long bytes = 0;
         int files = 0;
@@ -454,13 +484,19 @@ public sealed class StorageAnalysisService
                             pending.Push(entry);
                             continue;
                         }
+                        // Temp is not a project trash can. DBs, APKs, VM snapshots,
+                        // logs and unknown files remain untouched even when old.
+                        if (tempOnly &&
+                            !Path.GetExtension(entry).Equals(".tmp", StringComparison.OrdinalIgnoreCase) &&
+                            !Path.GetExtension(entry).Equals(".temp", StringComparison.OrdinalIgnoreCase))
+                            continue;
                         var info = new FileInfo(entry);
                         info.Refresh();
                         if (!info.Exists || DateTime.UtcNow - info.LastWriteTimeUtc < MinimumCandidateAge)
                             continue;
                         if (delete)
                         {
-                            try { File.Delete(entry); }
+                            try { recycleFile(entry); if (File.Exists(entry)) throw new IOException("Recycle did not move file."); }
                             catch (IOException) { failed++; continue; }
                             catch (UnauthorizedAccessException) { failed++; continue; }
                         }

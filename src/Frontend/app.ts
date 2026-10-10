@@ -309,6 +309,26 @@ class DemoProvider implements Provider {
       };
     }
 
+    if (id === "disk.directories.watch") {
+      return { success: true, dryRun: false,
+        message: "DEMO: baseline de carpetas simulado, sin acceso a discos.",
+        data: { baselineCreated: false, partial: true,
+          items: [
+            { path: "C:\\DEMO\\Temp", measuredBytes: 10485760, filesMeasured: 8, complete: true, growthBytes: 2097152 },
+            { path: "D:\\DEMO\\proyecto", measuredBytes: 4096, filesMeasured: 2, complete: false, growthBytes: null }
+          ] } };
+    }
+    if (id === "disk.duplicates.scan") {
+      return {
+        success: true, dryRun: false,
+        message: "DEMO: scan simulado de duplicados; no modifica archivos.",
+        data: { scannedFiles: 42, skippedLinks: 1, errors: 0, partial: true,
+          duplicates: [{ fileBytes: 1024, sha256: "DEMO-ONLY",
+            paths: ["D:\\DEMO\\copy1", "D:\\DEMO\\copy2"],
+            reclaimableLogicalBytes: 1024 }],
+          logicalPotentialBytes: 1024, physicallyRecoveredBytes: 0 }
+      };
+    }
     if (id === "disk.cleanup.execute") {
       return { success: true, dryRun: false, message: "DEMO: limpieza simulada; no se elimina ningún archivo.", data: { deletedBytes: 0, deletedFiles: 0, failedFiles: 0 } };
     }
@@ -1160,10 +1180,12 @@ const demoCatalog: ActionDefinition[] = [
   { id: "cpu.ecoqos.apply", title: "Aplicar EcoQoS seleccionado", description: "Aplica EcoQoS sólo a procesos seleccionados.", category: "CPU", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "processIds", type: "INTEGER_ARRAY", required: true, description: "PIDs seleccionados" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "cpu.ecoqos.restore", title: "Restaurar EcoQoS", description: "Restaura el estado previo registrado.", category: "CPU", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "processIds", type: "INTEGER_ARRAY", required: true, description: "PIDs modificados" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
   { id: "disk.scan", title: "Analizar almacenamiento", description: "Calcula espacio y temporales.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "disk.duplicates.scan", title: "Duplicados SHA-256", description: "Muestreo de duplicados; no modifica archivos.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "disk.cleanup.safe", title: "Limpieza segura", description: "Dry-run del pipeline de limpieza.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "DRY_RUN" },
-  { id: "disk.cleanup.execute", title: "Eliminar cachés regenerables", description: "Solo después de la previsualización y una confirmación explícita.", category: "Storage", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
+  { id: "disk.cleanup.execute", title: "Enviar caches a Papelera", description: "Solo tras previsualizar y confirmar; se mueven cachés antiguas a la Papelera.", category: "Storage", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmacion explicita" }] },
   { id: "disk.appdata.rank", title: "Ranking de AppData Local", description: "Tamaños por carpeta, nunca borra programas ni datos.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "disk.volumes.audit", title: "Auditar C: / D: y volúmenes", description: "Mide presión de almacenamiento en todos los volúmenes fijos.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
+  { id: "disk.directories.watch", title: "Crecimiento por carpetas", description: "Baselines acotados: los resultados parciales no se comparan.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "disk.storage.watch", title: "Storage Watch", description: "Compara espacio libre con el baseline anterior y detecta crecimiento anormal.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "disk.hotspots.scan", title: "Buscar hotspots de disco", description: "Escaneo read-only con presupuesto temporal en unidades con poco espacio.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
   { id: "disk.hibernate.status", title: "Estado de hibernación", description: "Consulta estados disponibles con powercfg.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
@@ -1335,7 +1357,7 @@ const moduleDefinitions: Record<string, {
     kicker: "LIMPIEZA",
     title: "Almacenamiento seguro",
     description: "Análisis multiunidad, tendencias y previsualización de espacio recuperable sin borrar archivos.",
-    actionIds: ["disk.scan", "disk.cleanup.safe", "disk.cleanup.execute", "disk.appdata.rank", "disk.volumes.audit", "disk.storage.watch", "disk.hotspots.scan", "disk.hibernate.status", "disk.hibernate.reduce"]
+    actionIds: ["disk.scan", "disk.duplicates.scan", "disk.cleanup.safe", "disk.cleanup.execute", "disk.appdata.rank", "disk.volumes.audit", "disk.directories.watch", "disk.storage.watch", "disk.hotspots.scan", "disk.hibernate.status", "disk.hibernate.reduce"]
   },
   system: {
     kicker: "SISTEMA",
@@ -1666,12 +1688,12 @@ function renderModuleView(view: string): void {
         ? "Solicitar UAC"
         : action.mode === "READ" ? "Analizar" : "Previsualizar";
     if (action.id === "disk.cleanup.execute") {
-      button.textContent = "Limpiar (confirmar)";
+      button.textContent = "A Papelera (confirmar)";
       button.disabled = !cleanupPreviewReady;
       button.title = cleanupPreviewReady ? "Limpiar solo cachés antiguas, con confirmación." : "Primero previsualizá la limpieza.";
       button.addEventListener("click", () => {
         if (!cleanupPreviewReady) return;
-        if (!window.confirm("¿Eliminar únicamente cachés regenerables con más de 7 días?\nNo se tocarán sesiones, extensiones instaladas, WhatsApp ni documentos.")) return;
+        if (!window.confirm("¿Enviar a la Papelera únicamente cachés regenerables con más de 7 días?\nNo se tocarán sesiones, extensiones instaladas, WhatsApp ni documentos.")) return;
         void runAction(action.id, button, { confirmed: true });
       });
     } else if (action.id === "disk.hibernate.reduce") {
@@ -2608,6 +2630,55 @@ function renderStructuredResult(  actionId: string,
     return;
   }
 
+  if (actionId === "disk.directories.watch") {
+    const items = asArray(data.items)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+    content.append(createResultGrid([
+      ["Carpetas medidas", String(items.length)],
+      ["Baseline inicial", data.baselineCreated ? "Si" : "No"],
+      ["Estado", data.partial ? "PARCIAL (sin inferencias)" : "Comparacion disponible"],
+      ["Archivos borrados", "0"]
+    ]));
+    if (items.length) {
+      content.append(createResultTable(
+        ["Carpeta", "Tamano medido", "Cambio comprobable", "Cobertura"],
+        items.map(item => [
+          displayValue(item.path),
+          typeof item.measuredBytes === "number" ? formatBytes(item.measuredBytes) : "?",
+          typeof item.growthBytes === "number"
+            ? (item.growthBytes >= 0 ? "+" : "-") + formatBytes(Math.abs(item.growthBytes))
+            : "No comparable",
+          item.complete ? "Completa" : "Parcial"
+        ])
+      ));
+    }
+    return;
+  }
+  if (actionId === "disk.duplicates.scan") {
+    const groups = asArray(data.duplicates)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+    content.append(createResultGrid([
+      ["Archivos inspeccionados", displayValue(data.scannedFiles)],
+      ["Grupos SHA-256", String(groups.length)],
+      ["Ahorro logico potencial", typeof data.logicalPotentialBytes === "number"
+        ? formatBytes(data.logicalPotentialBytes) : "No disponible"],
+      ["Estado", data.partial ? "PARCIAL: no se reviso todo" : "Carpetas elegidas completas"],
+      ["Espacio liberado", "0 B (solo lectura)"]
+    ]));
+    if (groups.length) {
+      content.append(createResultTable(
+        ["SHA-256", "Tamano por copia", "Archivos identicos"],
+        groups.slice(0, 12).map(item => [
+          String(item.sha256 ?? "").slice(0, 16),
+          typeof item.fileBytes === "number" ? formatBytes(item.fileBytes) : "?",
+          asArray(item.paths).map(displayValue).join(" | ")
+        ])
+      ));
+    }
+    return;
+  }
   if (actionId === "disk.scan" ||
       actionId === "disk.cleanup.safe") {
     const categories = asArray(data.categories)

@@ -20,6 +20,7 @@ public static class AppPaths
     public static string AppLog => Path.Combine(Logs, "app.jsonl");
     public static string EcoQosState =>
         Path.Combine(State, "ecoqos.json");
+    public static string StorageRecycleManifest => Path.Combine(State, "recycle-manifest.jsonl");
     public static string StorageWatchState =>
         Path.Combine(State, "storage-watch.json");
     public static string ServiceStartupState =>
