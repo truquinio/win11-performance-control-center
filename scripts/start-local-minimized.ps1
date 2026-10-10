@@ -3,7 +3,7 @@ param(
 )
 
 $resolved = (Resolve-Path $Executable).Path
-$process = Start-Process $resolved -PassThru
+$process = Start-Process $resolved -PassThru -WindowStyle Minimized
 
 Add-Type @'
 using System;
@@ -14,7 +14,7 @@ public static class WindowLaunch {
 }
 '@
 
-for ($i = 0; $i -lt 40; $i++) {
+for ($i = 0; $i -lt 200; $i++) {
     Start-Sleep -Milliseconds 100
     $process.Refresh()
     if ($process.HasExited) { break }
