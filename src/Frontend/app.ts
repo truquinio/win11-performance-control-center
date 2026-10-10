@@ -408,6 +408,19 @@ function createResultTable(
   return wrap;
 }
 
+function invalidateRecoveryEstimate(): void {
+  recoverableBytes = null;
+  byId("storage-recoverable").textContent = "—";
+  const body = document.getElementById("recovery-body") as HTMLTableSectionElement | null;
+  if (body) {
+    body.replaceChildren();
+    const cell = body.insertRow().insertCell();
+    cell.colSpan = 6;
+    cell.textContent = "Previsualización pendiente. Ejecutá un análisis nuevo.";
+  }
+  if (activeView === "cleanup") renderModuleSummary(activeView);
+}
+
 function renderRecoveryCategories(data: Record<string, unknown>): void {
   const body = document.getElementById("recovery-body") as HTMLTableSectionElement | null;
   if (!body) return;
@@ -416,7 +429,13 @@ function renderRecoveryCategories(data: Record<string, unknown>): void {
     .map(asRecord)
     .filter((item): item is Record<string, unknown> => item !== null);
 
-  if (!categories.length) return;
+  if (!categories.length) {
+    body.replaceChildren();
+    const cell = body.insertRow().insertCell();
+    cell.colSpan = 6;
+    cell.textContent = "No se detectaron categorías regenerables en el análisis.";
+    return;
+  }
 
   body.replaceChildren();
 
@@ -2578,7 +2597,9 @@ async function runAction(
   const isWrite = action?.mode === "WRITE";
   // A cleanup attempt consumes its previous preview even if the backend
   // fails or returns a partial outcome. Require a new preview to retry.
-  if (id === "disk.cleanup.execute" || id === "disk.cleanup.safe") {
+  if (id === "disk.scan" || id === "disk.cleanup.execute" || id === "disk.cleanup.safe") {
+    // A new scan invalidates both previous estimates and permission to clean.
+    invalidateRecoveryEstimate();
     cleanupPreviewReady = false;
     const cleanupButton = document.querySelector<HTMLButtonElement>(
       'button[data-action="disk.cleanup.execute"]');
@@ -2601,7 +2622,10 @@ async function runAction(
       latestResultByView.set(originView, { id, result });
     }
     if (id === "disk.cleanup.safe") {
-      cleanupPreviewReady = result.success;
+      const previewBytes = result.data?.estimatedBytes;
+      cleanupPreviewReady = result.success && result.dryRun &&
+        typeof previewBytes === "number" && Number.isFinite(previewBytes) &&
+        previewBytes > 0;
       const cleanButton = document.querySelector<HTMLButtonElement>('button[data-action="disk.cleanup.execute"]');
       if (cleanButton) {
         cleanButton.disabled = !cleanupPreviewReady;
@@ -2613,7 +2637,8 @@ async function runAction(
     pushActivity(id, result.message, result.success ? "ok" : "warn");
     toast(result.success ? "Acción completada" : "Acción con advertencias", result.message, result.success ? "success" : "info");
     const estimated = result.data?.estimatedBytes;
-    if (typeof estimated === "number") {
+    if (result.success && (id === "disk.scan" || id === "disk.cleanup.safe") &&
+        typeof estimated === "number" && Number.isFinite(estimated) && estimated >= 0) {
       recoverableBytes = estimated;
       byId("storage-recoverable").textContent = formatBytes(estimated);
       const data = asRecord(result.data);

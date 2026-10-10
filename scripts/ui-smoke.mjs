@@ -601,6 +601,10 @@ const fakeBridge = String.raw`
     id: "browsers.extensions.health", title: "Salud extensiones", description: "Prueba",
     category: "Browsers", risk: "SAFE", requiresAdmin: false,
     connectivity: "OFFLINE", reversible: false, mode: "READ"
+  }, {
+    id: "disk.cleanup.safe", title: "Previsualizar limpieza segura", description: "Prueba",
+    category: "Storage", risk: "SAFE", requiresAdmin: false,
+    connectivity: "OFFLINE", reversible: false, mode: "DRY_RUN"
   }];
   const host = window.chrome ?? {};
   host.webview = {
@@ -671,13 +675,13 @@ const degradedExpression = String.raw`
 
   const recovered = () =>
     document.querySelector("#cpu-value")?.textContent?.trim() === "37%" &&
-    document.querySelectorAll("#catalog-grid .catalog-item").length === 2 &&
+    document.querySelectorAll("#catalog-grid .catalog-item").length === 3 &&
     fake().requests.includes("actions.run:drivers.analyze");
   for (let i = 0; i < 180 && !recovered(); i++) await wait(50);
 
   if (document.querySelector("#cpu-value")?.textContent?.trim() !== "37%")
     errors.push("El snapshot no se recuperó tras un fallo de arranque");
-  if (document.querySelectorAll("#catalog-grid .catalog-item").length !== 2)
+  if (document.querySelectorAll("#catalog-grid .catalog-item").length !== 3)
     errors.push("El catálogo no se recuperó tras un fallo de arranque");
   if (!fake().requests.includes("actions.run:drivers.analyze"))
     errors.push("La línea base de salud no se ejecutó tras la recuperación");
@@ -737,6 +741,49 @@ const degradedExpression = String.raw`
       errors.push("Resultado de salud de extensiones fallido perdió su mensaje");
   }
 
+  // A second cleanup preview that fails must invalidate the previous
+  // recoverable estimate, even if the old scan detected SAFE bytes.
+  document.querySelector('.nav-item[data-view="cleanup"]')?.click();
+  await wait(35);
+  const preview = document.querySelector(
+    '#module-actions button[data-action="disk.cleanup.safe"]');
+  if (!preview) {
+    errors.push("Falta el DRY_RUN de limpieza segura en el módulo");
+  } else {
+    fake().setNextActionResult({
+      success: true, dryRun: true,
+      message: "Previsualización de QA",
+      data: { estimatedBytes: 2 * 1024 ** 3,
+        categories: [{ label: "Temporales de usuario", bytes: 2 * 1024 ** 3, risk: "SAFE" }] }
+    });
+    preview.click();
+    for (let i = 0; i < 200 && preview.hasAttribute("aria-busy"); i++) await wait(25);
+    if (!document.querySelector("#storage-recoverable")?.textContent?.includes("2"))
+      errors.push("No se registró el recuperable inicial del DRY_RUN");
+    fake().setFailNextRun();
+    preview.click();
+    for (let i = 0; i < 200 && preview.hasAttribute("aria-busy"); i++) await wait(25);
+    if (document.querySelector("#storage-recoverable")?.textContent?.includes("2") ||
+        document.querySelector("#module-summary")?.textContent?.includes("2 GB"))
+      errors.push("Previsualización fallida conserva cifras recuperables antiguas");
+    if (document.querySelector("#recovery-body")?.textContent?.includes("2 GB"))
+      errors.push("Previsualización fallida conserva filas de limpieza antiguas");
+    fake().setNextActionResult({
+      success: true, dryRun: true,
+      message: "No hay archivos regenerables seguros",
+      data: { estimatedBytes: 0, categories: [] }
+    });
+    preview.click();
+    for (let i = 0; i < 200 && preview.hasAttribute("aria-busy"); i++) await wait(25);
+    const cleanupExecute = document.querySelector(
+      '#module-actions button[data-action="disk.cleanup.execute"]');
+    if (cleanupExecute && !cleanupExecute.disabled)
+      errors.push("DRY_RUN de cero bytes permite ejecutar limpieza WRITE");
+    if (document.querySelector("#storage-recoverable")?.textContent?.includes("2"))
+      errors.push("DRY_RUN sin candidatos mantiene bytes obsoletos");
+    if (document.querySelector("#recovery-body")?.textContent?.includes("Temporales de usuario"))
+      errors.push("DRY_RUN sin candidatos conserva la tabla anterior");
+  }
   return { errors, requests: fake().requests };
 })()
 `;
