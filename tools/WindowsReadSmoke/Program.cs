@@ -4,7 +4,10 @@ using Win11PerformanceControlCenter.App.Core;
 using Win11PerformanceControlCenter.App.Models;
 
 string root = Path.Combine(Path.GetTempPath(), "wpcc-read-smoke-" + Guid.NewGuid().ToString("N"));
-string[] actions = ["system.workload.status", "memory.analyze", "network.test", "thermal.audit"];
+string[] actions = [
+    "system.workload.status", "memory.analyze", "network.test", "thermal.audit",
+    "drivers.analyze", "backup.status", "system.activation.analyze", "memory.pagefile.analyze"
+];
 var catalog = new ActionCatalog();
 try
 {
@@ -24,6 +27,8 @@ try
         var outcome = response.Result as ActionResult;
         if (!response.Ok || outcome is null)
             throw new InvalidOperationException("IPC falló para " + id + ": " + response.Error);
+        if (!outcome.Success)
+            throw new InvalidOperationException("Acción READ no exitosa: " + id + ": " + outcome.Message);
         Console.WriteLine($"REAL_READ id={id} actionSuccess={outcome.Success} elapsedMs={stopwatch.ElapsedMilliseconds}");
     }
 }
