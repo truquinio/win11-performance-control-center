@@ -66,8 +66,8 @@ Build outputs:
 ## Safety invariants
 
 - No arbitrary shell execution from frontend input.
-- No destructive cleanup in the current vertical slice.
-- Safe Cleanup remains `DRY_RUN`.
+- `disk.cleanup.safe` is `DRY_RUN`. The separate `disk.cleanup.execute` is a guarded `WRITE` with an explicit preview and confirmation; it only targets allowlisted, regenerable caches and excludes profiles, sessions and user documents.
+- Other `WRITE` actions (e.g. EcoQoS, pagefile and Edge extension orphan quarantine) require their own parameter, privilege and interlock guards; rollback is available only where supported.
 - Unsupported or inaccessible evidence sources degrade gracefully.
-- Writes must be explicit Action Catalog entries with verification and rollback design.
-- Logs are local and structured.
+- Writes must be explicit Action Catalog entries with verification and rollback design where applicable.
+- Logs are local, structured and rotated.
