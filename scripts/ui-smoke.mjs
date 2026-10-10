@@ -317,6 +317,56 @@ const expression = String.raw`
   await runSelectionFlow("memory", "memory.trim.preview", "MemoryTrim seleccionado", false);
   await runSelectionFlow("cpu", "cpu.ecoqos.analyze", "Aplicar EcoQoS seleccionado", true);
 
+  // Every contextual write is accessible only after its READ/DRY_RUN
+  // evidence has rendered. Exercise the user-facing button, never call
+  // the DEMO provider directly; verify the dispatched ID in activity.
+  const contextualScenarios = [
+    ["startup", "startup.services.preview", "Dependencias", "startup.service.dependencies"],
+    ["startup", "startup.services.preview", "Manual", "startup.service.setmode"],
+    ["startup", "startup.entries.preview", "Deshabilitar ·", "startup.entry.disable"],
+    ["startup", "startup.tasks.preview", "Deshabilitar ·", "startup.task.disable"],
+    ["drivers", "drivers.usb.analyze", "Reiniciar ·", "drivers.usb.restart"],
+    ["browsers", "browsers.edge.performance.audit", "Optimizar Edge", "browsers.edge.performance.optimize"],
+    ["browsers", "browsers.extensions.orphans.preview", "Poner en cuarentena", "browsers.extensions.orphans.quarantine"]
+  ];
+  let contextualFlowsExecuted = 0;
+  for (const [view, analyzeId, label, expectedId] of contextualScenarios) {
+    const nav = developerButtons.find(node => node.dataset.view === view);
+    nav?.click();
+    await wait(30);
+    const analyzeButton = document.querySelector(
+      '#module-actions button[data-action="' + analyzeId + '"]');
+    if (!analyzeButton || analyzeButton.disabled) {
+      errors.push("Análisis contextual inaccesible: " + analyzeId);
+      continue;
+    }
+    analyzeButton.click();
+    for (let i = 0; i < 180 && analyzeButton.hasAttribute("aria-busy"); i++)
+      await wait(25);
+    const buttons = [...document.querySelectorAll("#module-result-content button")];
+    const followup = buttons.find(node => node.textContent.trim().startsWith(label));
+    if (!followup || followup.disabled) {
+      errors.push("Control contextual sin funcionar: " + expectedId);
+      continue;
+    }
+    followup.click();
+    // Activity is written before the post-action refresh/render completes;
+    // wait for aria-busy to clear before interacting with another preview.
+    for (let i = 0; i < 240 && followup.hasAttribute("aria-busy"); i++)
+      await wait(25);
+    if (followup.hasAttribute("aria-busy")) {
+      errors.push("La acción contextual quedó bloqueada: " + expectedId);
+      continue;
+    }
+    if (document.querySelector("#activity-list .activity-row b")?.textContent !== expectedId) {
+      errors.push("El botón contextual no despachó: " + expectedId);
+      continue;
+    }
+    if (document.querySelector("#module-result-panel")?.classList.contains("is-hidden"))
+      errors.push("La acción contextual no mostró resultado: " + expectedId);
+    contextualFlowsExecuted++;
+  }
+
   document.querySelector('[data-view="dashboard"]')?.click();
   await wait(20);
   const actions = [...document.querySelectorAll(".action-trigger")].filter(visible);
@@ -478,6 +528,7 @@ const expression = String.raw`
     actions: actions.length,
     moduleButtonsSeen,
     moduleActionsExecuted,
+    contextualFlowsExecuted,
     writeFlowsExecuted,
     literalButtons: document.querySelectorAll("button").length
   };
@@ -616,7 +667,7 @@ console.log(
 );
 
 console.log(
-  `UI_SMOKE_OK developerButtons=${result.developerButtons} compactButtons=${result.compactButtons} dashboardActions=${result.actions} moduleButtons=${result.moduleButtonsSeen} moduleActionsExecuted=${result.moduleActionsExecuted} writeFlows=${result.writeFlowsExecuted} buttons=${result.literalButtons}`
+  `UI_SMOKE_OK developerButtons=${result.developerButtons} compactButtons=${result.compactButtons} dashboardActions=${result.actions} moduleButtons=${result.moduleButtonsSeen} moduleActionsExecuted=${result.moduleActionsExecuted} contextualFlows=${result.contextualFlowsExecuted} writeFlows=${result.writeFlowsExecuted} buttons=${result.literalButtons}`
 );
 
 } finally {
