@@ -370,6 +370,11 @@ const expression = String.raw`
   await wait(15);
   if (document.body.dataset.mode === beforeMode)
     errors.push("Modo experto/compacto no cambió");
+  const ramText = document.querySelector("#ram-value")?.textContent?.trim() ?? "";
+  if (document.body.dataset.mode === "compact" && ramText.includes("/"))
+    errors.push("La RAM compacta muestra un valor combinado que se trunca en pantallas de 1366px");
+  if (document.body.dataset.mode === "developer" && !ramText.includes("/"))
+    errors.push("El modo Developer perdió la capacidad total de RAM");
 
   // Keyboard focus and the action buttons must survive the periodic
   // snapshot refresh (5 s) while a module view is open.

@@ -1,0 +1,1376 @@
+[
+  {
+    "id": "system.actionplan.preview",
+    "title": "Construir plan de acción",
+    "description": "Combina señales rápidas del equipo y propone qué revisar o ejecutar, sin aplicar cambios automáticamente.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "system.healthscore.analyze",
+    "title": "Health Score y baseline",
+    "description": "Captura una línea base local, calcula un score explicable y muestra los factores que descuentan puntos.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "system.changes.analyze",
+    "title": "Qué cambió",
+    "description": "Compara las dos últimas líneas base y muestra solo cambios materiales de salud, memoria, discos, red y estados.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "system.workload.status",
+    "title": "Estado PC en uso",
+    "description": "Indica si las tareas pesadas están permitidas según modo, inactividad y presión de D:.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "system.workload.inuse",
+    "title": "Proteger PC en uso",
+    "description": "Fuerza modo PC EN USO: bloquea tareas pesadas o disruptivas hasta cambiar el modo.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "system.workload.auto",
+    "title": "Volver a modo automático",
+    "description": "Permite que la app decida si puede hacer mantenimiento según el tiempo de inactividad.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "system.workload.maintenance",
+    "title": "Permitir mantenimiento",
+    "description": "Habilita tareas pesadas de forma explícita. D: por debajo del 3% sigue bloqueando operaciones pesadas.",
+    "category": "System",
+    "risk": "CAUTION",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "system.health.scan",
+    "title": "Diagnóstico del sistema",
+    "description": "Obtiene una línea base segura del equipo.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "system.integrity.check",
+    "title": "Comprobar integridad de Windows",
+    "description": "Ejecuta DISM /CheckHealth en modo lectura; requiere elevación puntual.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "system.integrity.repair",
+    "title": "Reparar integridad de Windows",
+    "description": "Con UAC: ejecuta DISM /RestoreHealth y SFC /scannow, después verifica el resultado.",
+    "category": "System",
+    "risk": "CAUTION",
+    "requiresAdmin": true,
+    "connectivity": "OPTIONAL_ONLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita antes de reparar Windows"
+      }
+    ]
+  },
+  {
+    "id": "system.reliability.analyze",
+    "title": "Reliability Analyzer",
+    "description": "Correlaciona reinicios, apagados y eventos críticos.",
+    "category": "Reliability",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "system.crash.analyze",
+    "title": "Crash Intelligence",
+    "description": "Agrupa fallos, hangs, WHEA y apagados no limpios y enlaza cada patrón con un diagnóstico concreto sin inventar causas.",
+    "category": "Reliability",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "memory.analyze",
+    "title": "Analizar memoria",
+    "description": "Mide RAM física, disponible y presión general.",
+    "category": "Memory",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "processes.hygiene.analyze",
+    "title": "Process Hygiene",
+    "description": "Detecta residuos de laboratorio como Edge headless SIG, emuladores Android de prueba y Uvicorn huérfanos; protege bots y automatizaciones.",
+    "category": "Memory",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "DRY_RUN",
+    "parameters": null
+  },
+  {
+    "id": "processes.hygiene.stop",
+    "title": "Detener residuo seleccionado",
+    "description": "Detiene únicamente un residuo clasificado por Process Hygiene si PID, huella y clasificación siguen coincidiendo; nunca acepta un PID arbitrario.",
+    "category": "Memory",
+    "risk": "CAUTION",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "processId",
+        "type": "INTEGER",
+        "required": true,
+        "description": "PID exacto obtenido de la previsualización"
+      },
+      {
+        "name": "fingerprint",
+        "type": "STRING",
+        "required": true,
+        "description": "Huella efímera obtenida de la previsualización"
+      },
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "memory.trim.preview",
+    "title": "Previsualizar MemoryTrim",
+    "description": "Identifica procesos con working set alto sin modificar memoria.",
+    "category": "Memory",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "DRY_RUN",
+    "parameters": null
+  },
+  {
+    "id": "memory.trim",
+    "title": "MemoryTrim seleccionado",
+    "description": "Recorta working sets sólo de procesos seleccionados y elegibles; el efecto es transitorio.",
+    "category": "Memory",
+    "risk": "CAUTION",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "processIds",
+        "type": "INTEGER_ARRAY",
+        "required": true,
+        "description": "PIDs seleccionados desde la previsualización"
+      },
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita de la operación"
+      }
+    ]
+  },
+  {
+    "id": "memory.pagefile.analyze",
+    "title": "Analizar archivo de paginación",
+    "description": "Lee configuración y uso actual del pagefile sin modificarlo.",
+    "category": "Memory",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "memory.pagefile.capped",
+    "title": "Aplicar pagefile 4–8 GB en D:",
+    "description": "Con UAC: mantiene 512 MB en C: y configura D: con 4 GB inicial / 8 GB máximo. Guarda rollback y nunca supera 10 GB.",
+    "category": "Memory",
+    "risk": "CAUTION",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "memory.pagefile.restore",
+    "title": "Restaurar configuración de pagefile",
+    "description": "Con UAC: restaura la administración automática/manual y PagingFiles capturados antes del cambio.",
+    "category": "Memory",
+    "risk": "SAFE",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita del rollback"
+      }
+    ]
+  },
+  {
+    "id": "cpu.ecoqos.analyze",
+    "title": "Analizar EcoQoS",
+    "description": "Detecta candidatos sin aplicar cambios.",
+    "category": "CPU",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "cpu.ecoqos.apply",
+    "title": "Aplicar EcoQoS seleccionado",
+    "description": "Aplica ExecutionSpeed throttling sólo a procesos seleccionados y elegibles.",
+    "category": "CPU",
+    "risk": "CAUTION",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "processIds",
+        "type": "INTEGER_ARRAY",
+        "required": true,
+        "description": "PIDs seleccionados desde el análisis"
+      },
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita de la operación"
+      }
+    ]
+  },
+  {
+    "id": "cpu.ecoqos.restore",
+    "title": "Restaurar EcoQoS",
+    "description": "Restaura el estado previo registrado para procesos seleccionados.",
+    "category": "CPU",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "processIds",
+        "type": "INTEGER_ARRAY",
+        "required": true,
+        "description": "PIDs previamente modificados por la app"
+      },
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita del rollback"
+      }
+    ]
+  },
+  {
+    "id": "disk.scan",
+    "title": "Analizar almacenamiento",
+    "description": "Mide espacio y temporales regenerables.",
+    "category": "Storage",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "disk.cleanup.safe",
+    "title": "Limpieza segura",
+    "description": "Previsualiza la limpieza; no borra archivos en esta fase.",
+    "category": "Storage",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "DRY_RUN",
+    "parameters": null
+  },
+  {
+    "id": "disk.cleanup.execute",
+    "title": "Eliminar cachés regenerables",
+    "description": "Requiere previsualización y confirmación. Solo limpia archivos antiguos de rutas permitidas, nunca extensiones instaladas, perfiles, sesiones ni documentos.",
+    "category": "Storage",
+    "risk": "CAUTION",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita tras previsualización"
+      }
+    ]
+  },
+  {
+    "id": "disk.appdata.rank",
+    "title": "Ranking de AppData Local",
+    "description": "Mide las mayores carpetas sin borrar nada ni inferir que sean residuos.",
+    "category": "Storage",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "disk.volumes.audit",
+    "title": "Auditar C: / D: y volúmenes",
+    "description": "Mide espacio total/libre y clasifica presión de almacenamiento en todos los volúmenes fijos.",
+    "category": "Storage",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "disk.storage.watch",
+    "title": "Storage Watch",
+    "description": "Compara espacio libre contra el baseline anterior y detecta crecimiento anormal sin borrar archivos.",
+    "category": "Storage",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "disk.hotspots.scan",
+    "title": "Buscar hotspots de disco",
+    "description": "Escaneo read-only acotado por tiempo en volúmenes con poco espacio; los tamaños parciales se marcan como tales.",
+    "category": "Storage",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "disk.hibernate.status",
+    "title": "Estado de hibernación",
+    "description": "Consulta los estados de suspensión e inicio rápido, sin cambios.",
+    "category": "Storage",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "disk.hibernate.reduce",
+    "title": "Hibernación reducida",
+    "description": "Con UAC: reduce hiberfil.sys, conserva Inicio rápido pero DESHABILITA la hibernación completa.",
+    "category": "Storage",
+    "risk": "CAUTION",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "network.test",
+    "title": "Analizar red",
+    "description": "Mide el adaptador activo sin cambiar su configuración.",
+    "category": "Network",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "network.flushdns",
+    "title": "Vaciar caché DNS",
+    "description": "Con UAC: vacía únicamente la caché del resolvedor DNS de Windows.",
+    "category": "Network",
+    "risk": "SAFE",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "network.winsock.reset",
+    "title": "Restablecer Winsock",
+    "description": "Con UAC: restablece el catálogo Winsock. Puede requerir reinicio y no se aplica automáticamente.",
+    "category": "Network",
+    "risk": "EXPLICIT_CONFIRMATION",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita del reset de red"
+      }
+    ]
+  },
+  {
+    "id": "drivers.analyze",
+    "title": "Analizar drivers",
+    "description": "Detecta dispositivos con códigos de problema mediante WMI.",
+    "category": "Drivers",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "drivers.rescan",
+    "title": "Reescanear hardware",
+    "description": "Con UAC: pide a Plug and Play que vuelva a detectar dispositivos; no instala drivers de fuentes externas.",
+    "category": "Drivers",
+    "risk": "SAFE",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "drivers.usb.analyze",
+    "title": "USB Repair Center",
+    "description": "Enumera dispositivos USB, códigos de problema y cuáles son elegibles para un reinicio controlado.",
+    "category": "Drivers",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "drivers.usb.restart",
+    "title": "Reiniciar dispositivo USB",
+    "description": "Con UAC: reinicia solo el dispositivo USB seleccionado si pasa la política de protección y verifica su estado después.",
+    "category": "Drivers",
+    "risk": "CAUTION",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "deviceInstanceId",
+        "type": "STRING",
+        "required": true,
+        "description": "Instance ID exacto obtenido del análisis"
+      },
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "system.activation.analyze",
+    "title": "Comprobar activación",
+    "description": "Lee el estado de licencia de Windows sin modificarlo.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "system.registry.evidence",
+    "title": "Evidencia Registry",
+    "description": "Audita puntos sensibles documentados como AppInit, IFEO y Winlogon. No limpia ni borra el registro.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "system.com.evidence",
+    "title": "Evidencia COM",
+    "description": "Escaneo bounded y read-only de CLSID con servidores locales ausentes. Nunca elimina registros COM.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "system.certificates.audit",
+    "title": "Auditar certificados personales",
+    "description": "Lee certificados personales próximos a vencer, vencidos o aún no válidos; nunca elimina certificados.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "browsers.automation.audit",
+    "title": "Medir Chrome del bot, SEPE y Edge",
+    "description": "Captura procesos y árboles padres de forma ligera, separa Playwright Chrome, headless de SEPE y Edge, y compara memoria privada/residente con capturas anteriores sin cerrar procesos.",
+    "category": "Browsers",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "browsers.inventory",
+    "title": "Inventario de navegadores",
+    "description": "Detecta navegadores y perfiles locales sin abrirlos ni modificarlos.",
+    "category": "Browsers",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "browsers.edge.performance.audit",
+    "title": "Edge Performance",
+    "description": "Mide procesos y memoria de Edge y revisa background mode, Startup Boost, Sleeping Tabs, Efficiency Mode y autoarranque sin modificar perfiles.",
+    "category": "Browsers",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "browsers.edge.performance.optimize",
+    "title": "Optimizar Edge",
+    "description": "Aplica un perfil reversible mediante políticas de usuario: sin background, sin Startup Boost, Sleeping Tabs a 5 min, auto-discard, Efficiency Mode y sin autoarranque visible. No cierra Edge ni toca sesiones/extensiones.",
+    "category": "Browsers",
+    "risk": "CAUTION",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "browsers.edge.performance.restore",
+    "title": "Restaurar configuración Edge",
+    "description": "Restaura exactamente las políticas y entradas de autoarranque capturadas antes de Optimizar Edge.",
+    "category": "Browsers",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita del rollback"
+      }
+    ]
+  },
+  {
+    "id": "browsers.extensions.health",
+    "title": "Integridad de extensiones Edge",
+    "description": "Explica qué está bien, qué son residuos y qué requiere reparación. No modifica el perfil.",
+    "category": "Browsers",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "browsers.extensions.orphans.preview",
+    "title": "Revisar residuos de extensiones",
+    "description": "Previsualiza datos de extensiones ya desinstaladas. No están ejecutándose y la revisión no modifica Edge.",
+    "category": "Browsers",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "browsers.extensions.orphans.quarantine",
+    "title": "Poner residuos en cuarentena",
+    "description": "Con Edge cerrado, mueve únicamente datos huérfanos de Local Extension Settings a una cuarentena reversible.",
+    "category": "Browsers",
+    "risk": "CAUTION",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita después de revisar los residuos"
+      }
+    ]
+  },
+  {
+    "id": "browsers.extensions.orphans.restore",
+    "title": "Restaurar última cuarentena Edge",
+    "description": "Con Edge cerrado, devuelve a su ubicación original el último lote puesto en cuarentena por la app.",
+    "category": "Browsers",
+    "risk": "CAUTION",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita del rollback"
+      }
+    ]
+  },
+  {
+    "id": "multimedia.inventory",
+    "title": "Inventario multimedia",
+    "description": "Enumera dispositivos de audio y vídeo registrados por Windows.",
+    "category": "Multimedia",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "multimedia.audio.restart",
+    "title": "Reiniciar audio de Windows",
+    "description": "Con UAC: reinicia el servicio Windows Audio y vuelve a verificar dispositivos.",
+    "category": "Multimedia",
+    "risk": "CAUTION",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación: el audio se interrumpirá unos segundos"
+      }
+    ]
+  },
+  {
+    "id": "startup.audit",
+    "title": "Auditar inicio y servicios",
+    "description": "Enumera startup commands y servicios automáticos sin modificarlos.",
+    "category": "Startup",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "startup.services.preview",
+    "title": "Revisar servicios automáticos",
+    "description": "Clasifica servicios automáticos en protegidos o revisables; incluye dependencias y no modifica ninguno.",
+    "category": "Startup",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "startup.service.dependencies",
+    "title": "Ver dependencias de servicio",
+    "description": "Enumera servicios dependientes del servicio seleccionado; es read-only y se usa como barrera antes de cambios.",
+    "category": "Startup",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": [
+      {
+        "name": "serviceName",
+        "type": "STRING",
+        "required": true,
+        "description": "Nombre exacto obtenido del análisis"
+      }
+    ]
+  },
+  {
+    "id": "startup.service.setmode",
+    "title": "Cambiar inicio de servicio",
+    "description": "Con UAC: cambia a Manual o Disabled solo un servicio de terceros revisable y guarda rollback.",
+    "category": "Startup",
+    "risk": "CAUTION",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "serviceName",
+        "type": "STRING",
+        "required": true,
+        "description": "Nombre exacto obtenido del análisis"
+      },
+      {
+        "name": "targetMode",
+        "type": "STRING",
+        "required": true,
+        "description": "Manual o Disabled"
+      },
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "startup.service.restore",
+    "title": "Restaurar inicio de servicio",
+    "description": "Con UAC: restaura el StartMode guardado por la app para un servicio previamente modificado.",
+    "category": "Startup",
+    "risk": "SAFE",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "serviceName",
+        "type": "STRING",
+        "required": true,
+        "description": "Nombre exacto con snapshot"
+      },
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita del rollback"
+      }
+    ]
+  },
+  {
+    "id": "startup.entries.preview",
+    "title": "Revisar autoarranque Run/RunOnce",
+    "description": "Clasifica entradas de autoarranque en protegidas, revisables y deshabilitadas por la app.",
+    "category": "Startup",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "startup.entry.disable",
+    "title": "Deshabilitar entrada de autoarranque",
+    "description": "Con UAC: elimina solo la entrada Run/RunOnce seleccionada, guarda snapshot y no cierra el proceso actual.",
+    "category": "Startup",
+    "risk": "CAUTION",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "entryId",
+        "type": "STRING",
+        "required": true,
+        "description": "ID exacto obtenido de la previsualización"
+      },
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "startup.entry.restore",
+    "title": "Restaurar entrada de autoarranque",
+    "description": "Con UAC: restaura exactamente una entrada Run/RunOnce deshabilitada previamente por la app.",
+    "category": "Startup",
+    "risk": "SAFE",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "entryId",
+        "type": "STRING",
+        "required": true,
+        "description": "ID exacto con snapshot"
+      },
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita del rollback"
+      }
+    ]
+  },
+  {
+    "id": "startup.tasks.preview",
+    "title": "Revisar tareas programadas",
+    "description": "Clasifica tareas protegidas/revisables y detecta COM handlers stale. Microsoft, Windows, seguridad y automatización sensible fallan cerradas.",
+    "category": "Startup",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "startup.task.disable",
+    "title": "Deshabilitar tarea programada",
+    "description": "Con UAC: deshabilita solo la tarea seleccionada, guarda snapshot y no termina procesos ya iniciados.",
+    "category": "Startup",
+    "risk": "CAUTION",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "entryId",
+        "type": "STRING",
+        "required": true,
+        "description": "ID exacto obtenido de la previsualización"
+      },
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "startup.task.restore",
+    "title": "Restaurar tarea programada",
+    "description": "Con UAC: vuelve a habilitar exactamente una tarea deshabilitada previamente por la app y verifica el estado.",
+    "category": "Startup",
+    "risk": "SAFE",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "entryId",
+        "type": "STRING",
+        "required": true,
+        "description": "ID exacto con snapshot"
+      },
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita del rollback"
+      }
+    ]
+  },
+  {
+    "id": "windows.update.audit",
+    "title": "Auditar Windows Update",
+    "description": "Resume eventos recientes de instalación y fallo de Windows Update.",
+    "category": "WindowsUpdate",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "windows.update.services.restart",
+    "title": "Reiniciar servicios de Windows Update",
+    "description": "Con UAC: reinicia BITS y Windows Update; no borra SoftwareDistribution ni historial.",
+    "category": "WindowsUpdate",
+    "risk": "CAUTION",
+    "requiresAdmin": true,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "apps.inventory",
+    "title": "Inventario de aplicaciones",
+    "description": "Enumera aplicaciones instaladas desde el registro sin desinstalar nada.",
+    "category": "Apps",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "privacy.audit",
+    "title": "Auditar privacidad",
+    "description": "Lee una selección documentada de configuraciones de privacidad sin juzgarlas ni modificarlas.",
+    "category": "Privacy",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "developer.audit",
+    "title": "Auditar developer tooling",
+    "description": "Detecta toolchains comunes y sus versiones desde PATH.",
+    "category": "Developer",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "lab.reliability.status",
+    "title": "Reliability Lab",
+    "description": "Verifica regresiones históricas y barreras de seguridad sin ejecutar escenarios destructivos sobre el Windows real.",
+    "category": "Developer",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "lab.outcomes.status",
+    "title": "Outcome coverage",
+    "description": "Audita qué acciones WRITE tienen post-check, rollback, efecto transitorio o reinicio pendiente y cruza evidencia del log.",
+    "category": "Developer",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "thermal.audit",
+    "title": "Auditar energía y temperaturas",
+    "description": "Lee el plan de energía activo y sensores ACPI disponibles.",
+    "category": "Thermal",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "thermal.power.balanced",
+    "title": "Usar plan Equilibrado",
+    "description": "Activa el plan Equilibrado y guarda el plan anterior para rollback.",
+    "category": "Thermal",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "thermal.power.performance",
+    "title": "Usar Alto rendimiento",
+    "description": "Activa Alto rendimiento; puede aumentar temperatura y consumo. Guarda rollback.",
+    "category": "Thermal",
+    "risk": "CAUTION",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "thermal.power.restore",
+    "title": "Restaurar plan de energía",
+    "description": "Restaura el plan activo capturado antes del último cambio hecho por la app.",
+    "category": "Thermal",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita del rollback"
+      }
+    ]
+  },
+  {
+    "id": "boot.audit",
+    "title": "Auditar arranque",
+    "description": "Lee eventos de Diagnostics-Performance del arranque.",
+    "category": "Boot",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "sleepresume.audit",
+    "title": "Auditar suspensión y reanudación",
+    "description": "Construye una timeline de eventos de sleep/resume.",
+    "category": "SleepResume",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "explorer.audit",
+    "title": "Auditar Explorer",
+    "description": "Mide memoria, threads, handles y respuesta de explorer.exe.",
+    "category": "Explorer",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "explorer.restart",
+    "title": "Reiniciar Explorer",
+    "description": "Reinicia explorer.exe y verifica que vuelva a responder. Las ventanas del Explorador pueden cerrarse.",
+    "category": "Explorer",
+    "risk": "CAUTION",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "backup.status",
+    "title": "Estado de backup y rollback",
+    "description": "Detecta operaciones incompletas y snapshots de rollback mantenidos por la app.",
+    "category": "Backup",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "backup.rollback.center",
+    "title": "Rollback Center",
+    "description": "Reúne cambios reversibles de EcoQoS, servicios, tareas, pagefile, energía, autoarranque y Edge en una sola vista.",
+    "category": "Backup",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "diagnostics.bundle.create",
+    "title": "Crear bundle diagnóstico sanitizado",
+    "description": "Crea un ZIP local con diagnósticos y estado de la app, excluyendo comandos de autoarranque, argumentos de tareas, IDs PnP/USB, claves, cookies, sesiones y logs crudos.",
+    "category": "Backup",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita antes de crear el archivo local"
+      }
+    ]
+  },
+  {
+    "id": "maintenance.policy.status",
+    "title": "Estado de automatización segura",
+    "description": "Muestra la política de mantenimiento read-only. Por defecto está OFF.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  },
+  {
+    "id": "maintenance.policy.readonly",
+    "title": "Activar mantenimiento read-only en reposo",
+    "description": "Habilita un lote fijo de diagnósticos solo cuando el equipo está inactivo o en MANTENIMIENTO. Nunca habilita WRITE.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "maintenance.policy.off",
+    "title": "Desactivar automatización",
+    "description": "Vuelve a OFF. Ningún lote de mantenimiento podrá ejecutarse mientras esté desactivado.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": true,
+    "mode": "WRITE",
+    "parameters": [
+      {
+        "name": "confirmed",
+        "type": "BOOLEAN",
+        "required": true,
+        "description": "Confirmación explícita"
+      }
+    ]
+  },
+  {
+    "id": "maintenance.safe.run",
+    "title": "Ejecutar lote read-only",
+    "description": "Ejecuta el conjunto fijo de diagnósticos seguros si la política está habilitada y el PC no está en uso. No contiene acciones WRITE.",
+    "category": "System",
+    "risk": "SAFE",
+    "requiresAdmin": false,
+    "connectivity": "OFFLINE",
+    "reversible": false,
+    "mode": "READ",
+    "parameters": null
+  }
+]

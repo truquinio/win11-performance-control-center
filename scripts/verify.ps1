@@ -26,6 +26,8 @@ Invoke-Step "Frontend" { npm run build:frontend }
 
 Invoke-Step "Frontend contract" { npm run test:frontend-contract }
 
+Invoke-Step "CSharp-generated catalog contract" { npm run test:catalog-contract }
+
 Invoke-Step "UI smoke" { npm run test:ui-smoke }
 
 Invoke-Step "Real-world eval manifest contract" { npm run test:real-world-evals }

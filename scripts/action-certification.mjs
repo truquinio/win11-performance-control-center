@@ -11,8 +11,10 @@ const html = read("src/Frontend/index.html");
 const definitions = [...catalog.matchAll(/new ActionDefinition\("([^"]+)"/g)];
 const execBlock = executor.match(/return action\.Id switch\s*\{([\s\S]*?)_ => throw/)?.[1] ?? "";
 const executable = new Set([...execBlock.matchAll(/"([^"]+)"\s*=>/g)].map(m => m[1]));
-const demo = new Set([...frontend.matchAll(/\{ id: "([^"]+)", title:/g)].map(m => m[1]));
-const moduleBlock = frontend.match(/const moduleDefinitions:[\s\S]*?= \{([\s\S]*?)\n\};/)?.[1] ?? "";
+const generated = JSON.parse(read("src/Frontend/generated/action-catalog.json"));
+const demo = new Set(generated.map(action => action.id));
+const modules = read("src/Frontend/module-definitions.ts");
+const moduleBlock = modules.match(/const moduleDefinitions:[\s\S]*?= \{([\s\S]*?)\n\};/)?.[1] ?? "";
 const moduleActions = new Set([...moduleBlock.matchAll(/"([a-z][a-z0-9.-]+)"/g)].map(m => m[1]));
 const directActions = new Set([...html.matchAll(/data-action="([^"]+)"/g)].map(m => m[1]));
 const followupActions = new Set([...frontend.slice(frontend.indexOf("const moduleDefinitions"))

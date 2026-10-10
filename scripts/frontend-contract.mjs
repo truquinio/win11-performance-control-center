@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const html = fs.readFileSync(path.join(root, "src", "Frontend", "index.html"), "utf8");
 const app = fs.readFileSync(path.join(root, "src", "Frontend", "app.ts"), "utf8");
+const modules = fs.readFileSync(path.join(root, "src", "Frontend", "module-definitions.ts"), "utf8");
+const localProvider = fs.readFileSync(path.join(root, "src", "Frontend", "providers", "local.ts"), "utf8");
+const generatedCatalog = JSON.parse(fs.readFileSync(path.join(root, "src", "Frontend", "generated", "action-catalog.json"), "utf8"));
 const backendCatalog = fs.readFileSync(
   path.join(root, "src", "App", "Core", "ActionCatalog.cs"),
   "utf8");
@@ -13,7 +16,7 @@ const backendExecutor = fs.readFileSync(
   "utf8");
 
 const views = [...html.matchAll(/data-view="([^"]+)"/g)].map(match => match[1]);
-const definitionBlock = app.match(/const moduleDefinitions:[\s\S]*?= \{([\s\S]*?)\n\};/)?.[1] ?? "";
+const definitionBlock = modules.match(/const moduleDefinitions:[\s\S]*?= \{([\s\S]*?)\r?\n\};/)?.[1] ?? "";
 const definitions = new Set(
   [...definitionBlock.matchAll(/^\s*(?:"([^"]+)"|([A-Za-z][\w-]*)):\s*\{/gm)]
     .map(match => match[1] ?? match[2])
@@ -44,9 +47,10 @@ if (actionButtons.some(action => !action.trim())) {
   throw new Error("Hay botones action-trigger sin Action ID.");
 }
 
-const demoActions = new Set(
-  [...app.matchAll(/\{ id: "([^"]+)", title:/g)].map(match => match[1])
-);
+const demoActions = new Set(generatedCatalog.map(action => action.id));
+if (demoActions.size !== generatedCatalog.length) {
+  throw new Error("Catálogo generado con Action IDs duplicadas.");
+}
 const missingActions = [...new Set(actionButtons)]
   .filter(action => !demoActions.has(action));
 if (missingActions.length) {
@@ -124,7 +128,7 @@ for (const controlId of ["diagnostic-btn", "refresh-btn", "mode-toggle"]) {
 
 // The backend coordinator runs one action at a time, so firing several
 // actions in parallel always makes all but the first fail.
-const actionTimeoutMatch = app.match(
+const actionTimeoutMatch = localProvider.match(
   /const defaultActionTimeoutMs = (\d+);/
 );
 if (!actionTimeoutMatch) {
@@ -138,11 +142,11 @@ if (actionTimeoutFloor < 270000) {
   );
 }
 
-const repairTimeoutMatch = app.match(
+const repairTimeoutMatch = localProvider.match(
   /const integrityRepairTimeoutMs = (\d+) \* (\d+) \* (\d+);/
 );
 if (!repairTimeoutMatch ||
-    !app.includes('id === "system.integrity.repair"')) {
+    !localProvider.includes('id === "system.integrity.repair"')) {
   throw new Error(
     "No se pudo verificar el presupuesto extendido de la reparación de integridad."
   );
@@ -168,7 +172,7 @@ if (parallelActions.length) {
 }
 
 // Snapshot polling must not rebuild module action buttons (focus loss).
-const snapshotRenderer = app.match(/function renderSnapshot\([\s\S]*?\n\}\n/)?.[0] ?? "";
+const snapshotRenderer = app.match(/function renderSnapshot\([\s\S]*?\r?\n\}\r?\n/)?.[0] ?? "";
 if (!snapshotRenderer)
   throw new Error("No se encontró renderSnapshot en app.ts.");
 if (/\brenderModuleView\(/.test(snapshotRenderer)) {

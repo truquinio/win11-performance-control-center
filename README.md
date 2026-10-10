@@ -168,7 +168,7 @@ docs/                    # arquitectura, seguridad y screenshots
 
 ## 📌 Estado
 
-**Preview / v0.1.0.** El repositorio contiene diagnósticos de solo lectura y acciones controladas; Safe Cleanup distingue previsualización `DRY_RUN` y eliminación `WRITE` restringida con confirmación. El soporte de una función no equivale a una mejora de rendimiento demostrada.
+**Preview / v0.2.0-preview.1.** El repositorio contiene diagnósticos de solo lectura y acciones controladas; Safe Cleanup distingue previsualización `DRY_RUN` y eliminación `WRITE` restringida con confirmación. El soporte de una función no equivale a una mejora de rendimiento demostrada.
 
 No hay una licencia de reutilización declarada en el repositorio en este momento.
 
