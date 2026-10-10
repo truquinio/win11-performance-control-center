@@ -4,6 +4,7 @@ const delay = (ms: number) => new Promise<void>(resolve => window.setTimeout(res
 
 export class DemoProvider implements Provider {
   readonly surface = "demo" as const;
+  private quarantinedOrphans = false;
 
   async snapshot(): Promise<SystemSnapshot> {
     await delay(220);
@@ -322,6 +323,38 @@ export class DemoProvider implements Provider {
       };
     }
 
+    if (id === "browsers.extensions.orphans.preview") {
+      const count = this.quarantinedOrphans ? 0 : 1;
+      return {
+        success: true, dryRun: true,
+        message: "DEMO: previsualización de residuos no instalados; no se tocó Edge.",
+        data: {
+          candidateCount: count, totalBytes: count * 2400000,
+          edgeRunning: false, restoreAvailable: this.quarantinedOrphans,
+          candidates: count ? [{ profile: "Default",
+            extensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", dataBytes: 2400000 }] : []
+        }
+      };
+    }
+    if (id === "browsers.extensions.orphans.quarantine") {
+      this.quarantinedOrphans = true;
+      return {
+        success: true, dryRun: false,
+        message: "DEMO: 1 residuo movido a cuarentena simulada. No se tocó Edge.",
+        data: { movedCount: 1, movedBytes: 2400000, skippedCount: 0,
+          rollbackAvailable: true, batchId: "DEMO-BATCH", status: "QUARANTINED_DEMO" }
+      };
+    }
+    if (id === "browsers.extensions.orphans.restore") {
+      this.quarantinedOrphans = false;
+      return {
+        success: true, dryRun: false,
+        message: "DEMO: cuarentena simulada restaurada; no se modificaron perfiles.",
+        data: { restoredCount: 1, restoredBytes: 2400000,
+          batchId: "DEMO-BATCH", status: "RESTORED_DEMO" }
+      };
+    }
+
     if (id === "browsers.extensions.health") {
       return {
         success: true,
@@ -341,6 +374,53 @@ export class DemoProvider implements Provider {
             { profile: "Default", extensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", name: "Demo datos huérfanos", status: "DATA_WITHOUT_INSTALLATION", dataBytes: 2400000, installationPath: null, developerLoaded: false }
           ]
         }
+      };
+    }
+
+    if (id === "startup.service.setmode" || id === "startup.service.restore") {
+      const restored = id.endsWith(".restore");
+      const targetMode = restored ? "Automatic" : String(parameters.targetMode ?? "Manual");
+      return {
+        success: true, dryRun: false,
+        message: restored ? "DEMO: servicio restaurado de forma simulada."
+          : "DEMO: modo de inicio modificado de forma simulada.",
+        data: { status: restored ? "RESTORED_DEMO" : "APPLIED_DEMO",
+          displayName: "Demo Vendor Updater", serviceName: "DemoVendorSvc",
+          previousMode: restored ? "Manual" : "Automatic",
+          currentMode: targetMode, restoreAvailable: !restored }
+      };
+    }
+
+    if (id === "startup.entry.disable" || id === "startup.entry.restore") {
+      const restored = id.endsWith(".restore");
+      return {
+        success: true, dryRun: false,
+        message: restored ? "DEMO: autoarranque restaurado sin modificar Windows."
+          : "DEMO: autoarranque deshabilitado sin modificar Windows.",
+        data: { status: restored ? "RESTORED_DEMO" : "DISABLED_DEMO",
+          name: "DemoVendor", detail: "Solo fixture DEMO.",
+          restoreAvailable: !restored }
+      };
+    }
+
+    if (id === "startup.task.disable" || id === "startup.task.restore") {
+      const restored = id.endsWith(".restore");
+      return {
+        success: true, dryRun: false,
+        message: restored ? "DEMO: tarea programada restaurada."
+          : "DEMO: tarea programada deshabilitada.",
+        data: { status: restored ? "RESTORED_DEMO" : "DISABLED_DEMO",
+          fullName: "\\DemoVendor\\Updater", beforeState: restored ? "Disabled" : "Ready",
+          afterState: restored ? "Ready" : "Disabled", restoreAvailable: !restored }
+      };
+    }
+
+    if (id === "drivers.usb.restart") {
+      return {
+        success: true, dryRun: false,
+        message: "DEMO: reinicio USB simulado; no se modificó hardware.",
+        data: { status: "RESTARTED_DEMO", name: "Demo USB Camera",
+          detail: "Fixture local sin intervención PnP.", restoreAvailable: false }
       };
     }
 
@@ -1003,11 +1083,13 @@ export class DemoProvider implements Provider {
       };
     }
 
+    // Fail closed: an absent fixture is not proof that an action worked.
+    // The LOCAL provider remains the authoritative Windows execution path.
     return {
-      success: true,
+      success: false,
       dryRun: true,
-      message: "DEMO: acción simulada. Los datos reales solo están disponibles en la aplicación local.",
-      data: { reliabilityEvents: 3 }
+      message: "DEMO: acción no disponible en el simulador. No se ejecutó ni verificó ninguna operación.",
+      data: { status: "DEMO_NOT_IMPLEMENTED", actionId: id }
     };
   }
 }
