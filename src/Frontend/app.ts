@@ -1240,6 +1240,9 @@ let latestTemperatureCelsius: number | null = null;
 let latestTemperatureSensor = "Sensor no expuesto";
 let activeView = "dashboard";
 let actionInFlight = false;
+// Keep one verified result per module when navigating or when an action
+// finishes after the user has moved elsewhere. Never show it in a new module.
+const latestResultByView = new Map<string, { id: string; result: ActionResult }>();
 // The backend runs one operation at a time. Background telemetry and
 // user-triggered actions are therefore serialized here as well, so neither
 // is rejected with "operación activa" because of the other.
@@ -1828,8 +1831,9 @@ function renderActionResult(
   content.replaceChildren();
   byId("module-result-title").textContent =
     currentCatalog.find(action => action.id === actionId)?.title ?? actionId;
-  byId("module-result-subtitle").textContent =
-    "Evidencia de la última ejecución local.";
+  byId("module-result-subtitle").textContent = provider.surface === "demo"
+    ? "Resultado simulado (DEMO). No se ejecutó ninguna operación en Windows."
+    : "Evidencia de la última ejecución local.";
   status.textContent = result.success ? (result.dryRun ? "DRY-RUN" : "OK") : "WARNING";
   status.className = "badge " + (result.success ? "badge-green" : "");
   if (actionId === "browsers.extensions.health" && data) {
@@ -3865,11 +3869,20 @@ async function runAction(
   // A result belongs to the module it was requested from. If the user has
   // moved to another view by the time it arrives, it must not appear there.
   const originView = activeView;
+  if (originView !== "dashboard") {
+    // A previous result (and its selection buttons) must not remain usable
+    // while the replacement operation is running.
+    latestResultByView.delete(originView);
+    hideModuleResult();
+  }
   const originalNodes = button
     ? Array.from(button.childNodes).map(node => node.cloneNode(true))
     : [];
   const action = currentCatalog.find(item => item.id === id);
   const isWrite = action?.mode === "WRITE";
+  // A cleanup attempt consumes its previous preview even if the backend
+  // fails or returns a partial outcome. Require a new preview to retry.
+  if (id === "disk.cleanup.execute") cleanupPreviewReady = false;
   if (button) {
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
@@ -3880,12 +3893,19 @@ async function runAction(
   try {
     while (backgroundWork) await backgroundWork;
     const result = await provider.runAction(id, parameters);
-    if (id === "disk.cleanup.safe" && result.success) {
-      cleanupPreviewReady = true;
-      const cleanButton = document.querySelector<HTMLButtonElement>('button[data-action="disk.cleanup.execute"]');
-      if (cleanButton) { cleanButton.disabled = false; cleanButton.title = "Previsualización realizada. Confirmá para limpiar."; }
+    if (originView !== "dashboard") {
+      latestResultByView.set(originView, { id, result });
     }
-    if (id === "disk.cleanup.execute") cleanupPreviewReady = false;
+    if (id === "disk.cleanup.safe") {
+      cleanupPreviewReady = result.success;
+      const cleanButton = document.querySelector<HTMLButtonElement>('button[data-action="disk.cleanup.execute"]');
+      if (cleanButton) {
+        cleanButton.disabled = !cleanupPreviewReady;
+        cleanButton.title = cleanupPreviewReady
+          ? "Previsualización realizada. Confirmá para limpiar."
+          : "Primero previsualizá la limpieza.";
+      }
+    }
     pushActivity(id, result.message, result.success ? "ok" : "warn");
     toast(result.success ? "Acción completada" : "Acción con advertencias", result.message, result.success ? "success" : "info");
     const estimated = result.data?.estimatedBytes;
@@ -3921,7 +3941,9 @@ async function runAction(
   } finally {
     actionInFlight = false;
     if (button) {
-      button.disabled = false;
+      button.disabled = id === "disk.cleanup.execute" && !cleanupPreviewReady;
+      if (id === "disk.cleanup.execute" && !cleanupPreviewReady)
+        button.title = "Primero previsualizá la limpieza.";
       button.removeAttribute("aria-busy");
       button.replaceChildren(...originalNodes);
     }
@@ -3949,6 +3971,8 @@ function showView(view: string): void {
     dashboard.classList.remove("active");
     module.classList.add("active");
     renderModuleView(view);
+    const saved = latestResultByView.get(view);
+    if (saved) renderActionResult(saved.id, saved.result);
   }
 
   document.querySelector<HTMLElement>(".workspace")

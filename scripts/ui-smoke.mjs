@@ -227,10 +227,16 @@ const expression = String.raw`
       resultPanel?.classList.add("is-hidden");
       console.log("SMOKE_ACTION", actionButton.dataset.action || label);
       actionButton.click();
-      for (let i = 0; i < 160 && actionButton.disabled; i++) await wait(25);
-      if (actionButton.disabled) {
+      for (let i = 0; i < 160 && actionButton.hasAttribute("aria-busy"); i++) await wait(25);
+      if (actionButton.hasAttribute("aria-busy")) {
         errors.push("Acción de módulo quedó bloqueada: " + label);
         continue;
+      }
+      if (actionButton.dataset.action === "disk.cleanup.execute") {
+        if (!actionButton.disabled)
+          errors.push("Limpieza permite repetir WRITE sin nueva previsualización");
+      } else if (actionButton.disabled) {
+        errors.push("Acción de módulo quedó deshabilitada inesperadamente: " + label);
       }
       for (let i = 0; i < 40 &&
            resultPanel?.classList.contains("is-hidden"); i++) await wait(25);
@@ -238,6 +244,9 @@ const expression = String.raw`
         errors.push("Acción de módulo sin resultado visible: " + label);
       if (!document.querySelector("#module-result-title")?.textContent?.trim())
         errors.push("Resultado de módulo sin título: " + label);
+      if (document.body.classList.contains("demo") &&
+          !document.querySelector("#module-result-subtitle")?.textContent?.toLowerCase().includes("simulad"))
+        errors.push("La demo presenta un resultado simulado como evidencia local: " + label);
       moduleActionsExecuted++;
     }
   }
@@ -395,6 +404,7 @@ const expression = String.raw`
     errors.push("No se pudo preparar la prueba de resultado fuera de módulo");
   } else {
     const activityBefore = document.querySelector("#activity-list")?.textContent;
+    const originTitle = slowAction.closest(".module-action")?.querySelector("h3")?.textContent?.trim();
     slowAction.click();
     otherNav.click();
     // Completion is observed, not timed: the activity entry is written when
@@ -403,8 +413,22 @@ const expression = String.raw`
          document.querySelector("#activity-list")?.textContent === activityBefore; i++)
       await wait(25);
     await wait(700);
-    if (!resultHidden())
+    if (!resultHidden() &&
+        document.querySelector("#module-result-title")?.textContent?.trim() === originTitle)
       errors.push("El resultado de un módulo apareció en otro módulo");
+
+    // When the original operation completes off-screen, returning to its
+    // module must reveal its verified result without rerunning the action.
+    moduleNav?.click();
+    await wait(40);
+    if (resultHidden() ||
+        document.querySelector("#module-result-title")?.textContent?.trim() !== originTitle)
+      errors.push("El resultado terminado se perdió al volver al módulo de origen");
+    otherNav.click();
+    await wait(20);
+    if (!resultHidden() &&
+        document.querySelector("#module-result-title")?.textContent?.trim() === originTitle)
+      errors.push("El resultado del módulo anterior invadió el módulo actual");
 
     document.querySelector("#module-actions button:not([disabled])")?.click();
     for (let i = 0; i < 400 && resultHidden(); i++) await wait(25);
