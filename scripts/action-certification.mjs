@@ -17,7 +17,9 @@ const modules = read("src/Frontend/module-definitions.ts");
 const moduleBlock = modules.match(/const moduleDefinitions:[\s\S]*?= \{([\s\S]*?)\n\};/)?.[1] ?? "";
 const moduleActions = new Set([...moduleBlock.matchAll(/"([a-z][a-z0-9.-]+)"/g)].map(m => m[1]));
 const directActions = new Set([...html.matchAll(/data-action="([^"]+)"/g)].map(m => m[1]));
-const followupActions = new Set([...frontend.slice(frontend.indexOf("const moduleDefinitions"))
+// Module definitions moved to their own file in v2. Scan the full UI source
+// for explicit contextual follow-ups instead of slicing from a deleted marker.
+const followupActions = new Set([...frontend
   .matchAll(/"([a-z][a-z0-9.-]+)"/g)].map(m => m[1]));
 const rows = definitions.map((found, index) => {
   const next = definitions[index + 1]?.index ?? catalog.length;
@@ -34,7 +36,7 @@ const rows = definitions.map((found, index) => {
       followupActions.has(found[1]) ? "follow-up" : "untraced"
   };
 });
-const missing = rows.filter(row => !row.dispatch || !row.demo);
+const missing = rows.filter(row => !row.dispatch || !row.demo || row.ui === "untraced");
 if (rows.length === 0 || missing.length || demo.size !== rows.length ||
     executable.size !== rows.length) {
   throw new Error("Catalog parity/inventory mismatch: " + JSON.stringify({
