@@ -49,5 +49,11 @@ const dashboardIds = [...html.matchAll(/data-action="([^"]+)"/g)].map(item => it
 for (const id of [...moduleIds, ...dashboardIds]) {
   assert.ok(ids.includes(id), "Frontend refiere a acción inexistente: " + id);
 }
+// Guard visible Windows action messages against repeated UTF-8 mojibake.
+const executor = fs.readFileSync(path.join(root, "src/App/Core/ActionExecutor.cs"), "utf8");
+const tripleEncodedPrefix = String.fromCharCode(0xc3, 0x192, 0xc2);
+assert.ok(!executor.includes(tripleEncodedPrefix),
+  "Los mensajes de ActionExecutor contienen texto con codificación dañada");
+
 console.log("CATALOG_CONTRACT_OK actions=" + ids.length +
   " parameterDefs=" + authoritative.reduce((n, action) => n + (action.parameters?.length ?? 0), 0));

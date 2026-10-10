@@ -563,6 +563,7 @@ const fakeBridge = String.raw`
   const seen = { snapshot: 0, catalog: 0 };
   const requests = [];
   let failNextRun = false;
+  let nextActionResult = null;
   const reply = (requestId, ok, result, error) => setTimeout(() => {
     for (const listener of listeners)
       listener({ data: { requestId, ok, result, error } });
@@ -588,6 +589,10 @@ const fakeBridge = String.raw`
     id: "drivers.analyze", title: "Analizar drivers", description: "Prueba",
     category: "Drivers", risk: "SAFE", requiresAdmin: false,
     connectivity: "OFFLINE", reversible: false, mode: "READ"
+  }, {
+    id: "browsers.extensions.health", title: "Salud extensiones", description: "Prueba",
+    category: "Browsers", risk: "SAFE", requiresAdmin: false,
+    connectivity: "OFFLINE", reversible: false, mode: "READ"
   }];
   const host = window.chrome ?? {};
   host.webview = {
@@ -611,6 +616,11 @@ const fakeBridge = String.raw`
       }
       if (message.method === "system.reliability")
         return reply(message.requestId, true, []);
+      if (message.method === "actions.run" && nextActionResult) {
+        const result = nextActionResult;
+        nextActionResult = null;
+        return reply(message.requestId, true, result);
+      }
       if (message.method === "actions.run" && failNextRun) {
         failNextRun = false;
         return reply(message.requestId, false, null, "Fallo de acción inyectado para QA");
@@ -624,7 +634,8 @@ const fakeBridge = String.raw`
   if (!window.chrome) window.chrome = host;
   window.__wpccFakeBridge = {
     requests,
-    setFailNextRun() { failNextRun = true; }
+    setFailNextRun() { failNextRun = true; },
+    setNextActionResult(value) { nextActionResult = value; }
   };
 })();
 `;
@@ -652,13 +663,13 @@ const degradedExpression = String.raw`
 
   const recovered = () =>
     document.querySelector("#cpu-value")?.textContent?.trim() === "37%" &&
-    document.querySelectorAll("#catalog-grid .catalog-item").length === 1 &&
+    document.querySelectorAll("#catalog-grid .catalog-item").length === 2 &&
     fake().requests.includes("actions.run:drivers.analyze");
   for (let i = 0; i < 180 && !recovered(); i++) await wait(50);
 
   if (document.querySelector("#cpu-value")?.textContent?.trim() !== "37%")
     errors.push("El snapshot no se recuperó tras un fallo de arranque");
-  if (document.querySelectorAll("#catalog-grid .catalog-item").length !== 1)
+  if (document.querySelectorAll("#catalog-grid .catalog-item").length !== 2)
     errors.push("El catálogo no se recuperó tras un fallo de arranque");
   if (!fake().requests.includes("actions.run:drivers.analyze"))
     errors.push("La línea base de salud no se ejecutó tras la recuperación");
@@ -691,6 +702,31 @@ const degradedExpression = String.raw`
     if (panel?.classList.contains("is-hidden") ||
         !panel?.textContent?.includes("Fallo de acción inyectado para QA"))
       errors.push("Se perdió la evidencia del fallo al volver al módulo");
+  }
+
+  // A failed ActionResult with data present must never get an OK badge.
+  document.querySelector("#mode-toggle")?.click();
+  document.querySelector('.nav-item[data-view="browsers"]')?.click();
+  await wait(30);
+  const browserButton = document.querySelector(
+    '#module-actions button[data-action="browsers.extensions.health"]');
+  if (!browserButton) {
+    errors.push("No hay botón de salud de extensiones para la regresión");
+  } else {
+    fake().setNextActionResult({
+      success: false, dryRun: true,
+      message: "Inspección fallida con datos parciales",
+      data: { status: "FAILED", brokenCount: 0, dataOnlyCount: 0 }
+    });
+    browserButton.click();
+    for (let i = 0; i < 200 && browserButton.hasAttribute("aria-busy"); i++)
+      await wait(25);
+    const status = document.querySelector("#module-result-status");
+    if (status?.textContent?.trim() === "OK" ||
+        status?.classList.contains("badge-green"))
+      errors.push("Resultado de salud de extensiones fallido mostrado falsamente como OK");
+    if (!document.querySelector("#module-result-content")?.textContent?.includes("Inspección fallida"))
+      errors.push("Resultado de salud de extensiones fallido perdió su mensaje");
   }
 
   return { errors, requests: fake().requests };

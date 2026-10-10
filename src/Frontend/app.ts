@@ -469,7 +469,8 @@ function renderActionResult(
     : "Evidencia de la última ejecución local.";
   status.textContent = result.success ? (result.dryRun ? "DRY-RUN" : "OK") : "WARNING";
   status.className = "badge " + (result.success ? "badge-green" : "");
-  if (actionId === "browsers.extensions.health" && data) {
+  // Never override an unsuccessful operation with an optimistic fixture/partial-data badge.
+  if (actionId === "browsers.extensions.health" && result.success && data) {
     const broken = typeof data.brokenCount === "number" ? data.brokenCount : 0;
     const residues = typeof data.dataOnlyCount === "number" ? data.dataOnlyCount : 0;
     status.textContent = broken > 0

@@ -532,8 +532,8 @@ public sealed partial class ActionExecutor(
             .ScanAsync(StorageForensicsService.DefaultRoots());
         return new ActionResult(true, false,
             forensic.Partial
-                ? $"Muestreo parcial: {forensic.ScannedFiles} archivos; {forensic.Duplicates.Count} grupos idÃƒÂ©nticos. No se eliminÃƒÂ³ nada."
-                : $"Escaneo completo de las carpetas seleccionadas: {forensic.Duplicates.Count} grupos idÃƒÂ©nticos. No se eliminÃƒÂ³ nada.",
+                ? $"Muestreo parcial: {forensic.ScannedFiles} archivos; {forensic.Duplicates.Count} grupos id\u00E9nticos. No se elimin\u00F3 nada."
+                : $"Escaneo completo de las carpetas seleccionadas: {forensic.Duplicates.Count} grupos id\u00E9nticos. No se elimin\u00F3 nada.",
             new
             {
                 forensic.ScannedRoots,
@@ -578,7 +578,7 @@ public sealed partial class ActionExecutor(
         lastStorageCleanupPreview = null; // A preview is single use.
         var summary = await storageService.CleanupSafeAsync();
         return new ActionResult(summary.FailedFiles == 0, false,
-            $"Limpieza: {summary.DeletedFiles} archivos enviados a Papelera, {summary.DeletedBytes / 1048576d:F1} MiB lÃƒÂ³gicos trasladados (espacio libre no confirmado). " +
+            $"Limpieza: {summary.DeletedFiles} archivos enviados a Papelera, {summary.DeletedBytes / 1048576d:F1} MiB l\u00F3gicos trasladados (espacio libre no confirmado). " +
             $"Errores: {summary.FailedFiles}; categorías omitidas: {summary.SkippedCategories.Count}.",
             new
             {
