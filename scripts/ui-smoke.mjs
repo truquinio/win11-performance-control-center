@@ -181,6 +181,55 @@ const compactLayout = await call("Runtime.evaluate", {
   returnByValue: true
 });
 await call("Emulation.clearDeviceMetricsOverride");
+// CSS viewport approximations for 1366px desktop at Windows scaling 100-200%.
+// This is headless layout evidence, not physical PerMonitorV2/DPI certification.
+const dpiViewportCases = [
+  { width: 1366, scale: 1 },
+  { width: 1093, scale: 1.25 },
+  { width: 911, scale: 1.5 },
+  { width: 683, scale: 2 },
+  { width: 512, scale: 2 }
+];
+for (const { width, scale } of dpiViewportCases) {
+  await call("Emulation.setDeviceMetricsOverride", {
+    width, height: Math.max(384, Math.round(768 / scale)),
+    deviceScaleFactor: scale, mobile: false
+  });
+  const result = await call("Runtime.evaluate", {
+    expression: `(() => {
+      const prior = document.body.dataset.mode;
+      const sample = {};
+      for (const mode of ["compact", "developer"]) {
+        document.body.dataset.mode = mode;
+        const workspace = document.querySelector(".workspace");
+        const header = document.querySelector(".topbar h1");
+        const actions = document.querySelector(".topbar-actions");
+        sample[mode] = {
+          overflow: Math.max(0, workspace.scrollWidth - workspace.clientWidth),
+          titleHeight: header.getBoundingClientRect().height,
+          actionsOverflow: Math.max(0, actions.scrollWidth - actions.clientWidth),
+          viewportWidth: document.documentElement.clientWidth,
+          missingNavigationTooltips: [...document.querySelectorAll(".nav-item")]
+            .filter(button => !button.title.trim()).length
+        };
+      }
+      document.body.dataset.mode = prior;
+      return sample;
+    })()`,
+    returnByValue: true
+  });
+  const modes = result.result?.value;
+  for (const mode of ["compact", "developer"]) {
+    const layout = modes?.[mode];
+    if (!layout || layout.overflow > 2 || layout.actionsOverflow > 2 ||
+        layout.titleHeight > 75 || layout.missingNavigationTooltips !== 0) {
+      throw new Error("UI_DPI_LAYOUT_FAIL " +
+        JSON.stringify({ scale, width, mode, layout }));
+    }
+  }
+  console.log("UI_DPI_LAYOUT_OK scale=" + scale + " width=" + width);
+}
+await call("Emulation.clearDeviceMetricsOverride");
 if (!compactLayout.result?.value ||
     compactLayout.result.value.titleHeight > 75 ||
     compactLayout.result.value.overflow ||

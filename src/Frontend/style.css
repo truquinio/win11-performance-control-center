@@ -388,6 +388,95 @@ body[data-mode="developer"] .action-symbol .asset-icon{width:42px;height:42px}
   }
 }
 
+/* At high Windows scaling a 1366px physical display can expose fewer
+   than 800 CSS px. Preserve controls without clipping either mode. */
+/* Long allowlisted action IDs are data, not a reason to expand the
+   workspace beyond the viewport. Keep the catalog readable at large DPI. */
+.catalog-item code{
+  white-space:normal;
+  overflow-wrap:anywhere;
+}
+@media (max-width:1100px) {
+  .catalog-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  body[data-mode="developer"] .lower-grid{
+    grid-template-columns:minmax(0,1fr);
+  }
+}
+@media (max-width:960px) {
+  body[data-mode="developer"] .topbar-actions{
+    flex-wrap:wrap;
+    max-width:100%;
+    min-width:0;
+  }
+}
+@media (max-width:800px) {
+  body[data-mode="compact"] .topbar{
+    flex-direction:column;
+    align-items:stretch;
+    flex-wrap:wrap;
+    gap:10px;
+  }
+  body[data-mode="compact"] .title-group{
+    width:100%;
+    flex:0 1 auto;
+  }
+  body[data-mode="compact"] .topbar h1{
+    font-size:25px;
+    line-height:1.2;
+  }
+  body[data-mode="compact"] .topbar-actions{
+    width:100%;
+    flex:0 1 auto;
+    justify-content:flex-start;
+    gap:8px;
+  }
+}
+
+/* At 200% scale on a 1024px display the effective CSS viewport is
+   only ~512px. Keep navigation keyboard/screen-reader accessible while
+   giving the work area enough width for real controls. */
+@media (max-width:720px) {
+  .app-shell,
+  body[data-mode="developer"] .app-shell{
+    grid-template-columns:68px minmax(0,1fr);
+  }
+  .sidebar,
+  body[data-mode="developer"] .sidebar{padding:9px 6px}
+  .nav-item,
+  body[data-mode="developer"] .nav-item{
+    justify-content:center;
+    gap:0;
+    padding:0;
+    height:44px;
+  }
+  .nav-item span:not(.chev){
+    position:absolute;
+    width:1px;
+    height:1px;
+    overflow:hidden;
+    clip-path:inset(50%);
+    white-space:nowrap;
+  }
+  .nav-item .chev,.sidebar-foot{display:none}
+  .nav-separator{margin:7px 3px}
+  .metrics-grid,
+  body[data-mode="developer"] .metrics-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .actions-grid,
+  body[data-mode="developer"] .actions-grid{
+    grid-template-columns:minmax(0,1fr);
+  }
+  .lower-grid,
+  body[data-mode="developer"] .lower-grid{
+    grid-template-columns:minmax(0,1fr);
+  }
+  .module-summary,.result-grid,.catalog-grid{grid-template-columns:minmax(0,1fr)}
+  .module-heading,.recovery-summary,.panel-head{flex-wrap:wrap}
+  .toast-host{left:8px;right:8px}
+  .toast{width:min(340px,100%)}
+}
+
 /* Accessibility hardening */
 button:focus-visible,
 [role="button"]:focus-visible,

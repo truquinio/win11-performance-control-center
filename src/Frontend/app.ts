@@ -34,6 +34,13 @@ configureResultRenderer({
   getCatalog: () => currentCatalog,
   toast: (title, message, kind) => toast(title, message, kind)
 });
+// When Windows text scaling collapses the sidebar to icons, native tooltips
+// keep every destination discoverable by mouse. The original span text stays
+// in the accessibility tree for screen readers and keyboard navigation.
+document.querySelectorAll<HTMLButtonElement>(".nav-item").forEach(button => {
+  const label = button.querySelector("span:not(.chev)")?.textContent?.trim();
+  if (label) button.title = label;
+});
 
 function byId<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
