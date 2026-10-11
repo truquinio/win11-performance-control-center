@@ -57,3 +57,9 @@ Ship a reliable, lean, safe Windows 11 desktop app. Existing WPF/.NET 10/WebView
 - Do not claim that the chat is about to reach a limit or repeatedly announce a limit. Exact remaining chat context capacity is not exposed to this agent. Offer a single concise optimized copy/paste handoff only when the user requests one or actual continuity becomes at risk; continue normal work otherwise.
 - If historical chat content or an external thread is not accessible, say so directly; never claim it was erased or reconstructed. The assistant cannot guarantee or operate the platform's chat-history controls from project code.
 - Treat any risk of losing user information as a blocker: stop that particular destructive operation, inform the user and continue with non-destructive Win11 Control engineering.
+
+## Durable hourly continuation
+- At every start and before each significant edit, read `docs/HANDOFF.md`, `AGENTS.md`, the current Git HEAD/status, outstanding coordination notice and the latest grounded QA. Historical handoffs are evidence pointers, **not** proof that the current tree passed.
+- Update `docs/HANDOFF.md` **additively** after meaningful changes and before ending the run: versioned state (HECHO/PARCIAL/PENDIENTE/BLOQUEADO/NO VERIFICADO), actual tests and exit codes, commit, files, hashes, screenshots, next specific action and acceptance gates. Never overwrite or trim earlier recorded decisions/evidence.
+- The project already has one hourly task named «Finalizar Win11 Control». Verify/update **that** task if scheduling is requested; never create duplicates, modify other project tasks or claim continuous execution between independent runs. Deactivate it only on a fully certified final delivery.
+- User-provided master rules govern continuity and preservation, but do not authorize destructive host work. Minimize routine notifications: only final release or a real blocker requiring input.

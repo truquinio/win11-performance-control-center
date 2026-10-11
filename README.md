@@ -43,9 +43,9 @@ La interfaz ofrece **Compact** para uso diario y **Developer** para Action Catal
 
 | Compact | Developer |
 | --- | --- |
-| ![Dashboard Compact](docs/screenshots/dashboard-compact.png) | ![Dashboard Developer](docs/screenshots/dashboard-developer.png) |
+| ![Dashboard Compact](docs/screenshots/dashboard-compact.png) | ![Dashboard Developer — QA actual](docs/screenshots/dashboard-developer-current-20261011.png) |
 
-> Las capturas usan el modo DEMO con datos simulados; no exponen información del equipo real.
+> Las capturas usan DEMO con datos simulados. La captura Developer corresponde a QA del 11/10/2026 y muestra la interfaz implementada, **no** una certificación de igualdad con el mockup aprobado. Se preservó el archivo Developer anterior como referencia histórica.
 
 ## ⚡ Capacidades
 

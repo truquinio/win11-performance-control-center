@@ -368,6 +368,26 @@ body[data-mode="developer"] .metric-icon .asset-icon{width:38px;height:38px}
 body[data-mode="developer"] .action-symbol .asset-icon{width:42px;height:42px}
 
 
+/* Compact 1024px contract: title and controls need independent rows;
+   otherwise the heading is squeezed into several vertical fragments. */
+@media (min-width:801px) and (max-width:1100px) {
+  body[data-mode="compact"] .topbar{
+    flex-direction:column;
+    align-items:stretch;
+    gap:10px;
+    margin-bottom:16px;
+  }
+  body[data-mode="compact"] .topbar h1{
+    font-size:26px;
+    line-height:1.2;
+  }
+  body[data-mode="compact"] .topbar-actions{
+    width:100%;
+    justify-content:flex-start;
+    gap:8px;
+  }
+}
+
 /* Accessibility hardening */
 button:focus-visible,
 [role="button"]:focus-visible,

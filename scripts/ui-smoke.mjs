@@ -162,6 +162,32 @@ await waitForPage(
    document.querySelectorAll("#catalog-grid .catalog-item").length > 0`,
   "demo");
 await sleep(1200);
+// Regression: Compact mode must remain readable at the product's minimum
+// documented desktop width; check the live layout, not just CSS strings.
+await call("Emulation.setDeviceMetricsOverride", {
+  width: 1024, height: 768, deviceScaleFactor: 1, mobile: false
+});
+const compactLayout = await call("Runtime.evaluate", {
+  expression: `(() => {
+    const originalMode = document.body.dataset.mode;
+    document.body.dataset.mode = "compact";
+    const header = document.querySelector(".topbar h1");
+    const titleHeight = header.getBoundingClientRect().height;
+    const overflow = document.documentElement.scrollWidth > innerWidth + 2;
+    const direction = getComputedStyle(document.querySelector(".topbar")).flexDirection;
+    document.body.dataset.mode = originalMode;
+    return { titleHeight, overflow, direction };
+  })()`,
+  returnByValue: true
+});
+await call("Emulation.clearDeviceMetricsOverride");
+if (!compactLayout.result?.value ||
+    compactLayout.result.value.titleHeight > 75 ||
+    compactLayout.result.value.overflow ||
+    compactLayout.result.value.direction !== "column") {
+  throw new Error("COMPACT_1024_LAYOUT_FAIL " +
+    JSON.stringify(compactLayout.result?.value));
+}
 const expression = String.raw`
 (async () => {
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));

@@ -48,8 +48,14 @@ try {
     }
 
     foreach ($mode in @('compact','developer')) {
-        $output = Join-Path $artifactDir ("$mode-$Width`x$Height.png")
-        Remove-Item $output -Force -ErrorAction SilentlyContinue
+        $name = "$mode-$Width`x$Height"
+        $output = Join-Path $artifactDir ("$name.png")
+        # Never replace prior visual evidence. Captures are append-only.
+        if (Test-Path -LiteralPath $output) {
+            $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+            $nonce = [guid]::NewGuid().ToString("N").Substring(0, 6)
+            $output = Join-Path $artifactDir ("$name-$stamp-$nonce.png")
+        }
         $token = [guid]::NewGuid().ToString("N")
         $tempOutput = Join-Path $env:TEMP ("wpcc-$mode-$token.png")
         $url = "http://127.0.0.1:$Port/?mode=$mode"
