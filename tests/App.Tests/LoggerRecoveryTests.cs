@@ -287,6 +287,40 @@ public sealed class LoggerRecoveryTests
     }
 
     [Fact]
+    public async Task Executor_UnsuccessfulResultIsNotLoggedAsCompleted()
+    {
+        // Fixture-only policy OFF: no host WRITE is executed.
+        using var root = new TestDataRoot();
+        var logPath = Path.Combine(root.Path, "Logs", "app.jsonl");
+        using (var bridge = HostBridge.CreateDefault(root.Path))
+        {
+            var json = await bridge.HandleSerializedAsync(
+                """{"type":"request","requestId":"blocked","method":"actions.run","payload":{"id":"maintenance.safe.run"}}""");
+            using var response = JsonDocument.Parse(json);
+            Assert.True(response.RootElement.GetProperty("ok").GetBoolean());
+            Assert.False(response.RootElement.GetProperty("result").GetProperty("success").GetBoolean());
+        }
+
+        var records = (await File.ReadAllLinesAsync(logPath))
+            .Select(line => JsonDocument.Parse(line))
+            .ToArray();
+        try
+        {
+            var statuses = records
+                .Where(doc => doc.RootElement.GetProperty("actionId").GetString() == "maintenance.safe.run")
+                .Select(doc => doc.RootElement.GetProperty("status").GetString())
+                .ToArray();
+            Assert.Contains("STARTED", statuses);
+            Assert.Contains("FAILED", statuses);
+            Assert.DoesNotContain("COMPLETED", statuses);
+        }
+        finally
+        {
+            foreach (var record in records) record.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task AppLogger_TryWriteAfterDispose_ReturnsFalse()
     {
         using var dataRoot = new TestDataRoot();

@@ -151,12 +151,16 @@ public sealed partial class ActionExecutor(
 
             // The action already happened: a log failure here must not turn
             // an applied change into a reported failure.
-            await logger.TryWriteAsync(id, "COMPLETED", new
-            {
-                result.Success,
-                result.DryRun,
-                result.Message
-            }, operationId);
+            await logger.TryWriteAsync(
+                id,
+                result.Success ? "COMPLETED" : "FAILED",
+                new
+                {
+                    result.Success,
+                    result.DryRun,
+                    result.Message
+                },
+                operationId);
             return result;
         }
         catch (Exception ex)
