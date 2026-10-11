@@ -56,3 +56,8 @@
 - **NO VERIFICADO físicamente**: DPI en Windows/varios monitores/NVDA, WRITE/UAC/rollback reales y mockup Developer aprobado. Las emulaciones 512–1366 px no sustituyen esos gates.
 - **Próxima acción concreta**: en la siguiente ejecución, verificar Git HEAD/status y documentación, implementar fixtures de cancelación/reversión segura para 35 WRITE sin tocar Windows real, solicitar VM desechable autorizada y mockup Developer vigente, medir WebView2 a largo plazo; pruebas focalizadas + gate integral tras cada bloque.
 - **Nota:** esta entrada es acumulativa y no elimina contenido anterior; ningún chat, comentario ni archivo histórico fue borrado.
+
+## Bloqueo de entorno de QA físico — 11 Oct 2026
+- Comprobación **solo lectura** en Ephpatha: `Get-Command Get-VM` no está disponible (módulo de administración Hyper-V ausente); no hay una VM Windows de prueba verificada desde ese proveedor. Consultar `Get-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM` falla por falta de elevación, por lo que el estado de Windows Sandbox sigue **DESCONOCIDO**; no afirmar deshabilitado ni instalarlo sin autorización.
+- **BLOQUEADO**: certificación WRITE/UAC de las 35 acciones reales requiere VM Windows desechable, snapshots y permiso explícito; por ahora solo fixtures, DEMO y READ reales. No ejecutar acciones peligrosas sobre el host activo ni lanzar VMs/emuladores sin coordinación de RAM.
+- Sigue pendiente referencia original y aprobada de Developer para paridad visual y verificación física DPI/NVDA. Las capturas de 512 px son emuladas y no sustituyen esa aprobación.
