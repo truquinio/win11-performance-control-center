@@ -36,6 +36,13 @@ if (!app.includes('Global\\Win11PerformanceControlCenter.') ||
 }
 
 const mainWindow = read("src", "App", "MainWindow.xaml.cs");
+const shellXaml = read("src", "App", "MainWindow.xaml");
+if (!shellXaml.includes('x:Name="ShellVersionText"') ||
+    !mainWindow.includes("AssemblyInformationalVersionAttribute") ||
+    !mainWindow.includes("ShellVersionText.Text")) {
+  throw new Error(
+    "PLATFORM_CONTRACT_FAIL WPF shell version must come from assembly metadata");
+}
 for (const token of [
   "TransformFromDevice",
   "WmDpiChanged",

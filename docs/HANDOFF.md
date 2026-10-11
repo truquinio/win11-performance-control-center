@@ -82,3 +82,12 @@
 - **BLOQUEO que requiere elección del usuario**: conectar una VM Windows 11 desechable ya creada en otro equipo o habilitar una VM Windows remota preexistente mediante Desktop Commander. No utilizar este Dell para montar una VM Windows en paralelo con proyectos activos. El mockup Developer definitivo sigue sin localizarse/confirmarse.
 - El repositorio conservó el aviso de coordinación sin seguimiento y los otros worktrees. Antes de cualquier cambio nuevo comprobar Git HEAD y estado; no tocar otros proyectos.
 - **Checklist WRITE generado y validado**: `scripts/vm-qa-manifest.ps1` deriva `35` acciones WRITE de `src/Frontend/generated/action-catalog.json`, con `16` que requieren administrador y `15` que declaran reversibilidad. Todos los 35 registros siguen en `PENDING_VM`, sin falsos PASS. Ambos scripts de preparación pasaron AST de PowerShell y ejecución real sin cambios en el host.
+
+## Continuidad — tablet spacedesk real (11/10/2026)
+- Tablet real como DISPLAY5 1280×800 a DPI 120; se verificó aplicación Win11 Control LOCAL en esa pantalla sin quitar el foco a otras ventanas; screenshot `artifacts/visual-qa/tablet-spacedesk-live.png`.
+- Test repetible seguro `scripts/tablet-display-qa.ps1`, con rechazo de instancias ajenas; captura solo la ventana propia y detiene únicamente el PID de prueba.
+- Bugs corregidos: versión obsoleta hardcodeada en XAML, sustituida por metadatos del ensamblado; elipsis que cortaba estados críticos, ahora ajustados en 2 líneas. Contrato añadido en platform-contract.
+- Interacción Developer no verificada físicamente: WebView2 no mostró Modo experto mediante UIAutomation. No exagerar la prueba como certificación completa multimonitor/DPI.
+- Bloqueos abiertos: VM externa Windows aislada para WRITE/UAC/rollback; mockup Developer aprobado, escalas físicas/NVDA. No tocar otros proyectos, chats, pantallas ni procesos de usuario. Aviso de coordinación se mantiene intacto.
+- Evidencia final de esta pasada: `artifacts/verify-tablet-spacedesk-20261011.log` `VERIFY_OK`, 248 xUnit/33 incident evals; EXE QA empaquetado abrió en DISPLAY5 y cerró solo su proceso. Captura SHA256 `0CC8DBF5D8B8DC1D4B01CA840D9993C81ED038F13BB3AD3E0C07906C49F6394F`; ZIP QA `E509FD2294FF06828AB3BCFF51AF00C8AC1A718C1B9C932C6F22DCB1A97762DC`.
+- **Próxima mejora sin riesgo**: investigar exposición UIA de controles WebView2 para certificar modo Developer físico en tablet sin usar mouse/foco global; después pruebas táctiles y de cambio de monitor, y restaurar snapshots en VM Windows aislada para WRITE/UAC.

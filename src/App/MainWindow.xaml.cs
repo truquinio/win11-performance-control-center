@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
@@ -31,6 +32,12 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        var informationalVersion = typeof(MainWindow).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion.Split('+')[0]
+            ?? typeof(MainWindow).Assembly.GetName().Version?.ToString(3)
+            ?? "unknown";
+        ShellVersionText.Text = $"  v{informationalVersion}  ·  by truquinio";
         SourceInitialized += OnSourceInitialized;
         Loaded += OnLoaded;
         StateChanged += (_, _) =>

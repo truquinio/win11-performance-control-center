@@ -47,7 +47,7 @@ body[data-mode="compact"] .metric-card:before{content:"›";position:absolute;ri
 .action-symbol{width:50px;height:50px;border-radius:13px;display:grid;place-items:center;background:rgba(0,145,255,.11);color:#1eb8ff}.metric-icon.purple,.action-symbol.purple{color:#9b70ff;background:rgba(128,84,255,.14)}.metric-icon.green{color:#37e789;background:rgba(35,227,125,.11)}
 .metric-icon.orange{color:#ff6b37;background:rgba(255,106,55,.11)}.action-symbol.amber{color:#ffc54a;background:rgba(244,180,28,.13)}
 .action-symbol.blue{color:#44a3ff;background:rgba(9,133,255,.14)}.action-symbol.magenta{color:#ef5cff;background:rgba(239,92,255,.13)}
-.metric-body{min-width:0}.metric-body span{display:block;color:#d6e1ec;font-size:12px}.metric-body strong{display:block;font-size:19px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.metric-body{min-width:0}.metric-body span{display:block;color:#d6e1ec;font-size:12px}.metric-body strong{display:block;font-size:19px;margin-top:4px;line-height:1.2;white-space:normal;overflow-wrap:anywhere}
 .metric-body small{display:block;color:var(--muted);font-size:11px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .metric-bar{position:absolute;left:16px;right:16px;bottom:13px;height:5px;background:#153651;border-radius:5px;overflow:hidden}.metric-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#0788ff,#23c8ff);transition:width .35s}
 .sparkline{position:absolute;left:15px;right:15px;bottom:8px;width:calc(100% - 30px);height:25px;overflow:visible}.sparkline polyline{fill:none;stroke:#10baff;stroke-width:1.8;vector-effect:non-scaling-stroke;filter:drop-shadow(0 0 4px rgba(16,186,255,.25))}.spark-metric .metric-bar{display:none}
