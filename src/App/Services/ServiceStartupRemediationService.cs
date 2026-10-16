@@ -113,6 +113,18 @@ public sealed class ServiceStartupRemediationService
                 throw new InvalidOperationException(
                     "Servicio protegido: " + evaluationProtection.Reason);
 
+            var evaluationState = LoadState();
+            if (!evaluationState.ContainsKey(evaluationService.Name))
+            {
+                evaluationState[evaluationService.Name] = new ServiceStartupSnapshot(
+                    evaluationService.Name,
+                    evaluationService.DisplayName,
+                    evaluationService.StartMode,
+                    evaluationService.State,
+                    DateTimeOffset.UtcNow);
+                PersistState(evaluationState);
+            }
+
             return new ServiceStartupChangeResult(
                 true,
                 serviceName,
@@ -177,18 +189,6 @@ public sealed class ServiceStartupRemediationService
     {
         ValidateServiceName(serviceName);
 
-        if (evaluationMode)
-        {
-            return new ServiceStartupChangeResult(
-                true,
-                serviceName,
-                "Disabled",
-                "Auto",
-                "Running",
-                false,
-                "RESTORED");
-        }
-
         var state = LoadState();
         if (!state.TryGetValue(serviceName, out var snapshot))
         {
@@ -200,6 +200,20 @@ public sealed class ServiceStartupRemediationService
                 "UNKNOWN",
                 false,
                 "NO_SNAPSHOT");
+        }
+
+        if (evaluationMode)
+        {
+            state.Remove(serviceName);
+            PersistState(state);
+            return new ServiceStartupChangeResult(
+                true,
+                serviceName,
+                "EVALUATION_CHANGED",
+                snapshot.StartMode,
+                snapshot.State,
+                false,
+                "RESTORED");
         }
 
         var current = FindService(serviceName) ??

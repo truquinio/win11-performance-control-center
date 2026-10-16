@@ -434,25 +434,57 @@ function renderActionResult(
   byId("module-result-subtitle").textContent = provider.surface === "demo"
     ? "Resultado simulado (DEMO). No se ejecutó ninguna operación en Windows."
     : "Evidencia de la última ejecución local.";
-  status.textContent = result.success ? (result.dryRun ? "DRY-RUN" : "OK") : "WARNING";
+  const failedPagefile = !result.success && actionId.startsWith("memory.pagefile.");
+  status.textContent = result.success ? (result.dryRun ? "DRY-RUN" : "OK")
+    : failedPagefile ? "FALLIDO" : "WARNING";
   status.className = "badge " + (result.success ? "badge-green" : "");
+  if (result.success && data &&
+      (actionId === "backup.status" || actionId === "backup.rollback.center") &&
+      (asArray(data.incompleteOperations).length > 0 ||
+       asArray(data.potentiallyChangedFailedOperations).length > 0 ||
+       asArray(data.potentiallyChangedCancelledOperations).length > 0)) {
+    status.textContent = "REVISAR";
+    status.className = "badge";
+  }
   // Never override an unsuccessful operation with an optimistic fixture/partial-data badge.
   if (actionId === "browsers.extensions.health" && result.success && data) {
     const broken = typeof data.brokenCount === "number" ? data.brokenCount : 0;
     const residues = typeof data.dataOnlyCount === "number" ? data.dataOnlyCount : 0;
+    const collisions = asArray(data.nameCollisions).length;
     status.textContent = broken > 0
       ? "REVISAR"
-      : residues > 0
-        ? "LIMPIEZA OPCIONAL"
-        : "OK";
+      : collisions > 0
+        ? "REVISAR NOMBRES"
+        : residues > 0
+          ? "LIMPIEZA OPCIONAL"
+          : "OK";
     status.className = "badge " +
-      (broken === 0 && residues === 0 ? "badge-green" : "");
+      (broken === 0 && residues === 0 && collisions === 0 ? "badge-green" : "");
   }
 
   const message = document.createElement("p");
   message.className = "result-message";
   message.textContent = result.message;
   content.append(message);
+
+  // These pagefile interlocks fail before OS mutation. Preserve the recovery
+  // record; a postcheck failure must never claim that no change occurred.
+  if (failedPagefile) {
+    const guidanceByStatus: Record<string, string> = {
+      SNAPSHOT_UNREADABLE: "No se ejecutó ningún cambio. Conservá el archivo de recuperación original; revisá permisos o corrupción antes de reintentar.",
+      SNAPSHOT_INCOMPLETE: "No se ejecutó ningún cambio. Conservá el snapshot incompleto; falta la configuración original necesaria para restaurar con seguridad.",
+      SNAPSHOT_RETAINED_REVIEW_REQUIRED: "No se ejecutó ningún cambio. El estado coincide con el baseline guardado; revisá y conservá el registro de recuperación antes de volver a aplicar un perfil.",
+      SNAPSHOT_SAVE_FAILED: "No se ejecutó ningún cambio. Conservá cualquier snapshot existente y comprobá permisos y espacio del directorio de estado."
+    };
+    const guidanceText = typeof data?.status === "string"
+      ? guidanceByStatus[data.status] : undefined;
+    if (guidanceText) {
+      const guidance = document.createElement("p");
+      guidance.className = "result-message";
+      guidance.textContent = guidanceText;
+      content.append(guidance);
+    }
+  }
 
   renderStructuredResult(actionId, data, content);
   if (!result.success) {
@@ -526,6 +558,20 @@ function renderSnapshot(snapshot: SystemSnapshot): void {
     : snapshot.integrityStatus === "NOT_EVALUATED"
       ? "Ejecuta la comprobación de integridad"
       : "Revisa el resultado del diagnóstico";
+  const tabletStatus = byId("tablet-system-status");
+  const tabletSource = byId("tablet-status-source");
+  const nextTabletStatus = provider.surface === "demo"
+    ? "Estado de demostración"
+    : snapshot.integrityStatus === "NOT_EVALUATED"
+      ? "Métricas locales actualizadas"
+      : snapshot.integrityStatus === "OK"
+        ? "Integridad comprobada"
+        : "Integridad: " + snapshot.integrityStatus.replaceAll("_", " ");
+  if (tabletStatus.textContent !== nextTabletStatus) tabletStatus.textContent = nextTabletStatus;
+  const nextTabletSource = provider.surface === "demo"
+    ? "Datos simulados · no se accede a Windows"
+    : "Lecturas locales · sin cambios automáticos";
+  if (tabletSource.textContent !== nextTabletSource) tabletSource.textContent = nextTabletSource;
   setHealth("integrity", snapshot.integrityStatus);
   setHealth("drivers", snapshot.driverStatus);
   setHealth("activation", snapshot.activationStatus);
@@ -613,6 +659,15 @@ function setGlobalState(state: OperationState): void {
     document.createTextNode(state));
   badge.className = className;
 
+  const tabletBadge = document.getElementById("tablet-state-badge");
+  if (tabletBadge) {
+    tabletBadge.className = className;
+    if (tabletBadge.textContent !== state) {
+      tabletBadge.replaceChildren(
+        document.createElement("i"),
+        document.createTextNode(state));
+    }
+  }
   const headerBadge = document.getElementById("header-state");
   if (headerBadge) {
     headerBadge.replaceChildren(
@@ -907,7 +962,9 @@ async function runAction(
       }
     }
     pushActivity(id, result.message, result.success ? "ok" : "warn");
-    toast(result.success ? "Acción completada" : "Acción con advertencias", result.message, result.success ? "success" : "info");
+    const failedPagefile = !result.success && id.startsWith("memory.pagefile.");
+    toast(result.success ? "Acción completada" : failedPagefile ? "Acción fallida" : "Acción con advertencias",
+      result.message, result.success ? "success" : failedPagefile ? "error" : "info");
     const estimated = result.data?.estimatedBytes;
     if (result.success && (id === "disk.scan" || id === "disk.cleanup.safe") &&
         typeof estimated === "number" && Number.isFinite(estimated) && estimated >= 0) {
@@ -1018,10 +1075,13 @@ async function boot(): Promise<void> {
     ?.addEventListener("click", () => refreshSnapshot());
   byId("mode-toggle").textContent =
     initialMode === "developer" ? "Modo compacto" : "Modo experto";
+  byId("mode-status").textContent =
+    initialMode === "developer" ? "Vista experta activa" : "Vista compacta activa";
   byId("mode-toggle").addEventListener("click", async () => {
     const developer = document.body.dataset.mode !== "developer";
     document.body.dataset.mode = developer ? "developer" : "compact";
     byId("mode-toggle").textContent = developer ? "Modo compacto" : "Modo experto";
+    byId("mode-status").textContent = developer ? "Vista experta activa" : "Vista compacta activa";
     if (currentSnapshot) renderSnapshot(currentSnapshot);
 
     if (!developer &&

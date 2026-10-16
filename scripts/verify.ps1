@@ -28,6 +28,8 @@ Invoke-Step "Frontend contract" { npm run test:frontend-contract }
 
 Invoke-Step "CSharp-generated catalog contract" { npm run test:catalog-contract }
 
+Invoke-Step "Eco-QA 35 fail-closed coverage contract" { node scripts/eco-qa35-contract.mjs }
+
 Invoke-Step "DEMO fail-closed contract" { npm run test:demo-fail-closed }
 
 Invoke-Step "UI smoke" { npm run test:ui-smoke }
@@ -35,6 +37,8 @@ Invoke-Step "UI smoke" { npm run test:ui-smoke }
 Invoke-Step "Real-world eval manifest contract" { npm run test:real-world-evals }
 
 Invoke-Step "Package safety contract" { npm run test:package-contract }
+
+Invoke-Step "Release readiness evidence gate contract" { node scripts/release-readiness-contract.mjs }
 
 Invoke-Step "Resource safety contract" { npm run test:resource-contract }
 
@@ -46,6 +50,10 @@ Invoke-Step "Platform compatibility contract" { npm run test:platform-contract }
 
 Invoke-Step "Visual QA isolation contract" {
     powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\visual-qa-contract.ps1"
+}
+
+Invoke-Step "Tablet QA evidence preservation contract" {
+    powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\tablet-screenshot-contract.ps1"
 }
 
 Invoke-Step "Release build" {

@@ -7,9 +7,11 @@ $root = Split-Path -Parent $PSScriptRoot
 $app = Join-Path $root "src\App\Win11PerformanceControlCenter.App.csproj"
 $solution = Join-Path $root "Win11PerformanceControlCenter.slnx"
 $tests = Join-Path $root "tests\App.Tests\App.Tests.csproj"
-$output = Join-Path $root "artifacts\local-win-x64"
-$staging = Join-Path $root "artifacts\local-win-x64.staging"
-$zip = Join-Path $root "artifacts\Win11PerformanceControlCenter-win-x64.zip"
+# Unique immutable QA output: never replace an earlier build or its evidence.
+$buildId = '{0}-{1}' -f (Get-Date -Format 'yyyyMMdd-HHmmss-fff'), [guid]::NewGuid().ToString('N').Substring(0,12)
+$output = Join-Path $root ("artifacts\local-win-x64-" + $buildId)
+$staging = Join-Path $root ("artifacts\local-win-x64-" + $buildId + ".staging")
+$zip = Join-Path $root ("artifacts\Win11PerformanceControlCenter-win-x64-" + $buildId + ".zip")
 
 Push-Location $root
 try {
@@ -41,7 +43,11 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Los tests fallaron." }
     }
 
-    Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue
+    if ((Test-Path -LiteralPath $staging) -or
+        (Test-Path -LiteralPath $output) -or
+        (Test-Path -LiteralPath $zip)) {
+        throw "PACKAGE_EXISTS_REFUSED: generated QA artifact name already exists."
+    }
     dotnet publish $app -c Release -r win-x64 --self-contained false --nologo -o $staging
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish falló." }
 
@@ -60,10 +66,9 @@ try {
         throw "La aplicación está abierta. Cerrala antes de reemplazar el paquete local; el build no termina procesos en ejecución."
     }
 
-    if (Test-Path $output) {
-        Remove-Item $output -Recurse -Force -ErrorAction Stop
+    if (Test-Path -LiteralPath $output) {
+        throw "PACKAGE_EXISTS_REFUSED: destination already exists."
     }
-
     Move-Item $staging $output -ErrorAction Stop
 
     $required = @(
@@ -85,7 +90,9 @@ try {
         throw "Paquete inválido: staging anidado dentro del artefacto final."
     }
 
-    Remove-Item $zip -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $zip) {
+        throw "PACKAGE_EXISTS_REFUSED: ZIP destination already exists."
+    }
     Compress-Archive -Path (Join-Path $output "*") -DestinationPath $zip -CompressionLevel Optimal
 
     $files = Get-ChildItem $output -Recurse -File
@@ -96,6 +103,7 @@ try {
     Write-Host ("PACKAGE_FILES={0}" -f $files.Count)
     Write-Host ("ZIP_MB={0:N2}" -f ((Get-Item $zip).Length / 1MB))
     Write-Host ("ZIP_SHA256={0}" -f $hash)
+    Write-Host ("PACKAGE_VERSIONED_PATH={0}" -f $zip)
     Write-Host "BUILD_LOCAL=PASS"
 }
 finally {

@@ -443,12 +443,17 @@ export function renderStructuredResult(  actionId: string,
       .filter((item): item is Record<string, unknown> => item !== null);
     const dataOnlyCount = typeof data.dataOnlyCount === "number" ? data.dataOnlyCount : 0;
     const brokenCount = typeof data.brokenCount === "number" ? data.brokenCount : 0;
+    const nameCollisions = asArray(data.nameCollisions)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
     const orphanBytes = typeof data.orphanBytes === "number" ? data.orphanBytes : 0;
     const humanStatus = brokenCount > 0
       ? "Requiere revisión"
-      : dataOnlyCount > 0
-        ? "Limpieza opcional"
-        : "Todo correcto";
+      : nameCollisions.length > 0
+        ? "Nombres repetidos"
+        : dataOnlyCount > 0
+          ? "Limpieza opcional"
+          : "Todo correcto";
 
     content.append(createResultGrid([
       ["Resultado", humanStatus],
@@ -456,6 +461,7 @@ export function renderStructuredResult(  actionId: string,
       ["Residuos", String(dataOnlyCount)],
       ["Espacio de residuos", formatBytes(orphanBytes)],
       ["Problemas reales", String(brokenCount)],
+      ["Nombres repetidos", String(nameCollisions.length)],
       ["Developer Mode", data.developerMode === true
         ? "Activo" : data.developerMode === false ? "Desactivado" : "Sin determinar"]
     ]));
@@ -463,7 +469,7 @@ export function renderStructuredResult(  actionId: string,
     const guidance = document.createElement("div");
     guidance.className = "result-guidance";
     const guidanceTitle = document.createElement("strong");
-    guidanceTitle.textContent = brokenCount > 0
+    guidanceTitle.textContent = brokenCount > 0 || nameCollisions.length > 0
       ? "Qué requiere tu atención"
       : dataOnlyCount > 0
         ? "Qué significa"
@@ -471,9 +477,11 @@ export function renderStructuredResult(  actionId: string,
     const guidanceText = document.createElement("span");
     guidanceText.textContent = brokenCount > 0
       ? String(brokenCount) + " extensión(es) sí tienen código o manifest ausente. No se eliminan automáticamente porque podrían ser instalaciones recuperables."
-      : dataOnlyCount > 0
-        ? String(dataOnlyCount) + " entradas son solo datos de extensiones que ya no están instaladas. No están corriendo ni consumen RAM/CPU; únicamente ocupan " + formatBytes(orphanBytes) + "."
-        : "No necesitas hacer nada. Las extensiones instaladas están íntegras.";
+      : nameCollisions.length > 0
+        ? "Hay extensiones instaladas con el mismo nombre visible y distintos IDs. Pueden tener orígenes o funciones diferentes: compáralas en edge://extensions antes de desinstalar una. Win11 Control no las pondrá en cuarentena."
+        : dataOnlyCount > 0
+          ? String(dataOnlyCount) + " entradas son solo datos de extensiones que ya no están instaladas. No están corriendo ni consumen RAM/CPU; únicamente ocupan " + formatBytes(orphanBytes) + "."
+          : "No necesitas hacer nada. Las extensiones instaladas están íntegras.";
     guidance.append(guidanceTitle, guidanceText);
     content.append(guidance);
 
@@ -499,6 +507,23 @@ export function renderStructuredResult(  actionId: string,
           return [displayValue(status), "Estado técnico sin clasificar", "Revisar"];
       }
     };
+
+    if (nameCollisions.length > 0) {
+      content.append(createResultTable(
+        ["Perfil", "Nombre repetido", "IDs de instalaciones distintas", "Acción segura"],
+        nameCollisions.map(item => {
+          const ids = asArray(item.extensionIds)
+            .filter((id): id is string =>
+              typeof id === "string" && /^[a-p]{32}$/.test(id));
+          return [
+            displayValue(item.profile),
+            displayValue(item.name),
+            ids.join(" · ") || "Sin identificadores verificables",
+            "Comparar en Edge y desinstalar manualmente solo la copia elegida"
+          ];
+        })
+      ));
+    }
 
     const relevantItems = items.filter(item =>
       String(item.status ?? "") !== "OK" &&
@@ -1456,18 +1481,20 @@ export function renderStructuredResult(  actionId: string,
       ["WRITE", displayValue(data.writeActionCount)],
       ["Clasificadas", displayValue(data.classifiedCount)],
       ["Post-check", displayValue(data.postcheckedCount)],
-      ["Cobertura", displayValue(data.coveragePercent) + "%"],
+      ["Cobertura de políticas", displayValue(data.coveragePercent) + "%"],
+      ["Certificación real", "No acredita ejecución física, UAC ni rollback"],
       ["Incompletas", displayValue(data.incompleteRuns)]
     ]));
 
     if (actions.length) {
       content.append(createResultTable(
-        ["Acción", "Verificación", "Rollback", "OK / Fallos", "Detalle"],
+        ["Acción", "Verificación", "Rollback", "OK / Fallos", "Rechazos / Cancelaciones", "Detalle"],
         actions.map(item => [
           displayValue(item.actionId),
           displayValue(item.verificationLevel),
           item.rollbackExpected === true ? "Esperado" : item.reversible === true ? "Disponible" : "No",
           displayValue(item.completedRuns) + " / " + displayValue(item.failedRuns),
+          displayValue(item.rejectedRuns) + " / " + displayValue(item.cancelledRuns),
           displayValue(item.verificationDetail)
         ])
       ));
@@ -1605,11 +1632,19 @@ export function renderStructuredResult(  actionId: string,
       .map(asRecord)
       .filter((item): item is Record<string, unknown> => item !== null);
     const incomplete = asArray(data.incompleteOperations);
+    const failedWrites = asArray(data.potentiallyChangedFailedOperations)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+    const cancelledWrites = asArray(data.potentiallyChangedCancelledOperations)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
 
     content.append(createResultGrid([
       ["Rollbacks", String(entries.length)],
       ["Operaciones incompletas", String(incomplete.length)],
-      ["Estado", incomplete.length ? "REVISAR" : entries.length ? "RECUPERABLE" : "LIMPIO"]
+      ["Fallos con cambios posibles", String(failedWrites.length)],
+      ["Canceladas sin verificar", String(cancelledWrites.length)],
+      ["Estado", incomplete.length || failedWrites.length || cancelledWrites.length ? "REVISAR" : entries.length ? "RECUPERABLE" : "LIMPIO"]
     ]));
 
     if (entries.length) {
@@ -1645,6 +1680,26 @@ export function renderStructuredResult(  actionId: string,
       }
       content.append(controls);
     }
+    if (failedWrites.length) {
+      content.append(createResultTable(
+        ["WRITE fallida", "Inicio", "Evaluación"],
+        failedWrites.map(item => [
+          displayValue(item.actionId),
+          displayValue(item.startedAt),
+          "Posible cambio sin verificar; no repetir sin revisar"
+        ])
+      ));
+    }
+    if (cancelledWrites.length) {
+      content.append(createResultTable(
+        ["WRITE cancelada", "Inicio", "Evaluación"],
+        cancelledWrites.map(item => [
+          displayValue(item.actionId),
+          displayValue(item.startedAt),
+          "Cancelación no demuestra reversión; revisar antes de repetir"
+        ])
+      ));
+    }
     return;
   }
 
@@ -1652,11 +1707,19 @@ export function renderStructuredResult(  actionId: string,
     const incomplete = asArray(data.incompleteOperations)
       .map(asRecord)
       .filter((item): item is Record<string, unknown> => item !== null);
+    const failedWrites = asArray(data.potentiallyChangedFailedOperations)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
+    const cancelledWrites = asArray(data.potentiallyChangedCancelledOperations)
+      .map(asRecord)
+      .filter((item): item is Record<string, unknown> => item !== null);
     const snapshots = asArray(data.rollbackSnapshots);
     content.append(createResultGrid([
       ["Operaciones incompletas", String(incomplete.length)],
+      ["Fallos con cambios posibles", String(failedWrites.length)],
+      ["Canceladas sin verificar", String(cancelledWrites.length)],
       ["Snapshots rollback", String(snapshots.length)],
-      ["Estado", incomplete.length ? "REVISAR" : "OK"]
+      ["Estado", incomplete.length || failedWrites.length || cancelledWrites.length ? "REVISAR" : "OK"]
     ]));
     if (incomplete.length) {
       content.append(createResultTable(
@@ -1665,6 +1728,26 @@ export function renderStructuredResult(  actionId: string,
           displayValue(item.actionId),
           displayValue(item.startedAt),
           displayValue(item.lastStatus)
+        ])
+      ));
+    }
+    if (failedWrites.length) {
+      content.append(createResultTable(
+        ["WRITE fallida", "Inicio", "Evaluación"],
+        failedWrites.map(item => [
+          displayValue(item.actionId),
+          displayValue(item.startedAt),
+          "Posible cambio sin verificar; no repetir sin revisar"
+        ])
+      ));
+    }
+    if (cancelledWrites.length) {
+      content.append(createResultTable(
+        ["WRITE cancelada", "Inicio", "Evaluación"],
+        cancelledWrites.map(item => [
+          displayValue(item.actionId),
+          displayValue(item.startedAt),
+          "Cancelación no demuestra reversión; revisar antes de repetir"
         ])
       ));
     }

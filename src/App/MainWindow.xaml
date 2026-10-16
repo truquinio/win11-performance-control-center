@@ -40,25 +40,40 @@
           <ColumnDefinition Width="46"/>
         </Grid.ColumnDefinitions>
 
-        <StackPanel Orientation="Horizontal"
-                    VerticalAlignment="Center"
-                    Margin="14,0,0,0">
-          <Image Source="Assets/app-icon.png"
+        <Grid Grid.Column="0"
+              VerticalAlignment="Center"
+              Margin="14,0,8,0">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="24"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <Image Grid.Column="0"
+                 Source="Assets/app-icon.png"
                  Width="24"
                  Height="24"
-                 Stretch="Uniform"
-                 Margin="0,0,9,0"/>
-          <TextBlock Text="Win11 Performance Control Center"
+                 Stretch="Uniform"/>
+          <TextBlock Grid.Column="1"
+                     x:Name="ShellTitleText"
+                     Text="Win11 Performance Control Center"
+                     TextTrimming="CharacterEllipsis"
+                     ToolTip="Win11 Performance Control Center"
                      Foreground="#F4F8FF"
                      FontWeight="SemiBold"
                      FontSize="14"
+                     Margin="9,0,0,0"
                      VerticalAlignment="Center"/>
-          <TextBlock x:Name="ShellVersionText"
-                     Text="  by truquinio"
+          <TextBlock Grid.Column="2"
+                     x:Name="ShellVersionText"
+                     Text="by truquinio"
+                     TextTrimming="CharacterEllipsis"
+                     ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
+                     MaxWidth="180"
+                     Margin="8,0,0,0"
                      Foreground="#8EA5BA"
                      FontSize="11"
                      VerticalAlignment="Center"/>
-        </StackPanel>
+        </Grid>
 
         <Border x:Name="TitleStateBadge"
                 Grid.Column="1"

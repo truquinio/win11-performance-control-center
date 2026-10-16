@@ -387,6 +387,158 @@ public sealed class BrowserExtensionHealthServiceTests : IDisposable
             StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void AnalyzeEdge_FlagsSameNameDifferentInstalledIds_WithoutTreatingAsOrphans()
+    {
+        var profile = Path.Combine(_root, "Default");
+        var ids = new[] { new string('a', 32), new string('b', 32) };
+        foreach (var id in ids)
+        {
+            var versionPath = Path.Combine(profile, "Extensions", id, "2.0.0");
+            Directory.CreateDirectory(versionPath);
+            File.WriteAllText(Path.Combine(versionPath, "manifest.json"),
+                """{"name":"Volume Master","version":"2.0.0","manifest_version":3}""");
+        }
+
+        var result = new BrowserExtensionHealthService(_root).AnalyzeEdge();
+
+        var duplicate = Assert.Single(result.NameCollisions);
+        Assert.Equal("Default", duplicate.Profile);
+        Assert.Equal("Volume Master", duplicate.Name);
+        Assert.Equal(ids.Order(StringComparer.Ordinal).ToArray(),
+            duplicate.ExtensionIds.Order(StringComparer.Ordinal).ToArray());
+        Assert.Equal(2, result.InstalledCount);
+        Assert.Equal(0, result.DataOnlyCount);
+        Assert.Equal("WARNING", result.Status);
+    }
+
+    [Fact]
+    public void AnalyzeEdge_DoesNotConflateProfilesOrOrphanNameWithInstalledCopies()
+    {
+        var installed = new string('c', 32);
+        var otherProfile = new string('d', 32);
+        var orphan = new string('e', 32);
+        foreach (var entry in new[] { ("Default", installed), ("Profile 1", otherProfile) })
+        {
+            var path = Path.Combine(_root, entry.Item1, "Extensions", entry.Item2, "1.0.0");
+            Directory.CreateDirectory(path);
+            File.WriteAllText(Path.Combine(path, "manifest.json"),
+                """{"name":"Volume Master","version":"1.0.0","manifest_version":3}""");
+        }
+        var local = Path.Combine(_root, "Default", "Local Extension Settings", orphan);
+        Directory.CreateDirectory(local);
+        File.WriteAllText(Path.Combine(local, "data.bin"), "only orphan data");
+        var secure = Path.Combine(_root, "Default", "Secure Preferences");
+        File.WriteAllText(secure, JsonSerializer.Serialize(new
+        {
+            extensions = new
+            {
+                settings = new Dictionary<string, object>
+                {
+                    [orphan] = new { manifest = new { name = "Volume Master" } }
+                }
+            }
+        }));
+
+        var result = new BrowserExtensionHealthService(_root).AnalyzeEdge();
+
+        Assert.Empty(result.NameCollisions);
+        Assert.Equal(1, result.DataOnlyCount);
+    }
+
+    [Fact]
+    public void AnalyzeEdge_ResolvesLocalizedManifestNames_WithoutFalseNameCollisions()
+    {
+        var profile = Path.Combine(_root, "Default");
+        var cases = new[]
+        {
+            (Id: new string('f', 32), Visible: "Volume Master"),
+            (Id: new string('g', 32), Visible: "Sound Booster"),
+            (Id: new string('h', 32), Visible: "Dark Reader")
+        };
+        foreach (var item in cases)
+        {
+            var path = Path.Combine(profile, "Extensions", item.Id, "1.0.0");
+            var locale = Path.Combine(path, "_locales", "en");
+            Directory.CreateDirectory(locale);
+            File.WriteAllText(Path.Combine(path, "manifest.json"),
+                """{"name":"__MSG_name__","default_locale":"en","version":"1.0.0","manifest_version":3}""");
+            File.WriteAllText(Path.Combine(locale, "messages.json"),
+                JsonSerializer.Serialize(new
+                {
+                    name = new { message = item.Visible }
+                }));
+        }
+
+        var result = new BrowserExtensionHealthService(_root).AnalyzeEdge();
+
+        Assert.Empty(result.NameCollisions);
+        Assert.Equal(3, result.InstalledCount);
+        foreach (var item in cases)
+            Assert.Contains(result.Items, entry =>
+                entry.ExtensionId == item.Id && entry.Name == item.Visible);
+    }
+
+    [Fact]
+    public void AnalyzeEdge_UnresolvedMessageTokensNeverFormFalseNameCollisions()
+    {
+        var profile = Path.Combine(_root, "Default");
+        foreach (var id in new[] { new string('i', 32), new string('j', 32) })
+        {
+            var path = Path.Combine(profile, "Extensions", id, "1.0.0");
+            Directory.CreateDirectory(path);
+            File.WriteAllText(Path.Combine(path, "manifest.json"),
+                """{"name":"__MSG_name__","version":"1.0.0","manifest_version":3}""");
+        }
+
+        var result = new BrowserExtensionHealthService(_root).AnalyzeEdge();
+
+        Assert.Empty(result.NameCollisions);
+        Assert.DoesNotContain(result.Items, entry =>
+            entry.Name is not null && entry.Name.StartsWith("__MSG_", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AnalyzeEdge_ResolvesRelativeExtensionCodePathUnderExtensionsDirectory()
+    {
+        var profile = Path.Combine(_root, "Default");
+        var unpackedId = new string('k', 32);
+        var storeId = new string('l', 32);
+        foreach (var id in new[] { unpackedId, storeId })
+        {
+            var version = Path.Combine(profile, "Extensions", id, "2.0.4_0");
+            Directory.CreateDirectory(version);
+            File.WriteAllText(Path.Combine(version, "manifest.json"),
+                """{"name":"Volume Master","version":"2.0.4","manifest_version":3}""");
+        }
+
+        File.WriteAllText(Path.Combine(profile, "Secure Preferences"),
+            JsonSerializer.Serialize(new
+            {
+                extensions = new
+                {
+                    settings = new Dictionary<string, object>
+                    {
+                        [unpackedId] = new
+                        {
+                            location = 4,
+                            path = unpackedId + "\\2.0.4_0",
+                            manifest = new { name = "Volume Master" }
+                        }
+                    }
+                }
+            }));
+
+        var health = new BrowserExtensionHealthService(_root).AnalyzeEdge();
+        var item = Assert.Single(health.Items, x => x.ExtensionId == unpackedId);
+        Assert.Equal("UNPACKED", item.Status);
+        Assert.True(item.DeveloperLoaded);
+        Assert.Equal(0, health.BrokenCount);
+        Assert.Contains("Extensions", item.InstallationPath!);
+        var collision = Assert.Single(health.NameCollisions);
+        Assert.Equal(2, collision.ExtensionIds.Count);
+    }
+
     public void Dispose()
     {
         try

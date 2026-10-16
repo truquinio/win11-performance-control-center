@@ -2,16 +2,19 @@
 # Launches one minimized Win11 Control instance and moves ONLY that window.
 # Does not change display configuration or interfere with other apps.
 param(
-    [string]$Executable = (Join-Path $PSScriptRoot '..\artifacts\local-win-x64\Win11PerformanceControlCenter.exe')
+    [string]$Executable = (Join-Path $PSScriptRoot '..\artifacts\local-win-x64\Win11PerformanceControlCenter.exe'),
+    [ValidateSet('compact','developer')][string]$InitialMode = 'compact'
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'qa-screenshot.ps1')
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class QAMonitor {
  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left,Top,Right,Bottom; }
  [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr ctx);
- [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h,int x,int y,int w,int hgt,bool repaint);
+ [DllImport("user32.dll", SetLastError=true)] public static extern bool MoveWindow(IntPtr h,int x,int y,int w,int hgt,bool repaint);
+ [DllImport("user32.dll", SetLastError=true)] public static extern bool SetWindowPos(IntPtr h,IntPtr after,int x,int y,int cx,int cy,uint flags);
  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hwnd,int cmd);
  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd,out RECT rect);
  [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd);
@@ -28,7 +31,8 @@ if (@(Get-Process Win11PerformanceControlCenter -ErrorAction SilentlyContinue).C
 }
 $s = $secondary[0]; $area = $s.WorkingArea
 "QA_MONITOR_READY name=$($s.DeviceName) dpiAware=$aware bounds=$($s.Bounds) working=$area"
-$qa = & (Join-Path $PSScriptRoot 'start-local-minimized.ps1') -Executable $Executable
+$modeArg = if ($InitialMode -eq 'developer') { '--developer' } else { '' }
+$qa = & (Join-Path $PSScriptRoot 'start-local-minimized.ps1') -Executable $Executable -InitialModeArgument $modeArg
 $pidOwned = [int]$qa.Id
 try {
     if ($qa.Exited -or -not $qa.MainWindowHandle) { throw 'QA_WINDOW_START_FAILED' }
@@ -37,9 +41,29 @@ try {
     # SW_SHOWNOACTIVATE restores our own minimized QA window without taking focus.
     [QAMonitor]::ShowWindowAsync($handle, 4) | Out-Null
     Start-Sleep -Milliseconds 450
-    $moved = [QAMonitor]::MoveWindow($handle, $area.X, $area.Y, $area.Width, $area.Height, $true)
-    if (-not $moved) { throw 'QA_MOVE_WINDOW_FAILED' }
-    Start-Sleep -Seconds 3
+    # Some WPF/remote-display sessions reject MoveWindow transiently while
+    # restoring minimized chrome. Retry briefly without activating/focusing it.
+    $moved = $false
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        if (-not (Get-Process -Id $pidOwned -ErrorAction SilentlyContinue)) {
+            throw 'QA_WINDOW_EXITED_BEFORE_MOVE'
+        }
+        $moved = [QAMonitor]::MoveWindow($handle, $area.X, $area.Y, $area.Width, $area.Height, $true)
+        if (-not $moved) {
+            $moveError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            # SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW; only QA HWND.
+            $moved = [QAMonitor]::SetWindowPos(
+                $handle, [IntPtr]::Zero, $area.X, $area.Y,
+                $area.Width, $area.Height, 0x0054)
+        }
+        if ($moved) { break }
+        Start-Sleep -Milliseconds 400
+    }
+    if (-not $moved) {
+        $lastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        throw "QA_MOVE_WINDOW_FAILED initial=$moveError final=$lastError attempts=3"
+    }
+    Start-Sleep -Seconds 7
     $rect = New-Object QAMonitor+RECT
     if (-not [QAMonitor]::GetWindowRect($handle,[ref]$rect)) { throw 'QA_GET_WINDOW_RECT_FAILED' }
     $afterDpi = [QAMonitor]::GetDpiForWindow($handle)
@@ -54,16 +78,21 @@ try {
     $hdc = $gfx.GetHdc()
     try { $rendered = [QAMonitor]::PrintWindow($handle,$hdc,2) }
     finally { $gfx.ReleaseHdc($hdc);$gfx.Dispose() }
-    $out = Join-Path $PSScriptRoot '..\artifacts\visual-qa\tablet-spacedesk-live.png'
-    try { if ($rendered) { $bmp.Save($out,[Drawing.Imaging.ImageFormat]::Png) } }
-    finally { $bmp.Dispose() }
-    if ($rendered) {
-        "QA_CAPTURE_WRITTEN $out"
+    $captureDir = Join-Path $PSScriptRoot '..\artifacts\visual-qa'
+    try {
+        if ($rendered) {
+            $capturePrefix = if ($InitialMode -eq 'developer') { 'tablet-spacedesk-developer-startup' } else { 'tablet-spacedesk-live' }
+            $out = Save-QAScreenshot -Bitmap $bmp -Directory $captureDir -Prefix $capturePrefix
+            "QA_CAPTURE_WRITTEN $out"
+        } else {
+            "QA_CAPTURE_UNAVAILABLE PrintWindow returned false; no desktop capture performed"
+        }
+    } finally { $bmp.Dispose() }
+    # In Developer startup mode the viewport already opens directly in Developer.
+    # Compact retains the optional UIA switch as a separate non-WRITE exercise.
+    if ($InitialMode -eq 'developer') {
+        "QA_DEVELOPER_INITIAL_MODE_REQUESTED"
     } else {
-        "QA_CAPTURE_UNAVAILABLE PrintWindow returned false; no desktop capture performed"
-    }
-    # WebView2 exposes UI Automation. Invoke ONLY the mode switch, never a
-    # system action, without moving the user's mouse or focusing a window.
     try {
         Add-Type -AssemblyName UIAutomationClient
         Add-Type -AssemblyName UIAutomationTypes
@@ -87,13 +116,18 @@ try {
             $hdc2 = $gfx2.GetHdc()
             try { $rendered2 = [QAMonitor]::PrintWindow($handle,$hdc2,2) }
             finally { $gfx2.ReleaseHdc($hdc2);$gfx2.Dispose() }
-            $out2 = Join-Path $PSScriptRoot '..\artifacts\visual-qa\tablet-spacedesk-developer-live.png'
-            try { if ($rendered2) { $bmp2.Save($out2,[Drawing.Imaging.ImageFormat]::Png) } }
-            finally { $bmp2.Dispose() }
-            "QA_UIA_MODE_INVOKED=YES developerCapture=$rendered2"
+            try {
+                if ($rendered2) {
+                    $out2 = Save-QAScreenshot -Bitmap $bmp2 -Directory $captureDir -Prefix 'tablet-spacedesk-developer-live'
+                    "QA_UIA_MODE_INVOKED=YES developerCapture=$out2"
+                } else {
+                    "QA_UIA_MODE_INVOKED=YES developerCapture=UNAVAILABLE"
+                }
+            } finally { $bmp2.Dispose() }
         }
     } catch {
         "QA_UIA_MODE_SWITCH_UNVERIFIED $($_.Exception.GetType().Name): $($_.Exception.Message)"
+    }
     }
 } finally {
     if (Get-Process -Id $pidOwned -ErrorAction SilentlyContinue) {

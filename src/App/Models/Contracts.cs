@@ -98,6 +98,11 @@ public sealed record BrowserExtensionHealthItem(
     string? InstallationPath,
     bool DeveloperLoaded);
 
+public sealed record BrowserExtensionNameCollision(
+    string Profile,
+    string Name,
+    IReadOnlyList<string> ExtensionIds);
+
 public sealed record BrowserExtensionHealth(
     string Browser,
     string Status,
@@ -107,7 +112,12 @@ public sealed record BrowserExtensionHealth(
     int DeveloperLoadedCount,
     int DataOnlyCount,
     int BrokenCount,
-    IReadOnlyList<BrowserExtensionHealthItem> Items);
+    IReadOnlyList<BrowserExtensionHealthItem> Items)
+{
+    // Advisory only: a matching display name is not proof of the same publisher
+    // or permission to remove either installed extension.
+    public IReadOnlyList<BrowserExtensionNameCollision> NameCollisions { get; init; } = [];
+}
 
 public sealed record MultimediaDevice(
     string Kind,
@@ -171,7 +181,9 @@ public sealed record RollbackTarget(
 public sealed record RecoveryStatus(
     IReadOnlyList<RecoveryOperation> IncompleteOperations,
     IReadOnlyList<string> RollbackSnapshots,
-    IReadOnlyList<RollbackTarget> EcoQosTargets);
+    IReadOnlyList<RollbackTarget> EcoQosTargets,
+    IReadOnlyList<RecoveryOperation> PotentiallyChangedFailedOperations,
+    IReadOnlyList<RecoveryOperation> PotentiallyChangedCancelledOperations);
 
 public enum ActionCategory
 {

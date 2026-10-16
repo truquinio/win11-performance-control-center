@@ -12,13 +12,22 @@ public sealed class PageFileTuningService
     private const string MemoryManagementPath =
         @"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management";
     private readonly string statePath;
+    private readonly PageFileTuningBackend backend;
 
-    public PageFileTuningService(string? statePath = null)
+    public PageFileTuningService(
+        string? statePath = null,
+        PageFileTuningBackend? backend = null)
     {
-        AppPaths.EnsureDirectories();
+        if (string.IsNullOrWhiteSpace(statePath))
+            AppPaths.EnsureDirectories();
         this.statePath = string.IsNullOrWhiteSpace(statePath)
             ? AppPaths.PageFileState
             : Path.GetFullPath(statePath);
+        this.backend = backend ?? new(
+            CaptureCurrent,
+            SetAutomaticManaged,
+            WritePagingFiles,
+            IsFixedReadyDrive);
         var directory = Path.GetDirectoryName(this.statePath);
         if (!string.IsNullOrWhiteSpace(directory))
             Directory.CreateDirectory(directory);
@@ -31,19 +40,42 @@ public sealed class PageFileTuningService
             const string dEntry = @"D:\pagefile.sys 4096 8192";
             var desired = new[] { cEntry, dEntry };
 
-            var before = CaptureCurrent();
-            if (before is null)
+            var existingSnapshot = LoadSnapshot(out var unreadableSnapshot);
+            if (unreadableSnapshot)
+                return new PageFileTuningResult(false, "SNAPSHOT_UNREADABLE", null, null, true, false);
+            if (existingSnapshot is { PagingFiles: null })
+                return new PageFileTuningResult(false, "SNAPSHOT_INCOMPLETE", null, null, true, false);
+
+            var before = backend.CaptureCurrent();
+            // Never change pagefile settings without a restorable registry baseline.
+            if (before is null || before.PagingFiles is null)
             {
                 return new PageFileTuningResult(
                     false,
                     "STATE_UNKNOWN",
                     null,
                     null,
-                    false,
+                    existingSnapshot is not null,
                     false);
             }
 
-            if (!IsFixedReadyDrive("D"))
+            // A prior Restore may have restored the captured baseline but failed
+            // to remove its recovery record. Do not treat that retained record as
+            // permission for a new profile; require review before another WRITE.
+            if (existingSnapshot is not null &&
+                before.AutomaticManaged == existingSnapshot.AutomaticManaged &&
+                PagingFilesEqual(before.PagingFiles, existingSnapshot.PagingFiles))
+            {
+                return new PageFileTuningResult(
+                    false,
+                    "SNAPSHOT_RETAINED_REVIEW_REQUIRED",
+                    before.AutomaticManaged,
+                    before.AutomaticManaged,
+                    true,
+                    false);
+            }
+
+            if (!backend.IsFixedReadyDrive("D"))
             {
                 return new PageFileTuningResult(
                     false,
@@ -66,10 +98,20 @@ public sealed class PageFileTuningService
                     false);
             }
 
-            if (LoadSnapshot() is null)
-                PersistSnapshot(before);
+            if (existingSnapshot is null)
+            {
+                try { PersistSnapshot(before); }
+                catch (IOException)
+                {
+                    return new PageFileTuningResult(false, "SNAPSHOT_SAVE_FAILED", before.AutomaticManaged, before.AutomaticManaged, File.Exists(statePath), false);
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    return new PageFileTuningResult(false, "SNAPSHOT_SAVE_FAILED", before.AutomaticManaged, before.AutomaticManaged, File.Exists(statePath), false);
+                }
+            }
 
-            if (!SetAutomaticManaged(false))
+            if (!backend.SetAutomaticManaged(false))
             {
                 return new PageFileTuningResult(
                     false,
@@ -80,7 +122,7 @@ public sealed class PageFileTuningService
                     false);
             }
 
-            if (!WritePagingFiles(desired))
+            if (!backend.WritePagingFiles(desired))
             {
                 return new PageFileTuningResult(
                     false,
@@ -91,7 +133,7 @@ public sealed class PageFileTuningService
                     false);
             }
 
-            var after = CaptureCurrent();
+            var after = backend.CaptureCurrent();
             var success =
                 after is not null &&
                 !after.AutomaticManaged &&
@@ -109,7 +151,9 @@ public sealed class PageFileTuningService
     public Task<PageFileTuningResult> RestoreAsync() =>
         Task.Run(() =>
         {
-            var snapshot = LoadSnapshot();
+            var snapshot = LoadSnapshot(out var unreadableSnapshot);
+            if (unreadableSnapshot)
+                return new PageFileTuningResult(false, "SNAPSHOT_UNREADABLE", null, null, true, false);
             if (snapshot is null)
             {
                 return new PageFileTuningResult(
@@ -121,8 +165,21 @@ public sealed class PageFileTuningService
                     false);
             }
 
-            var current = CaptureCurrent();
-            if (!SetAutomaticManaged(snapshot.AutomaticManaged))
+            // Older snapshots may lack the original registry value. Never turn
+            // that unknown baseline into a destructive registry deletion.
+            if (snapshot.PagingFiles is null)
+            {
+                return new PageFileTuningResult(
+                    false,
+                    "SNAPSHOT_INCOMPLETE",
+                    null,
+                    null,
+                    true,
+                    false);
+            }
+
+            var current = backend.CaptureCurrent();
+            if (!backend.SetAutomaticManaged(snapshot.AutomaticManaged))
             {
                 return new PageFileTuningResult(
                     false,
@@ -133,8 +190,7 @@ public sealed class PageFileTuningService
                     false);
             }
 
-            if (!snapshot.AutomaticManaged &&
-                !WritePagingFiles(snapshot.PagingFiles))
+            if (!backend.WritePagingFiles(snapshot.PagingFiles))
             {
                 return new PageFileTuningResult(
                     false,
@@ -145,22 +201,42 @@ public sealed class PageFileTuningService
                     false);
             }
 
-            var after = CaptureCurrent();
+            var after = backend.CaptureCurrent();
             var success =
-                after?.AutomaticManaged == snapshot.AutomaticManaged;
+                after is not null &&
+                after.AutomaticManaged == snapshot.AutomaticManaged &&
+                PagingFilesEqual(after.PagingFiles, snapshot.PagingFiles);
+            // The Windows settings can be restored even when the recovery
+            // record cannot be removed. Never hide that retained evidence.
+            var snapshotRemoved = false;
             if (success)
             {
-                try { File.Delete(statePath); }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
+                try
+                {
+                    File.Delete(statePath);
+                    // File.Exists() can mask access errors. Only a definitive
+                    // missing-file result proves that cleanup completed.
+                    try { _ = File.GetAttributes(statePath); }
+                    catch (FileNotFoundException) { snapshotRemoved = true; }
+                    catch (DirectoryNotFoundException) { snapshotRemoved = true; }
+                }
+                catch (Exception ex) when (ex is
+                    IOException or
+                    UnauthorizedAccessException or
+                    System.Security.SecurityException)
+                {
+                    // Preserve the recovery record; report its presence below.
+                }
             }
 
             return new PageFileTuningResult(
                 success,
-                success ? "RESTORED" : "VERIFY_FAILED",
+                success
+                    ? snapshotRemoved ? "RESTORED" : "RESTORED_SNAPSHOT_RETAINED"
+                    : "VERIFY_FAILED",
                 current?.AutomaticManaged,
                 after?.AutomaticManaged,
-                !success,
+                !snapshotRemoved,
                 true);
         });
 
@@ -330,29 +406,37 @@ public sealed class PageFileTuningService
         }
     }
 
-    private PageFileTuningSnapshot? LoadSnapshot()
+    private PageFileTuningSnapshot? LoadSnapshot(out bool unreadable)
     {
+        unreadable = false;
         try
         {
-            if (!File.Exists(statePath))
-                return null;
-            return JsonSerializer.Deserialize<PageFileTuningSnapshot>(
+            // Read directly: File.Exists() can also return false for access errors.
+            var snapshot = JsonSerializer.Deserialize<PageFileTuningSnapshot>(
                 File.ReadAllText(statePath),
                 HostBridge.JsonOptions);
+            if (snapshot is null)
+                unreadable = true;
+            return snapshot;
         }
-        catch
+        catch (FileNotFoundException) { return null; }
+        catch (DirectoryNotFoundException) { return null; }
+        catch (Exception)
         {
+            unreadable = true;
             return null;
         }
     }
 
     private void PersistSnapshot(PageFileTuningSnapshot snapshot)
     {
-        var temp = statePath + ".tmp";
+        // A unique temporary file avoids destroying an older interrupted write.
+        var temp = statePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         File.WriteAllText(
             temp,
             JsonSerializer.Serialize(snapshot, HostBridge.JsonOptions));
-        File.Move(temp, statePath, overwrite: true);
+        // Never replace a recovery snapshot created by another operation.
+        File.Move(temp, statePath, overwrite: false);
     }
 }
 
@@ -368,3 +452,10 @@ public sealed record PageFileTuningResult(
     bool? AfterAutomatic,
     bool RestoreAvailable,
     bool RebootRequired);
+
+
+public sealed record PageFileTuningBackend(
+    Func<PageFileTuningSnapshot?> CaptureCurrent,
+    Func<bool, bool> SetAutomaticManaged,
+    Func<string[]?, bool> WritePagingFiles,
+    Func<string, bool> IsFixedReadyDrive);

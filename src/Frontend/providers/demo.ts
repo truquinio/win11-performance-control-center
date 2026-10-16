@@ -955,19 +955,20 @@ export class DemoProvider implements Provider {
     }
 
     if (id === "lab.outcomes.status") {
+      const writeCount = demoCatalog.filter(action => action.mode === "WRITE").length;
       return {
         success: true,
         dryRun: false,
         message: "DEMO: 100% de acciones WRITE clasificadas.",
         data: {
-          writeActionCount: 25,
-          classifiedCount: 25,
+          writeActionCount: writeCount,
+          classifiedCount: writeCount,
           postcheckedCount: 17,
           coveragePercent: 100,
           incompleteRuns: 0,
           actions: [
-            { actionId: "system.integrity.repair", title: "Reparar integridad de Windows", verificationLevel: "POSTCHECK", verificationDetail: "DISM/SFC + CheckHealth", reversible: false, rollbackExpected: true, completedRuns: 1, failedRuns: 0, rejectedRuns: 0, incompleteRuns: 0 },
-            { actionId: "network.winsock.reset", title: "Restablecer Winsock", verificationLevel: "REBOOT_REQUIRED", verificationDetail: "Estado final tras reinicio", reversible: false, rollbackExpected: false, completedRuns: 0, failedRuns: 0, rejectedRuns: 0, incompleteRuns: 0 }
+            { actionId: "system.integrity.repair", title: "Reparar integridad de Windows", verificationLevel: "POSTCHECK", verificationDetail: "DISM/SFC + CheckHealth", reversible: false, rollbackExpected: true, completedRuns: 1, failedRuns: 0, rejectedRuns: 0, cancelledRuns: 0, incompleteRuns: 0 },
+            { actionId: "network.winsock.reset", title: "Restablecer Winsock", verificationLevel: "REBOOT_REQUIRED", verificationDetail: "Estado final tras reinicio", reversible: false, rollbackExpected: false, completedRuns: 0, failedRuns: 0, rejectedRuns: 0, cancelledRuns: 0, incompleteRuns: 0 }
           ]
         }
       };

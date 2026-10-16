@@ -24,7 +24,7 @@ public sealed class OperationRecoveryService(
 
     public RecoveryStatus Analyze(string? excludeOperationId = null)
     {
-        var incomplete = ReadIncompleteOperations(excludeOperationId);
+        var (incomplete, failedWriteReview, cancelledWriteReview) = ReadOperations(excludeOperationId);
         var states = _ecoQosStateStore.Snapshot();
         var snapshots = states
             .Select(state =>
@@ -41,15 +41,17 @@ public sealed class OperationRecoveryService(
                 ProcessTuningService.IsSameInstanceRunning(state) == true))
             .ToArray();
 
-        return new RecoveryStatus(incomplete, snapshots, targets);
+        return new RecoveryStatus(incomplete, snapshots, targets, failedWriteReview, cancelledWriteReview);
     }
 
-    private IReadOnlyList<RecoveryOperation> ReadIncompleteOperations(
+    private (IReadOnlyList<RecoveryOperation> Incomplete,
+        IReadOnlyList<RecoveryOperation> FailedWriteReview,
+        IReadOnlyList<RecoveryOperation> CancelledWriteReview) ReadOperations(
         string? excludeOperationId)
     {
         var logFiles = GetLogFiles();
         if (logFiles.Count == 0)
-            return [];
+            return ([], [], []);
 
         var states = new Dictionary<string, OperationStateRecord>(
             StringComparer.OrdinalIgnoreCase);
@@ -64,35 +66,53 @@ public sealed class OperationRecoveryService(
                     ParseLine(line, states);
                 }
             }
-            catch (IOException)
+            catch (IOException ex)
             {
-                // One rotated log must not hide evidence from the others.
+                throw new IOException(
+                    "No se pudo leer un diario de auditoría. El estado de recuperación no está verificado.", ex);
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                // Recovery is best-effort when local policy restricts a log.
+                throw new IOException(
+                    "Acceso denegado a un diario de auditoría. El estado de recuperación no está verificado.", ex);
             }
         }
 
-        return [.. states
-            .Where(pair =>
+        var possibleChanges = states.Values
+            .Where(value =>
+                string.IsNullOrWhiteSpace(excludeOperationId) ||
                 !string.Equals(
-                    pair.Key,
+                    value.OperationId,
                     excludeOperationId,
                     StringComparison.OrdinalIgnoreCase))
-            .Select(pair => pair.Value)
             .Where(value =>
                 value.StartedAt is not null &&
-                // An interrupted read-only audit (app closed mid-scan, helper
-                // killed on timeout) left nothing behind to recover.
-                value.MayHaveChangedState &&
-                !TerminalStatuses.Contains(value.LastStatus))
+                value.MayHaveChangedState)
             .OrderByDescending(value => value.StartedAt)
+            .ToArray();
+
+        var incomplete = possibleChanges
+            .Where(value => !TerminalStatuses.Contains(value.LastStatus))
             .Select(value => new RecoveryOperation(
-                value.ActionId,
-                value.StartedAt!.Value,
-                value.LastStatus,
-                true))];
+                value.ActionId, value.StartedAt!.Value, value.LastStatus, true))
+            .ToArray();
+        // FAILED is terminal, not interrupted. A WRITE may nevertheless
+        // have changed state before reporting failure; require inspection.
+        var failed = possibleChanges
+            .Where(value => value.LastStatus.Equals(
+                "FAILED", StringComparison.OrdinalIgnoreCase))
+            .Select(value => new RecoveryOperation(
+                value.ActionId, value.StartedAt!.Value, value.LastStatus, false))
+            .ToArray();
+        // Cancellation is terminal, but it does not prove that a WRITE
+        // stopped before applying changes. Keep it separate from FAILED.
+        var cancelled = possibleChanges
+            .Where(value => value.LastStatus.Equals(
+                "CANCELLED", StringComparison.OrdinalIgnoreCase))
+            .Select(value => new RecoveryOperation(
+                value.ActionId, value.StartedAt!.Value, value.LastStatus, false))
+            .ToArray();
+        return (incomplete, failed, cancelled);
     }
 
     private static IEnumerable<string> ReadLinesShared(string path)
@@ -128,15 +148,15 @@ public sealed class OperationRecoveryService(
 
             return archives;
         }
-        catch (IOException)
+        catch (IOException ex)
         {
-            return File.Exists(_appLogPath)
-                ? [_appLogPath]
-                : Array.Empty<string>();
+            throw new IOException(
+                "No se pudo enumerar los diarios de auditoría. El estado de recuperación no está verificado.", ex);
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
-            return [];
+            throw new IOException(
+                "Acceso denegado al enumerar diarios de auditoría. El estado de recuperación no está verificado.", ex);
         }
     }
 
@@ -149,10 +169,12 @@ public sealed class OperationRecoveryService(
             using var document = JsonDocument.Parse(line);
             var root = document.RootElement;
 
-            // A line can be valid JSON without being a log record (an array,
-            // a bare number or string). TryGetProperty throws on those.
+            // A syntactically valid JSON scalar or array is not an audit
+            // record. It might replace the only STARTED evidence of a WRITE;
+            // never silently classify the recovery state as clean.
             if (root.ValueKind != JsonValueKind.Object)
-                return;
+                throw new IOException(
+                    "Registro de auditoría no es un objeto JSON. El estado de recuperación no está verificado.");
 
             var actionId = root.TryGetProperty(
                     "actionId",
@@ -173,28 +195,42 @@ public sealed class OperationRecoveryService(
                     ? operationNode.GetString()
                     : null;
 
+            // Valid JSON with missing/invalid audit fields can conceal the
+            // only STARTED record for a WRITE. Fail closed without altering
+            // the original journal or claiming that recovery is clean.
             if (string.IsNullOrWhiteSpace(actionId) ||
-                string.IsNullOrWhiteSpace(status))
-                return;
-
-            if (!root.TryGetProperty(
-                    "timestamp",
-                    out var timeNode) ||
+                string.IsNullOrWhiteSpace(status) ||
+                (root.TryGetProperty("operationId", out var operationField) &&
+                 operationField.ValueKind != JsonValueKind.String &&
+                 operationField.ValueKind != JsonValueKind.Null) ||
+                !root.TryGetProperty("timestamp", out var timeNode) ||
                 timeNode.ValueKind != JsonValueKind.String ||
                 !timeNode.TryGetDateTimeOffset(out var timestamp))
             {
-                return;
+                throw new IOException(
+                    "Registro de auditoría incompleto o con campos inválidos. El estado de recuperación no está verificado.");
             }
 
+            // Identity includes the action as well as the operation ID.
+            // A colliding terminal record from another action must never
+            // conceal a WRITE STARTED, regardless of archive read order.
             var key = !string.IsNullOrWhiteSpace(operationId)
-                ? operationId
+                ? operationId.Length + ":" + operationId + ":" + actionId
                 : "legacy:" + actionId;
 
             if (!states.TryGetValue(key, out var state))
             {
-                state = new OperationStateRecord(actionId);
+                state = new OperationStateRecord(actionId, operationId);
                 states[key] = state;
             }
+
+            // A terminal record for a different action cannot close this
+            // operation, even if a malformed writer reused its ID.
+            if (!string.Equals(
+                    state.ActionId,
+                    actionId,
+                    StringComparison.OrdinalIgnoreCase))
+                return;
 
             if (timestamp < state.LastTimestamp)
                 return;
@@ -219,9 +255,13 @@ public sealed class OperationRecoveryService(
                 state.MayHaveChangedState = !IsDeclaredReadOnly(root);
             }
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
-            // Ignore one malformed historical line.
+            // A truncated JSONL record may be the only evidence of a
+            // partially applied WRITE. Never report recovery as clean when
+            // audit records cannot be interpreted.
+            throw new IOException(
+                "Registro de auditoría JSON inválido. El estado de recuperación no está verificado.", ex);
         }
     }
 
@@ -245,9 +285,10 @@ public sealed class OperationRecoveryService(
                string.Equals(value, "DRY_RUN", StringComparison.OrdinalIgnoreCase);
     }
 
-    private sealed class OperationStateRecord(string actionId)
+    private sealed class OperationStateRecord(string actionId, string? operationId)
     {
         public string ActionId { get; } = actionId;
+        public string? OperationId { get; } = operationId;
         public bool MayHaveChangedState { get; set; } = true;
         public DateTimeOffset? StartedAt { get; set; }
         public DateTimeOffset LastTimestamp { get; set; } = DateTimeOffset.MinValue;

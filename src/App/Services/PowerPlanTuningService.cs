@@ -13,13 +13,20 @@ public sealed class PowerPlanTuningService
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private readonly string statePath;
+    private readonly Func<IReadOnlyList<string>, TimeSpan,
+        Task<(int ExitCode, string Output)>> commandRunner;
 
-    public PowerPlanTuningService(string? statePath = null)
+    public PowerPlanTuningService(
+        string? statePath = null,
+        Func<IReadOnlyList<string>, TimeSpan,
+            Task<(int ExitCode, string Output)>>? commandRunner = null)
     {
-        AppPaths.EnsureDirectories();
+        if (string.IsNullOrWhiteSpace(statePath))
+            AppPaths.EnsureDirectories();
         this.statePath = string.IsNullOrWhiteSpace(statePath)
             ? AppPaths.PowerPlanState
             : Path.GetFullPath(statePath);
+        this.commandRunner = commandRunner ?? RunPowerCfgAsync;
         var directory = Path.GetDirectoryName(this.statePath);
         if (!string.IsNullOrWhiteSpace(directory))
             Directory.CreateDirectory(directory);
@@ -45,7 +52,7 @@ public sealed class PowerPlanTuningService
         }
 
         var before = await GetActiveGuidAsync();
-        var set = await RunPowerCfgAsync(
+        var set = await commandRunner(
             ["/setactive", snapshot.SchemeGuid],
             TimeSpan.FromSeconds(20));
         if (set.ExitCode != 0)
@@ -100,7 +107,7 @@ public sealed class PowerPlanTuningService
                 DateTimeOffset.UtcNow));
         }
 
-        var set = await RunPowerCfgAsync(
+        var set = await commandRunner(
             ["/setactive", target],
             TimeSpan.FromSeconds(20));
         if (set.ExitCode != 0)
@@ -130,7 +137,7 @@ public sealed class PowerPlanTuningService
 
     private async Task<string?> GetActiveGuidAsync()
     {
-        var result = await RunPowerCfgAsync(
+        var result = await commandRunner(
             ["/getactivescheme"],
             TimeSpan.FromSeconds(20));
         if (result.ExitCode != 0)
@@ -141,7 +148,7 @@ public sealed class PowerPlanTuningService
             : null;
     }
 
-    private static async Task<PowerCfgResult> RunPowerCfgAsync(
+    private static async Task<(int ExitCode, string Output)> RunPowerCfgAsync(
         IReadOnlyList<string> arguments,
         TimeSpan timeout)
     {
@@ -150,7 +157,7 @@ public sealed class PowerPlanTuningService
                 Environment.SpecialFolder.System),
             "powercfg.exe");
         if (!File.Exists(executable))
-            return new(-1, "powercfg.exe no encontrado.");
+            return (-1, "powercfg.exe no encontrado.");
 
         var startInfo = new ProcessStartInfo
         {
@@ -165,7 +172,7 @@ public sealed class PowerPlanTuningService
 
         using var process = new Process { StartInfo = startInfo };
         if (!process.Start())
-            return new(-1, "No se pudo iniciar powercfg.");
+            return (-1, "No se pudo iniciar powercfg.");
 
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
@@ -184,11 +191,11 @@ public sealed class PowerPlanTuningService
             catch
             {
             }
-            return new(-2, "powercfg excedió el tiempo máximo.");
+            return (-2, "powercfg excedió el tiempo máximo.");
         }
 
         var output = (await stdout + Environment.NewLine + await stderr).Trim();
-        return new(process.ExitCode, output);
+        return (process.ExitCode, output);
     }
 
     private PowerPlanSnapshot? Load()
@@ -216,9 +223,6 @@ public sealed class PowerPlanTuningService
         File.Move(temp, statePath, overwrite: true);
     }
 
-    private sealed record PowerCfgResult(
-        int ExitCode,
-        string Output);
 }
 
 public sealed record PowerPlanSnapshot(

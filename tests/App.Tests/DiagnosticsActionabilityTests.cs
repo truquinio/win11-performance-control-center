@@ -156,7 +156,7 @@ public sealed class DiagnosticsActionabilityTests
 
     [Fact]
     [Trait("Layer", "RealWorldEval")]
-    public async Task HostBridge_InUseMode_BlocksUsbRestartBeforeSyntheticMutation()
+    public async Task HostBridge_EvaluationBlocksUsbRestartBeforeUacWhenWorkloadIsInUse()
     {
         using var root = new TestDataRoot();
         using var bridge = HostBridge.CreateDefault(root.Path);
@@ -175,16 +175,29 @@ public sealed class DiagnosticsActionabilityTests
         var device = Assert.Single(report.Devices, item =>
             item.RestartEligible);
 
-        var blocked = await RunAsync(
-            bridge,
-            "drivers.usb.restart",
+        var request = System.Text.Json.JsonSerializer.Serialize(
             new
             {
-                deviceInstanceId = device.DeviceInstanceId,
-                confirmed = true
-            });
+                type = "request",
+                requestId = Guid.NewGuid().ToString("N"),
+                method = "actions.run",
+                payload = new
+                {
+                    id = "drivers.usb.restart",
+                    parameters = new
+                    {
+                        deviceInstanceId = device.DeviceInstanceId,
+                        confirmed = true
+                    }
+                }
+            },
+            HostBridge.JsonOptions);
 
-        Assert.False(blocked.Success);
+        var blocked = await bridge.HandleAsync(request);
+
+        Assert.False(blocked.Ok);
+        Assert.Contains("EVALUATION_ADMIN_WRITE_BLOCKED", blocked.Error,
+            StringComparison.Ordinal);
     }
 
     private static async Task<ActionResult> RunAsync(

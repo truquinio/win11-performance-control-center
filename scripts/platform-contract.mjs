@@ -43,6 +43,18 @@ if (!shellXaml.includes('x:Name="ShellVersionText"') ||
   throw new Error(
     "PLATFORM_CONTRACT_FAIL WPF shell version must come from assembly metadata");
 }
+if (!mainWindow.includes('"--developer"') ||
+    !mainWindow.includes('surface=local&mode=developer') ||
+    !mainWindow.includes('StringComparison.OrdinalIgnoreCase')) {
+  throw new Error("PLATFORM_CONTRACT_FAIL developer QA startup must use an exact, local-only CLI mode.");
+}
+const titleLabel = shellXaml.match(/<TextBlock\b[^>]*x:Name="ShellTitleText"[^>]*\/>/s)?.[0];
+const versionLabel = shellXaml.match(/<TextBlock\b[^>]*x:Name="ShellVersionText"[^>]*\/>/s)?.[0];
+if (!titleLabel?.includes('TextTrimming="CharacterEllipsis"') ||
+    !versionLabel?.includes('Grid.Column="2"') ||
+    !shellXaml.includes('<ColumnDefinition Width="*"/>')) {
+  throw new Error("PLATFORM_CONTRACT_FAIL WPF chrome title/version overflow on narrow tablet");
+}
 for (const token of [
   "TransformFromDevice",
   "WmDpiChanged",

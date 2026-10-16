@@ -21,4 +21,9 @@ assert.equal(unsupported.success, false,
   "Unimplemented catalog actions must not pretend success in DEMO");
 const known = await demo.runAction("memory.analyze");
 assert.equal(known.success, true, "Explicit fixture should continue working");
+const outcome = await demo.runAction("lab.outcomes.status");
+const declaredWrites = (await demo.catalog()).filter(action => action.mode === "WRITE").length;
+assert.equal(outcome.success, true, "Outcome fixture should remain available");
+assert.equal(outcome.data?.writeActionCount, declaredWrites,
+  "DEMO outcome must not report a stale number of WRITE capabilities");
 console.log("DEMO_FAIL_CLOSED_OK");

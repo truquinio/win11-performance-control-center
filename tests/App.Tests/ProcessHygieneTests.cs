@@ -161,6 +161,7 @@ public sealed class ProcessHygieneTests
 
     [Fact]
     [Trait("Layer", "RealWorldEval")]
+    [Trait("Layer", "EcoQa35Synthetic")]
     public async Task HostBridge_MaintenanceMode_AllowsOnlyPreclassifiedSyntheticStop()
     {
         using var root = new TestDataRoot();

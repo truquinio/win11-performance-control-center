@@ -99,7 +99,8 @@ public sealed class OutcomeAuditService
                 observed?.Failed ?? 0,
                 observed?.Rejected ?? 0,
                 observed?.Incomplete ?? 0,
-                observed?.LastTerminalAt);
+                observed?.LastTerminalAt,
+                observed?.Cancelled ?? 0);
         }).ToArray();
 
         var classified = rows.Count(item =>
@@ -131,14 +132,34 @@ public sealed class OutcomeAuditService
         {
             try
             {
+                var lineNumber = 0;
                 foreach (var line in ReadLinesShared(path))
-                    ParseLine(line, operations);
+                {
+                    lineNumber++;
+                    try
+                    {
+                        ParseLine(line, operations);
+                    }
+                    catch (IOException ex)
+                    {
+                        throw new IOException(
+                            $"Outcome audit unverified: {Path.GetFileName(path)} line {lineNumber}.",
+                            ex);
+                    }
+                }
             }
-            catch (IOException)
+            catch (IOException ex) when (!ex.Message.StartsWith(
+                "Outcome audit unverified:", StringComparison.Ordinal))
             {
+                throw new IOException(
+                    "Outcome audit unverified: cannot read operation journal " +
+                    Path.GetFileName(path) + ".", ex);
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
+                throw new IOException(
+                    "Outcome audit unverified: operation journal inaccessible " +
+                    Path.GetFileName(path) + ".", ex);
             }
         }
 
@@ -172,12 +193,17 @@ public sealed class OutcomeAuditService
                     value.LastTerminalAt,
                     state.LastTimestamp);
             }
-            else
+            else if (state.LastStatus.Equals(
+                         "REJECTED",
+                         StringComparison.OrdinalIgnoreCase))
             {
                 value.Rejected++;
-                value.LastTerminalAt = Max(
-                    value.LastTerminalAt,
-                    state.LastTimestamp);
+                value.LastTerminalAt = Max(value.LastTerminalAt, state.LastTimestamp);
+            }
+            else
+            {
+                value.Cancelled++;
+                value.LastTerminalAt = Max(value.LastTerminalAt, state.LastTimestamp);
             }
 
             byAction[state.ActionId] = value;
@@ -204,11 +230,14 @@ public sealed class OutcomeAuditService
                 result.Add(logPath);
             return result;
         }
-        catch
+        catch (Exception ex) when (ex is
+            IOException or
+            UnauthorizedAccessException or
+            System.Security.SecurityException)
         {
-            return File.Exists(logPath)
-                ? [logPath]
-                : [];
+            throw new IOException(
+                "Outcome audit unverified: cannot enumerate rotated operation journals.",
+                ex);
         }
     }
 
@@ -237,10 +266,17 @@ public sealed class OutcomeAuditService
             using var document = JsonDocument.Parse(line);
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
-                return;
+                throw new IOException(
+                    "Outcome audit unverified: a JSONL operation record is not an object.");
 
             var actionId = ReadString(root, "actionId");
             var status = ReadString(root, "status");
+            if (root.TryGetProperty("operationId", out var operationIdNode) &&
+                operationIdNode.ValueKind != JsonValueKind.String)
+            {
+                throw new IOException(
+                    "Outcome audit unverified: operationId must be a string.");
+            }
             var operationId = ReadString(root, "operationId");
 
             if (string.IsNullOrWhiteSpace(actionId) ||
@@ -249,7 +285,8 @@ public sealed class OutcomeAuditService
                 timeNode.ValueKind != JsonValueKind.String ||
                 !timeNode.TryGetDateTimeOffset(out var timestamp))
             {
-                return;
+                throw new IOException(
+                    "Outcome audit unverified: required operation evidence is missing.");
             }
 
             var key = string.IsNullOrWhiteSpace(operationId)
@@ -260,6 +297,12 @@ public sealed class OutcomeAuditService
             {
                 state = new OperationLogState(actionId);
                 operations[key] = state;
+            }
+            else if (!string.Equals(state.ActionId, actionId,
+                         StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException(
+                    "Outcome audit unverified: operationId belongs to different actions.");
             }
 
             if (timestamp < state.LastTimestamp)
@@ -275,8 +318,10 @@ public sealed class OutcomeAuditService
             state.LastStatus = status;
             state.LastTimestamp = timestamp;
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            throw new IOException(
+                "Outcome audit unverified: invalid JSONL operation evidence.", ex);
         }
     }
 
@@ -305,6 +350,7 @@ public sealed class OutcomeAuditService
         public int Completed { get; set; }
         public int Failed { get; set; }
         public int Rejected { get; set; }
+        public int Cancelled { get; set; }
         public int Incomplete { get; set; }
         public DateTimeOffset? LastTerminalAt { get; set; }
     }
@@ -329,7 +375,8 @@ public sealed record OutcomeCoverageItem(
     int FailedRuns,
     int RejectedRuns,
     int IncompleteRuns,
-    DateTimeOffset? LastTerminalAt);
+    DateTimeOffset? LastTerminalAt,
+    int CancelledRuns = 0);
 
 public sealed record OutcomeAuditReport(
     int WriteActionCount,

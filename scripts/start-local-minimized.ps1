@@ -1,9 +1,12 @@
 param(
-    [string]$Executable = (Join-Path $PSScriptRoot "..\src\App\bin\Release\net10.0-windows\Win11PerformanceControlCenter.exe")
+    [string]$Executable = (Join-Path $PSScriptRoot "..\src\App\bin\Release\net10.0-windows\Win11PerformanceControlCenter.exe"),
+    [ValidateSet('','--developer')][string]$InitialModeArgument = ''
 )
 
 $resolved = (Resolve-Path $Executable).Path
-$process = Start-Process $resolved -PassThru -WindowStyle Minimized
+$launch = @{ FilePath = $resolved; PassThru = $true; WindowStyle = 'Minimized' }
+if ($InitialModeArgument) { $launch.ArgumentList = @($InitialModeArgument) }
+$process = Start-Process @launch
 
 Add-Type @'
 using System;

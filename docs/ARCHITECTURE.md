@@ -62,8 +62,9 @@ The local package is framework-dependent and reuses the installed .NET Windows D
 
 Build outputs:
 
-- `artifacts/local-win-x64` — framework-dependent Windows x64 application.
-- `artifacts/Win11PerformanceControlCenter-win-x64.zip` — compressed local package.
+- `artifacts/local-win-x64-<timestamp>-<nonce>` — new, uniquely named framework-dependent Windows x64 QA application per build.
+- `artifacts/Win11PerformanceControlCenter-win-x64-<timestamp>-<nonce>.zip` — its matching immutable QA package, with a SHA-256 printed by the build script. Prior packages and the legacy `artifacts/local-win-x64` remain untouched; QA must use the exact newly reported path.
+- **Release acceptance is separate**: these outputs are internal QA artifacts until the 35 Windows WRITE actions, UAC, snapshots/rollback and physical accessibility/visual checks are certified.
 - `artifacts/demo` — static shared frontend.
 - `artifacts/visual-qa` — Compact/Developer visual QA captures.
 

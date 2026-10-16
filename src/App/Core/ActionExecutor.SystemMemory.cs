@@ -142,9 +142,11 @@ public sealed partial class ActionExecutor
             false,
             result.Status == "NO_SNAPSHOT"
                 ? "Pagefile: no hay configuración previa guardada por la app."
-                : result.Success
-                    ? "Pagefile: configuración previa restaurada. Reinicia para completar el rollback."
-                    : $"Pagefile: rollback no verificado ({result.Status}).",
+                : result.Status == "RESTORED_SNAPSHOT_RETAINED"
+                    ? "Pagefile: configuración previa verificada, pero el registro de recuperación no pudo eliminarse. Conserva y revisa ese snapshot antes de volver a aplicar un perfil. Reinicia para completar el rollback."
+                    : result.Success
+                        ? "Pagefile: configuración previa restaurada. Reinicia para completar el rollback."
+                        : $"Pagefile: rollback no verificado ({result.Status}).",
             new
             {
                 result.Status,

@@ -213,12 +213,16 @@ public sealed class StorageWatchService
 
         try
         {
+            // Look one folder beyond the bounded scan so we never report a
+            // complete volume after silently excluding additional folders.
             var directories = Directory
                 .EnumerateDirectories(probe.RootPath)
-                .Take(MaxTopLevelFolders)
+                .Take(MaxTopLevelFolders + 1)
                 .ToArray();
+            if (directories.Length > MaxTopLevelFolders)
+                complete = false;
 
-            foreach (var directory in directories)
+            foreach (var directory in directories.Take(MaxTopLevelFolders))
             {
                 if (globalWatch.Elapsed >= hotspotBudget)
                 {

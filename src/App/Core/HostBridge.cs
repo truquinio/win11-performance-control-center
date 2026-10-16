@@ -26,19 +26,22 @@ public sealed class HostBridge : IDisposable
     private readonly ReliabilityService _reliabilityService;
     private readonly ActionExecutor _executor;
     private readonly AppLogger _logger;
+    private readonly bool _evaluationMode;
 
     private HostBridge(
         ActionCatalog catalog,
         SystemSnapshotService snapshotService,
         ReliabilityService reliabilityService,
         ActionExecutor executor,
-        AppLogger logger)
+        AppLogger logger,
+        bool evaluationMode)
     {
         _catalog = catalog;
         _snapshotService = snapshotService;
         _reliabilityService = reliabilityService;
         _executor = executor;
         _logger = logger;
+        _evaluationMode = evaluationMode;
     }
 
     public static HostBridge CreateDefault(string? dataRoot = null)
@@ -99,6 +102,10 @@ public sealed class HostBridge : IDisposable
                 evaluationRoot,
                 "StorageFixture");
             Directory.CreateDirectory(storageFixture);
+            var storageRecycleFixture = Path.Combine(
+                evaluationRoot,
+                "StorageRecycle");
+            Directory.CreateDirectory(storageRecycleFixture);
             storage = new StorageAnalysisService(
                 [
                     new StorageAnalysisService.CacheTarget(
@@ -107,7 +114,12 @@ public sealed class HostBridge : IDisposable
                         storageFixture)
                 ],
                 _ => false,
-                evaluationRoot);
+                evaluationRoot,
+                path => File.Move(
+                    path,
+                    Path.Combine(
+                        storageRecycleFixture,
+                        Guid.NewGuid().ToString("N") + "-" + Path.GetFileName(path))));
         }
         var storageWatch = new StorageWatchService(
             storageWatchStatePath,
@@ -292,7 +304,8 @@ public sealed class HostBridge : IDisposable
             healthState,
             elevatedActions);
 
-        return new HostBridge(catalog, snapshot, reliability, executor, logger);
+        return new HostBridge(catalog, snapshot, reliability, executor, logger,
+            evaluationRoot is not null);
     }
 
     public async Task<BridgeResponse> HandleAsync(string json)
@@ -387,6 +400,17 @@ public sealed class HostBridge : IDisposable
                 throw new InvalidOperationException(
                     "Los parámetros de Action deben ser un objeto tipado.");
             parameters = parameterElement.Clone();
+        }
+
+        // A fixture dataRoot must never open UAC or run an elevated host action.
+        // Rejected before the executor can log STARTED or launch elevation.
+        if (_evaluationMode && _catalog.GetRequired(id).RequiresAdmin &&
+            parameters is { ValueKind: JsonValueKind.Object } args &&
+            args.TryGetProperty("confirmed", out var consent) &&
+            consent.ValueKind == JsonValueKind.True)
+        {
+            throw new InvalidOperationException(
+                "EVALUATION_ADMIN_WRITE_BLOCKED: una prueba aislada no puede solicitar UAC.");
         }
 
         return _executor.ExecuteAsync(id, parameters);

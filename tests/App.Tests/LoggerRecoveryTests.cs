@@ -87,7 +87,7 @@ public sealed class LoggerRecoveryTests
     }
 
     [Fact]
-    public async Task Recovery_IgnoresWellFormedJsonWithInvalidFieldTypes()
+    public async Task Recovery_RejectsWellFormedJsonWithInvalidFieldTypes()
     {
         using var dataRoot = new TestDataRoot();
         var logPath = Path.Combine(dataRoot.Path, "Logs", "app.jsonl");
@@ -106,13 +106,13 @@ public sealed class LoggerRecoveryTests
             new EcoQosStateStore(statePath),
             logPath);
 
-        var status = service.Analyze();
-
-        Assert.Empty(status.IncompleteOperations);
+        var error = Assert.Throws<IOException>(() => service.Analyze());
+        Assert.Contains("no está verificado", error.Message,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task AppLogger_RecordAfterTornWriteStaysReadable()
+    public async Task AppLogger_RecordAfterTornWriteStaysReadableButRecoveryIsUnverified()
     {
         using var dataRoot = new TestDataRoot();
         var logPath = Path.Combine(dataRoot.Path, "Logs", "app.jsonl");
@@ -143,15 +143,19 @@ public sealed class LoggerRecoveryTests
                 document.RootElement.GetProperty("operationId").GetString());
         }
 
-        var status = new OperationRecoveryService(
-            new EcoQosStateStore(statePath),
-            logPath).Analyze();
-        var operation = Assert.Single(status.IncompleteOperations);
-        Assert.Equal("test.after.torn", operation.ActionId);
+        // The later record is valid, but an earlier torn record might hide
+        // an interrupted WRITE. The recovery view must not claim clean.
+        var recovery = new OperationRecoveryService(
+            new EcoQosStateStore(statePath), logPath);
+        var error = Assert.Throws<IOException>(() => recovery.Analyze());
+        Assert.Contains("no está verificado", error.Message,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task Recovery_IgnoresValidJsonLinesThatAreNotRecords()
+    // Formerly Recovery_IgnoresValidJsonLinesThatAreNotRecords: skipping
+    // non-record JSON was unsafe because it could hide a WRITE STARTED.
+    public async Task Recovery_NonRecordJsonPreventsCleanRecovery()
     {
         using var dataRoot = new TestDataRoot();
         var logPath = Path.Combine(dataRoot.Path, "Logs", "app.jsonl");
@@ -173,11 +177,12 @@ public sealed class LoggerRecoveryTests
             new EcoQosStateStore(statePath),
             logPath);
 
-        var status = service.Analyze();
-
-        // The non-record lines are skipped and the real record survives them.
-        var operation = Assert.Single(status.IncompleteOperations);
-        Assert.Equal("test.write", operation.ActionId);
+        // Historical behavior skipped non-record lines and continued to the
+        // real record. That could hide an interrupted WRITE, so reject the
+        // entire audit as unverified instead of claiming a clean result.
+        var error = Assert.Throws<IOException>(() => service.Analyze());
+        Assert.Contains("no está verificado", error.Message,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -233,6 +238,44 @@ public sealed class LoggerRecoveryTests
         Assert.Equal(
             "READ",
             document.RootElement.GetProperty("data").GetProperty("mode").GetString());
+    }
+
+    [Fact]
+    public async Task Recovery_DifferentActionCannotCloseInterruptedWriteWithSameOperationId()
+    {
+        // A malformed or misrouted terminal record must not conceal a
+        // potentially interrupted WRITE with a colliding operation ID.
+        using var dataRoot = new TestDataRoot();
+        var logPath = Path.Combine(dataRoot.Path, "Logs", "app.jsonl");
+        var statePath = Path.Combine(dataRoot.Path, "State", "ecoqos.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+
+        await File.WriteAllLinesAsync(logPath,
+        [
+            JsonSerializer.Serialize(new
+            {
+                timestamp = DateTimeOffset.Parse("2026-10-02T12:00:00Z"),
+                operationId = "colliding-id",
+                actionId = "test.write.interrupted",
+                status = "STARTED",
+                data = new { mode = "WRITE" }
+            }),
+            JsonSerializer.Serialize(new
+            {
+                timestamp = DateTimeOffset.Parse("2026-10-02T12:01:00Z"),
+                operationId = "colliding-id",
+                actionId = "test.other.action",
+                status = "COMPLETED"
+            })
+        ]);
+
+        var status = new OperationRecoveryService(
+            new EcoQosStateStore(statePath),
+            logPath).Analyze();
+
+        var interrupted = Assert.Single(status.IncompleteOperations);
+        Assert.Equal("test.write.interrupted", interrupted.ActionId);
+        Assert.Equal("STARTED", interrupted.LastStatus);
     }
 
     [Fact]
@@ -318,6 +361,30 @@ public sealed class LoggerRecoveryTests
         {
             foreach (var record in records) record.Dispose();
         }
+    }
+
+    [Fact]
+    public async Task Recovery_FailedWriteNeedsReview()
+    {
+        using var root = new TestDataRoot();
+        var logPath = Path.Combine(root.Path, "Logs", "app.jsonl");
+        var statePath = Path.Combine(root.Path, "State", "ecoqos.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+        using (var logger = new AppLogger(logPath))
+        {
+            await logger.WriteAsync("test.write", "STARTED", new { mode = "WRITE" }, "op-1");
+            await logger.WriteAsync("test.write", "FAILED", new { success = false }, "op-1");
+            await logger.WriteAsync("test.read", "STARTED", new { mode = "READ" }, "op-2");
+            await logger.WriteAsync("test.read", "FAILED", new { success = false }, "op-2");
+            await logger.WriteAsync("test.complete", "STARTED", new { mode = "WRITE" }, "op-3");
+            await logger.WriteAsync("test.complete", "COMPLETED", operationId: "op-3");
+        }
+        var recovery = new OperationRecoveryService(new EcoQosStateStore(statePath), logPath).Analyze();
+        Assert.Empty(recovery.IncompleteOperations);
+        var review = Assert.Single(recovery.PotentiallyChangedFailedOperations);
+        Assert.Equal("test.write", review.ActionId);
+        Assert.Equal("FAILED", review.LastStatus);
+        Assert.False(review.Incomplete);
     }
 
     [Fact]

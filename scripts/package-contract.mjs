@@ -17,4 +17,12 @@ if (forceKillPattern.test(buildScript)) {
   );
 }
 
-console.log("PACKAGE_CONTRACT_OK no forced app termination");
+if (/Remove-Item\s+\$output\b|Remove-Item\s+\$zip\b|Remove-Item\s+\$staging\b/i.test(buildScript)) {
+  throw new Error("PACKAGE_CONTRACT_FAIL build-local deletes or overwrites an existing package or staging evidence.");
+}
+if (!buildScript.includes("NewGuid") ||
+    !buildScript.includes("PACKAGE_VERSIONED_PATH=") ||
+    !buildScript.includes("PACKAGE_EXISTS_REFUSED")) {
+  throw new Error("PACKAGE_CONTRACT_FAIL versioned non-destructive packaging required.");
+}
+console.log("PACKAGE_CONTRACT_OK no forced app termination or overwritten QA packages");

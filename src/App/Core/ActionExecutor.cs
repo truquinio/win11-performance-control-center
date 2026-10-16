@@ -68,6 +68,18 @@ public sealed partial class ActionExecutor(
         var action = catalog.GetRequired(id);
         ValidateParameters(action, parameters);
 
+        // Fail closed at the single action boundary, BEFORE an operation
+        // lease, STARTED audit record or UAC elevation can be initiated.
+        // Individual WRITE handlers still enforce their own confirmations.
+        if (action.Mode == ActionMode.WRITE &&
+            (parameters is not { ValueKind: JsonValueKind.Object } args ||
+             !args.TryGetProperty("confirmed", out var consent) ||
+             consent.ValueKind != JsonValueKind.True))
+        {
+            throw new InvalidOperationException(
+                "Falta confirmación explícita para ejecutar una acción WRITE.");
+        }
+
         if (workloadGuardService.ShouldBlock(id))
         {
             var guard = workloadGuardService.GetStatus();
@@ -732,6 +744,11 @@ public sealed partial class ActionExecutor(
                 $"({orphanBytes / 1048576d:F1} MiB). No están ejecutándose; limpiarlos es opcional.",
             _ => "Edge: las extensiones instaladas están íntegras y no se detectaron residuos relevantes."
         };
+        if (health.NameCollisions.Count > 0)
+        {
+            message += $" Además hay {health.NameCollisions.Count} nombre(s) repetido(s) entre instalaciones con ID distinto. " +
+                "Revisar manualmente en Edge; ninguna instalación se eliminará automáticamente.";
+        }
 
         return new ActionResult(
             true,
@@ -747,12 +764,15 @@ public sealed partial class ActionExecutor(
                 health.DeveloperLoadedCount,
                 health.DataOnlyCount,
                 health.BrokenCount,
+                nameCollisions = health.NameCollisions,
                 orphanBytes,
                 recommendedNextStep = health.BrokenCount > 0
                     ? "Revisa las extensiones rotas antes de limpiar residuos. La app no eliminará automáticamente una instalación dañada."
-                    : health.DataOnlyCount > 0
-                        ? "Puedes dejar los residuos sin riesgo funcional o previsualizar una cuarentena reversible para recuperar espacio."
-                        : "No necesitas hacer nada.",
+                    : health.NameCollisions.Count > 0
+                        ? "Compara en edge://extensions las extensiones que comparten nombre pero tienen IDs distintos; solo Edge debe desinstalar la copia que elijas."
+                        : health.DataOnlyCount > 0
+                            ? "Puedes dejar los residuos sin riesgo funcional o previsualizar una cuarentena reversible para recuperar espacio."
+                            : "No necesitas hacer nada.",
                 items = health.Items
             });
     }
@@ -1186,10 +1206,12 @@ public sealed partial class ActionExecutor(
         return new ActionResult(
             true,
             false,
-            $"Recovery: {status.IncompleteOperations.Count} operación(es) incompleta(s) y {status.RollbackSnapshots.Count} snapshot(s) de rollback.",
+            $"Recovery: {status.IncompleteOperations.Count} operación(es) incompleta(s), {status.PotentiallyChangedFailedOperations.Count} WRITE fallida(s), {status.PotentiallyChangedCancelledOperations.Count} WRITE cancelada(s) por revisar y {status.RollbackSnapshots.Count} snapshot(s) de rollback.",
             new
             {
                 incompleteOperations = status.IncompleteOperations,
+                potentiallyChangedFailedOperations = status.PotentiallyChangedFailedOperations,
+                potentiallyChangedCancelledOperations = status.PotentiallyChangedCancelledOperations,
                 rollbackSnapshots = status.RollbackSnapshots,
                 ecoQosTargets = status.EcoQosTargets
             });

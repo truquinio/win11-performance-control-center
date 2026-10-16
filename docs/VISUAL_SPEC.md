@@ -1,16 +1,14 @@
 # Visual specification
 
-Visual targets are the user-approved Compact and Developer mockups and the acceptance criteria below. The checked-in `docs/screenshots/dashboard-compact.png` is a valid Compact reference, but `docs/screenshots/dashboard-developer.png` currently shows an obsolete Compact layout with broken icons; **do not use it as evidence of Developer pixel parity**. Until the approved Developer mockup is available locally, validate Developer against the written specification plus fresh captured screenshots and report visual pixel-parity as unverified.
+Visual targets are the written acceptance criteria below and the user-supplied portrait tablet screenshot from 12/10/2026. That screenshot is a layout/style reference only: retain Win11 labels, genuine telemetry and real action semantics; do not reuse its Rewards Auditor name, statuses or test data. At tablet widths, use a top app bar with horizontally scrollable navigation, a prominent system status card, grouped two-column actions/metrics, rounded navy panels and clear blue/green states. The checked-in `docs/screenshots/dashboard-compact.png` is a legacy landscape reference; `docs/screenshots/dashboard-developer.png` shows an obsolete Compact layout with broken icons, so **do not use it as evidence of Developer pixel parity**. A pixel-level pass still requires fresh screenshots at target physical sizes.
 
 ## Compact mode
 - Default mode.
-- Left navigation: Dashboard, Rendimiento, Limpieza, Sistema, Red, Herramientas, Configuración.
-- Main header: product title, subtitle, Diagnóstico completo, Modo experto.
-- Five metric cards in one row: CPU, RAM, system disk, active network, integrity.
-- Three primary actions in one row: safe cleanup, system diagnostic, EcoQoS/performance.
-- Lower area: advanced recovery/storage table on the left; activity/logs on the right.
+- Desktop keeps the left navigation, title/subtitle, Diagnóstico completo and Modo experto.
+- Desktop target: five metric cards in one row, three primary actions in one row, and recovery/storage beside activity/logs.
+- Tablet follows the supplied portrait hierarchy: branded top bar, horizontally scrolling destinations, prominent CPU/system status, two-column primary actions, paired secondary metrics, then recovery/activity and interlocks.
 - No invented telemetry. Unknown values render as "—", "Sin evaluar" or equivalent.
-- Target viewport: 1648×927; must also remain usable at 1366×768 and high DPI.
+- Target desktop viewport: 1648×927; also usable at 1366×768, portrait tablet widths and high DPI.
 
 ## Developer mode
 - Dense expert layout; this is not a third design.

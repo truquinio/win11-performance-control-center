@@ -123,7 +123,7 @@ public sealed class FaultInjectionTests
     }
 
     [Fact]
-    public async Task AppLogger_RetentionKeepsNewestArchivesByName()
+    public async Task AppLogger_RotationPreservesAllHistoricalArchives()
     {
         using var dataRoot = new TestDataRoot();
         var directory = Path.Combine(dataRoot.Path, "Logs");
@@ -151,11 +151,13 @@ public sealed class FaultInjectionTests
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Equal(5, remaining.Length);
-        Assert.DoesNotContain(remaining, name => name!.StartsWith("app-20200101", StringComparison.Ordinal));
-        Assert.DoesNotContain(remaining, name => name!.StartsWith("app-20200102", StringComparison.Ordinal));
-        Assert.DoesNotContain(remaining, name => name!.StartsWith("app-20200103", StringComparison.Ordinal));
-        Assert.Contains(remaining, name => name!.StartsWith("app-20200107", StringComparison.Ordinal));
+        // Audit evidence is not disposable build output. Even the oldest
+        // archive must survive another rotation until explicitly preserved
+        // or reviewed by the user.
+        Assert.Equal(8, remaining.Length);
+        for (var index = 1; index <= 7; index++)
+            Assert.Contains(remaining, name => name!.StartsWith(
+                $"app-2020010{index}", StringComparison.Ordinal));
     }
 
     [Fact]

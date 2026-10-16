@@ -90,12 +90,31 @@ public sealed class DiagnosticBundleService
         var tasks = await tasksTask;
         var entries = await entriesTask;
 
-        var outcomes = outcomeAuditService.Analyze();
+        // A damaged operation journal must never look verified, but the
+        // user must still be able to export sanitized diagnostic evidence.
+        OutcomeAuditReport? outcomes;
+        try
+        {
+            outcomes = outcomeAuditService.Analyze();
+        }
+        catch (IOException)
+        {
+            outcomes = null;
+        }
+
         var changes = healthHistoryService.ReadChanges();
         var registry = windowsEvidenceService.AnalyzeRegistry();
         var com = windowsEvidenceService.AnalyzeCom();
         var certificates = windowsEvidenceService.AnalyzeCertificates();
-        var rollback = rollbackCenterService.Analyze();
+        RollbackCenterReport? rollback;
+        try
+        {
+            rollback = rollbackCenterService.Analyze();
+        }
+        catch (IOException)
+        {
+            rollback = null;
+        }
 
         var token = Guid.NewGuid().ToString("N")[..8];
         var baseName =
@@ -282,12 +301,14 @@ public sealed class DiagnosticBundleService
                 "outcomes.json",
                 new
                 {
-                    outcomes.WriteActionCount,
-                    outcomes.ClassifiedCount,
-                    outcomes.PostcheckedCount,
-                    outcomes.CoveragePercent,
-                    outcomes.IncompleteRuns,
-                    actions = outcomes.Actions.Select(item => new
+                    verificationStatus = outcomes is null
+                        ? "UNVERIFIED" : "AUDIT_READABLE",
+                    writeActionCount = outcomes?.WriteActionCount,
+                    classifiedCount = outcomes?.ClassifiedCount,
+                    postcheckedCount = outcomes?.PostcheckedCount,
+                    coveragePercent = outcomes?.CoveragePercent,
+                    incompleteRuns = outcomes?.IncompleteRuns,
+                    actions = outcomes?.Actions.Select(item => new
                     {
                         item.ActionId,
                         item.VerificationLevel,
@@ -296,6 +317,7 @@ public sealed class DiagnosticBundleService
                         item.CompletedRuns,
                         item.FailedRuns,
                         item.RejectedRuns,
+                        item.CancelledRuns,
                         item.IncompleteRuns,
                         item.LastTerminalAt
                     })
@@ -316,8 +338,10 @@ public sealed class DiagnosticBundleService
                 "recovery.json",
                 new
                 {
-                    incompleteOperations = rollback.IncompleteOperations,
-                    rollbackEntries = rollback.Entries.Select(item => new
+                    verificationStatus = rollback is null
+                        ? "UNVERIFIED" : "AUDIT_READABLE",
+                    incompleteOperations = rollback?.IncompleteOperations,
+                    rollbackEntries = rollback?.Entries.Select(item => new
                     {
                         item.Id,
                         item.Title,

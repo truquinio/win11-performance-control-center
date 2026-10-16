@@ -172,12 +172,28 @@ public sealed partial class ActionExecutor
             });
     }
 
-    private static async Task<ActionResult> HibernateAsync(
+    private async Task<ActionResult> HibernateAsync(
         bool reduce,
         JsonElement? parameters)
     {
         if (reduce)
+        {
             RequireConfirmed(parameters, "Confirma la reducción de hibernación.");
+            var reduction = await systemRemediationService.ReduceHibernateAsync();
+            var step = reduction.Steps.Single();
+            return new ActionResult(
+                reduction.Success,
+                false,
+                reduction.Success
+                    ? "Hibernación reducida aplicada. Inicio rápido disponible; hibernación completa deshabilitada."
+                    : "No se pudo reducir la hibernación.",
+                new
+                {
+                    exitCode = step.ExitCode,
+                    output = step.Output,
+                    error = reduction.Success ? null : step.Output
+                });
+        }
 
         // The elevated runner validates administrative privileges for writes.
         var psi = new ProcessStartInfo
@@ -190,8 +206,8 @@ public sealed partial class ActionExecutor
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
-        psi.ArgumentList.Add(reduce ? "/h" : "/a");
-        if (reduce) { psi.ArgumentList.Add("/type"); psi.ArgumentList.Add("reduced"); }
+        psi.ArgumentList.Add("/a");
+
         using var process = Process.Start(psi) ??
             throw new InvalidOperationException("No se pudo ejecutar powercfg.exe.");
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25));

@@ -68,7 +68,27 @@ public sealed class BrowserExtensionHealthService(
         var broken = items.Count(item =>
             item.Status is "CODE_MISSING" or "MANIFEST_MISSING");
 
-        var status = broken > 0 || dataOnly > 0
+        // Name collisions are advisory, not orphan candidates. Compare only
+        // installed/unpacked entries within the SAME profile, never old data.
+        var nameCollisions = items
+            .Where(item => item.Status is "OK" or "INSTALLED_NO_LOCAL_DATA" or "UNPACKED")
+            .Where(item => !string.IsNullOrWhiteSpace(item.Name))
+            .GroupBy(item => item.Profile, StringComparer.OrdinalIgnoreCase)
+            .SelectMany(profile => profile
+                .GroupBy(item => item.Name!.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(group => new BrowserExtensionNameCollision(
+                    profile.Key,
+                    group.Key,
+                    group.Select(item => item.ExtensionId)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                        .ToArray()))
+                .Where(group => group.ExtensionIds.Count > 1))
+            .OrderBy(group => group.Profile, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(group => group.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var status = broken > 0 || dataOnly > 0 || nameCollisions.Length > 0
             ? "WARNING"
             : profilesScanned == 0
                 ? "NO_DATA"
@@ -86,7 +106,10 @@ public sealed class BrowserExtensionHealthService(
             [.. items
                 .OrderByDescending(item => IsProblem(item.Status))
                 .ThenBy(item => item.Profile, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(item => item.Name ?? item.ExtensionId, StringComparer.OrdinalIgnoreCase)]);
+                .ThenBy(item => item.Name ?? item.ExtensionId, StringComparer.OrdinalIgnoreCase)])
+        {
+            NameCollisions = nameCollisions
+        };
     }
 
     private IEnumerable<string> EnumerateProfiles()
@@ -171,12 +194,12 @@ public sealed class BrowserExtensionHealthService(
                         ? "UNPACKED"
                         : "MANIFEST_MISSING";
                 installationPath = externalPath;
-                name = preference?.Name ?? ReadManifestName(externalManifest);
+                name = ReadManifestName(externalManifest) ?? physicalInfo?.Name ?? VisiblePreferenceName(preference?.Name);
             }
             else if (physicalInfo is not null)
             {
                 installationPath = physicalInfo.Path;
-                name = physicalInfo.Name ?? preference?.Name;
+                name = physicalInfo.Name ?? VisiblePreferenceName(preference?.Name);
                 status = physicalInfo.ManifestExists
                     ? dataIds.Contains(id)
                         ? "OK"
@@ -186,19 +209,19 @@ public sealed class BrowserExtensionHealthService(
             else if (policyRemovedExtensionIds.Contains(id))
             {
                 installationPath = null;
-                name = preference?.Name;
+                name = VisiblePreferenceName(preference?.Name);
                 status = "POLICY_REMOVED";
             }
             else if (dataIds.Contains(id))
             {
                 installationPath = null;
-                name = preference?.Name;
+                name = VisiblePreferenceName(preference?.Name);
                 status = "DATA_WITHOUT_INSTALLATION";
             }
             else
             {
                 installationPath = externalPath;
-                name = preference?.Name;
+                name = VisiblePreferenceName(preference?.Name);
                 status = preference?.State == 1
                     ? "CODE_MISSING"
                     : "STALE_METADATA";
@@ -388,10 +411,28 @@ public sealed class BrowserExtensionHealthService(
 
         try
         {
-            return Path.GetFullPath(
+            var direct = Path.GetFullPath(
                 Path.IsPathRooted(configuredPath)
                     ? configuredPath
                     : Path.Combine(profilePath, configuredPath));
+            if (Path.IsPathRooted(configuredPath) || Directory.Exists(direct))
+                return direct;
+
+            // Edge's "Secure Preferences" sometimes stores a relative path
+            // like <extension-id>\\<version> under Default/Extensions, not
+            // directly under Default. The old resolver falsely reported
+            // installed Edge add-ons as CODE_MISSING.
+            if (Regex.IsMatch(configuredPath,
+                @"^[a-p]{32}[\\/][0-9][a-zA-Z0-9._-]*$",
+                RegexOptions.CultureInvariant))
+            {
+                var packed = Path.GetFullPath(
+                    Path.Combine(profilePath, "Extensions", configuredPath));
+                if (Directory.Exists(packed))
+                    return packed;
+            }
+
+            return direct;
         }
         catch (Exception ex) when (
             ex is ArgumentException or
@@ -402,6 +443,12 @@ public sealed class BrowserExtensionHealthService(
         }
     }
 
+    private static string? VisiblePreferenceName(string? value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        !value.StartsWith("__MSG_", StringComparison.OrdinalIgnoreCase)
+            ? value.Trim()
+            : null;
+
     private static string? ReadManifestName(string? manifestPath)
     {
         if (string.IsNullOrWhiteSpace(manifestPath) ||
@@ -410,28 +457,50 @@ public sealed class BrowserExtensionHealthService(
             return null;
         }
 
-        try
-        {
-            using var stream = new FileStream(
-                manifestPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete);
-            using var document = JsonDocument.Parse(stream);
-            return TryGetString(document.RootElement, "name");
-        }
-        catch (JsonException)
-        {
+        using var document = TryReadJsonDocument(manifestPath);
+        if (document is null)
             return null;
-        }
-        catch (IOException)
-        {
+
+        var manifest = document.RootElement;
+        var name = TryGetString(manifest, "name");
+        if (string.IsNullOrWhiteSpace(name))
             return null;
-        }
-        catch (UnauthorizedAccessException)
-        {
+        if (!name.StartsWith("__MSG_", StringComparison.OrdinalIgnoreCase))
+            return name.Trim();
+        if (!name.EndsWith("__", StringComparison.Ordinal) || name.Length <= 8)
             return null;
+
+        // Chromium manifests can contain __MSG_name__ rather than a display
+        // name. Never group unresolved tokens as if they were identical apps.
+        var key = name[6..^2];
+        if (!Regex.IsMatch(key, "^[a-zA-Z0-9_]{1,80}$", RegexOptions.CultureInvariant))
+            return null;
+        var defaultLocale = TryGetString(manifest, "default_locale");
+        var localeNames = new[] { defaultLocale, "en", "en_US", "es", "es_ES" }
+            .Where(locale => !string.IsNullOrWhiteSpace(locale))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var locale in localeNames)
+        {
+            if (!Regex.IsMatch(locale!, "^[a-zA-Z_]{2,12}$", RegexOptions.CultureInvariant))
+                continue;
+            var messagePath = Path.Combine(
+                Path.GetDirectoryName(manifestPath)!, "_locales", locale!, "messages.json");
+            using var messages = TryReadJsonDocument(messagePath);
+            if (messages is null || messages.RootElement.ValueKind != JsonValueKind.Object)
+                continue;
+
+            foreach (var property in messages.RootElement.EnumerateObject())
+            {
+                if (!property.Name.Equals(key, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var resolved = TryGetString(property.Value, "message");
+                if (!string.IsNullOrWhiteSpace(resolved))
+                    return resolved.Trim();
+            }
         }
+
+        return null;
     }
     private static long MeasureDirectory(string root)
     {
