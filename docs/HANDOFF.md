@@ -2077,3 +2077,7 @@
 - El remoto había sido verificado como público. El push fue explícito a una rama nueva y el dry-run no indicó actualización de rama existente. No se creó ni fusionó PR.
 - Auditoría de dependencias, solo lectura: `dotnet list src/App/Win11PerformanceControlCenter.App.csproj package --vulnerable --include-transitive --no-restore` => sin paquetes vulnerables en NuGet; `npm audit --audit-level=high` => 0 vulnerabilidades. Son los inventarios que reportan esos orígenes, no un análisis de backdoors ni garantía de seguridad total.
 - Siguiente paso de GitHub: revisar el diff de 35 commits en una PR antes de integrar. La rama publicada conserva el historial; el artefacto no está certificado ni publicado como release.
+
+### PR draft de revisión en GitHub — 2026-10-16
+- PR #16: https://github.com/truquinio/win11-performance-control-center/pull/16, abierta en borrador hacia `main`, no fusionada. Head inicial `64c0d7bc054be61bf82b9572a8d161cd52112000`; GitHub reportó 36 commits y 156 archivos al crearla. Se corrigió el cuerpo de la PR para no fijar un recuento que cambia al añadir evidencia.
+- La PR contiene un snapshot amplio del estado local y commits de proyecto que no estaban en `origin/main`; requiere revisión del diff completo y conciliación de propietarios antes de integración. No equivale a release ni certificación.
