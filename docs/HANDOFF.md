@@ -2081,3 +2081,12 @@
 ### PR draft de revisión en GitHub — 2026-10-16
 - PR #16: https://github.com/truquinio/win11-performance-control-center/pull/16, abierta en borrador hacia `main`, no fusionada. Head inicial `64c0d7bc054be61bf82b9572a8d161cd52112000`; GitHub reportó 36 commits y 156 archivos al crearla. Se corrigió el cuerpo de la PR para no fijar un recuento que cambia al añadir evidencia.
 - La PR contiene un snapshot amplio del estado local y commits de proyecto que no estaban en `origin/main`; requiere revisión del diff completo y conciliación de propietarios antes de integración. No equivale a release ni certificación.
+
+### Gate canónico de GitHub Actions — 2026-10-16
+- En PR #16, Actions ejecutó `.github/workflows/ci.yml` en runner `windows-latest`; su paso `Run canonical verification gate` llamó `./scripts/verify.ps1` y terminó `success`. Job 117076003737, run 38931397464, head `b78eeaeffbe60925edfa02660116d2924141428e`, duración aproximada 4 min.
+- Alcance: gate automatizado en el snapshot de la rama PR, no revisión integrada tras aprobación de propietarios. No sustituye DPI/accesibilidad física, prueba prolongada real, acceso Edge ni VM WRITE; tampoco valida que el EXE exacto del ZIP sea ese binario.
+
+### Evaluación de estructura de agentes — 2026-10-17
+- Inspección estática del repositorio: ya tiene `AGENTS.md` (92 líneas), `CLAUDE.md` local/no versionado (46), `.agents/skills/manual-testing/`, `.agents/skills/win11-lean-qa/`, reglas de seguridad/pruebas en `docs/` y gate común `.github/workflows/ci.yml` → `scripts/verify.ps1`.
+- Evaluación guardada en `docs/AGENT_STRUCTURE_REVIEW_20261017.md`. La imagen es un patrón de Claude Code; no se copió `.claude/`, `.mcp.json`, `settings.local.json`, `agents/`, `hooks/` ni carpeta de worktrees. Duplicar configuración del cliente o permisos locales no aportaría una mejora probada y elevaría mantenimiento/riesgo.
+- No se alteró código, configuración ni archivos previos. No se ejecutaron tests: este cambio es documentación de una revisión de estructura. SHA-256 de `docs/AGENT_STRUCTURE_REVIEW_20261017.md`: `10f036381d29d730df9ba8ba859124b74609402587ca373a936760d0d922d77a`.
