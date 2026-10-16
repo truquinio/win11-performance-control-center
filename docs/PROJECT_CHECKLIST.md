@@ -11,7 +11,8 @@ Las casillas registran evidencia concreta; una prueba sintética no cierra certi
 - [x] Prueba focal de recuperación/cancelación: 6/6 tests pasaron en 265 ms (TRX hash 9C45F9FEEE78547460EF549CB1B80242BEB14A0EF2784000CC99A1960C850236; binario de tests 0B54290BA663648E592A9B30CBAF6898E599850B133E6335943A75941BE8AA8D). Cubre lease del coordinador, registro de WRITE cancelada y respuesta del watchdog; no prueba interrupción cooperativa del trabajo ni impide solapamiento tras timeout.
 
 ## Pendiente — no marcar hasta completar y guardar evidencia
-- [ ] Resolver cancelación/timeout: revisión estática detectó que el watchdog puede abandonar una lectura sin detenerla y liberar el lease. Hacer prueba focal aislada, definir cancelación cooperativa y evitar solapamiento; cambios en HostBridge/ActionExecutor/tests tienen propietarios pendientes.
+- [x] Evitar solapamiento tras timeout de lectura: en la rama aislada `codex/timeout-lease-20261016`, el watchdog retiene el lease hasta que termina el trabajo abandonado; prueba focal 1/1 y regresión `OperationCoordinatorTests|Watchdog` 8/8, sin errores. No certifica integración en main.
+- [ ] Añadir cancelación cooperativa y prueba end-to-end del timeout en `ActionExecutor`/HostBridge; confirmar propietarios antes de integrar cambios concurrentes. La retención del lease evita solapamiento pero no detiene el trabajo subyacente.
 - [ ] Comparar Compact y Developer en la app real con mockups aprobados, capturas completas e interacción; confirmar aprobación manual del mockup Developer vigente.
 - [ ] Probar la app WPF/WebView2 físicamente a 100%, 125%, 150% y 200%; teclado, foco, NVDA/Narrator y alto contraste. La consulta de Windows a 100% de escala no cuenta como prueba de la app.
 - [ ] QA interactiva prolongada: rendimiento, memoria, cancelación/errores/recuperación; medir en hardware objetivo y conservar trazas sin cerrar procesos ajenos.

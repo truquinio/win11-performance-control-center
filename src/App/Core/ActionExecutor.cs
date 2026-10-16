@@ -158,7 +158,8 @@ public sealed partial class ActionExecutor(
                     : await OperationWatchdog.RunAsync(
                         work,
                         ReadActionBudget,
-                        action.Title);
+                        action.Title,
+                        lease);
             }
 
             // The action already happened: a log failure here must not turn

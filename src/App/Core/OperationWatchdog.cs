@@ -9,7 +9,8 @@ public static class OperationWatchdog
     public static async Task<T> RunAsync<T>(
         Task<T> work,
         TimeSpan budget,
-        string operation)
+        string operation,
+        OperationCoordinator.OperationLease? lease = null)
     {
         ArgumentNullException.ThrowIfNull(work);
         if (budget <= TimeSpan.Zero)
@@ -24,8 +25,18 @@ public static class OperationWatchdog
             return await work;
         }
 
-        // The abandoned work may still fault later; observe it so it never
-        // surfaces as an unobserved task exception.
+        // Work can finish between WhenAny selecting the delay and this check.
+        if (work.IsCompleted)
+        {
+            await cts.CancelAsync();
+            return await work;
+        }
+
+        // A timeout stops waiting, not the underlying operation. Keep its global
+        // lease until it really completes so a later action cannot overlap it.
+        lease?.RetainUntil(work);
+
+        // Observe late faults even when no coordinator lease was supplied.
         _ = work.ContinueWith(
             static task => _ = task.Exception,
             CancellationToken.None,
