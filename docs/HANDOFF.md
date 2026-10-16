@@ -2071,3 +2071,9 @@
 ### Revisión estática preliminar antes de subir la rama — 2026-10-16
 - GitHub API informa que `truquinio/win11-performance-control-center` es público. El usuario pidió subir el estado a GitHub; la publicación se limitará a una rama nueva, sin actualizar main ni crear release.
 - En los 34 commits que no están en `origin/main`, un barrido heurístico de claves AWS/GitHub/OpenAI, encabezados de claves privadas y asignaciones obvias de contraseñas no encontró coincidencias. Un barrido de scripts cambiados tampoco encontró los patrones `Invoke-Expression`, `DownloadString`, `FromBase64String`, `Add-MpPreference`, `Set-MpPreference` o `EncodedCommand`. No hay gitleaks/trivy instalados; esto no sustituye auditoría exhaustiva ni prueba ausencia de backdoors.
+
+### Sincronización GitHub y chequeo de dependencias — 2026-10-16
+- Publicado en rama nueva `origin/codex/timeout-lease-20261016`, sin modificar main ni crear release. El primer push fijó `4ca9c22f37d3998f046586c098bc94dcad3d90b2`; subió la historia local compartida desde `origin/main=d4ced82ff7484be086d7c14d1f12682732d14aba`, incluidos los commits locales anteriores, más el cambio de timeout.
+- El remoto había sido verificado como público. El push fue explícito a una rama nueva y el dry-run no indicó actualización de rama existente. No se creó ni fusionó PR.
+- Auditoría de dependencias, solo lectura: `dotnet list src/App/Win11PerformanceControlCenter.App.csproj package --vulnerable --include-transitive --no-restore` => sin paquetes vulnerables en NuGet; `npm audit --audit-level=high` => 0 vulnerabilidades. Son los inventarios que reportan esos orígenes, no un análisis de backdoors ni garantía de seguridad total.
+- Siguiente paso de GitHub: revisar el diff de 35 commits en una PR antes de integrar. La rama publicada conserva el historial; el artefacto no está certificado ni publicado como release.
