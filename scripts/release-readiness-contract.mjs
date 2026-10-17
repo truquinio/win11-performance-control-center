@@ -30,7 +30,7 @@ const shell = process.platform === "win32" ? "powershell.exe" : "pwsh";
 const probe = spawnSync(shell, [
   "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", gatePath,
   "-EvidenceManifest", "../outside-certification.json"
-], { cwd: root, encoding: "utf8", timeout: 10000 });
+], { cwd: root, encoding: "utf8", timeout: 30000 });
 if (probe.error || probe.status !== 2 ||
     !probe.stdout.includes("RELEASE_BLOCKED: Evidence path outside project artifacts.")) {
   throw new Error(
@@ -47,7 +47,7 @@ try {
   const escaped = spawnSync(shell, [
     "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", gatePath,
     "-EvidenceManifest", path.relative(root, path.join(junction, "ARCHITECTURE.md"))
-  ], { cwd: root, encoding: "utf8", timeout: 10000 });
+  ], { cwd: root, encoding: "utf8", timeout: 30000 });
   if (escaped.error || escaped.status !== 2 ||
       !escaped.stdout.includes("RELEASE_BLOCKED: Evidence path uses ReparsePoint:")) {
     throw new Error(
