@@ -146,17 +146,15 @@ public sealed partial class ActionExecutor(
             else
             {
                 privilege.Validate(action);
-                var work = ExecuteAllowedAsync(
-                    action,
-                    parameters,
-                    operationId);
-
-                // WRITE actions are short and must never be abandoned
-                // half-way; only read-only work is put under the watchdog.
+                // WRITE actions are never abandoned half-way. Read-only work
+                // starts inside the watchdog so timeout cancellation reaches
+                // providers that support cooperative cancellation.
                 result = action.Mode == ActionMode.WRITE
-                    ? await work
+                    ? await ExecuteAllowedAsync(
+                        action, parameters, operationId, CancellationToken.None)
                     : await OperationWatchdog.RunAsync(
-                        work,
+                        cancellationToken => ExecuteAllowedAsync(
+                            action, parameters, operationId, cancellationToken),
                         ReadActionBudget,
                         action.Title,
                         lease);
@@ -298,8 +296,10 @@ public sealed partial class ActionExecutor(
     private async Task<ActionResult> ExecuteAllowedAsync(
         ActionDefinition action,
         JsonElement? parameters,
-        string operationId)
+        string operationId,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         return action.Id switch
         {
             "system.actionplan.preview" => await ActionPlanAsync(operationId),
@@ -326,12 +326,12 @@ public sealed partial class ActionExecutor(
             "cpu.ecoqos.apply" => await EcoQoSApplyAsync(parameters),
             "cpu.ecoqos.restore" => await EcoQoSRestoreAsync(parameters),
             "disk.scan" => await StorageAsync(false),
-            "disk.duplicates.scan" => await StorageDuplicatesAsync(),
+            "disk.duplicates.scan" => await StorageDuplicatesAsync(cancellationToken),
             "disk.cleanup.safe" => await StorageAsync(true),
             "disk.cleanup.execute" => await StorageCleanupAsync(parameters),
             "disk.appdata.rank" => await AppDataRankAsync(),
             "disk.volumes.audit" => await StorageVolumesAuditAsync(),
-            "disk.directories.watch" => await StorageDirectoryTrendAsync(),
+            "disk.directories.watch" => await StorageDirectoryTrendAsync(cancellationToken),
             "disk.storage.watch" => await StorageWatchAsync(),
             "disk.hotspots.scan" => await StorageHotspotsAsync(),
             "disk.hibernate.status" => await HibernateAsync(false, null),

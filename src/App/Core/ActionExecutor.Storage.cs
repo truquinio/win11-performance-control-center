@@ -8,11 +8,11 @@ namespace Win11PerformanceControlCenter.App.Core;
 
 public sealed partial class ActionExecutor
 {
-    private async Task<ActionResult> StorageDuplicatesAsync()
+    private async Task<ActionResult> StorageDuplicatesAsync(CancellationToken cancellationToken)
     {
         var forensic = await new StorageForensicsService(
             TimeSpan.FromSeconds(6), 3000, 128L * 1024 * 1024)
-            .ScanAsync(StorageForensicsService.DefaultRoots());
+            .ScanAsync(StorageForensicsService.DefaultRoots(), cancellationToken);
         return new ActionResult(true, false,
             forensic.Partial
                 ? $"Muestreo parcial: {forensic.ScannedFiles} archivos; {forensic.Duplicates.Count} grupos id\u00E9nticos. No se elimin\u00F3 nada."
@@ -110,9 +110,9 @@ public sealed partial class ActionExecutor
             });
     }
 
-    private async Task<ActionResult> StorageDirectoryTrendAsync()
+    private async Task<ActionResult> StorageDirectoryTrendAsync(CancellationToken cancellationToken)
     {
-        var report = await new StorageDirectoryTrendService().ObserveAsync();
+        var report = await new StorageDirectoryTrendService().ObserveAsync(cancellationToken);
         return new ActionResult(true, false,
             report.BaselineCreated
                 ? "Crecimiento por carpetas: baseline creado sin modificar las carpetas."

@@ -28,4 +28,35 @@ public sealed class OperationTimeoutLeaseTests
         using var next = coordinator.Begin("other");
         Assert.Equal("other", coordinator.ActiveAction);
     }
+
+    [Fact]
+    public async Task WatchdogTimeout_CancelsCooperativeWorkAndReleasesLease()
+    {
+        var coordinator = new OperationCoordinator();
+        using var lease = coordinator.Begin("disk.directories.watch");
+        var cancellationObserved = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async Task<int> Work(CancellationToken cancellationToken)
+        {
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return 1;
+            }
+            catch (OperationCanceledException)
+            {
+                cancellationObserved.TrySetResult();
+                throw;
+            }
+        }
+
+        await Assert.ThrowsAsync<TimeoutException>(() =>
+            OperationWatchdog.RunAsync(
+                Work, TimeSpan.FromMilliseconds(20), "disk.directories.watch", lease));
+
+        await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(SpinWait.SpinUntil(
+            () => coordinator.State == "IDLE", TimeSpan.FromSeconds(2)));
+    }
 }
