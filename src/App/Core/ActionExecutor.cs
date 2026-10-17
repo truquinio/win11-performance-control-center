@@ -6,7 +6,7 @@ using Win11PerformanceControlCenter.App.Services;
 
 namespace Win11PerformanceControlCenter.App.Core;
 
-public sealed class ActionExecutor(
+public sealed partial class ActionExecutor(
     ActionCatalog catalog,
     OperationCoordinator coordinator,
     AppLogger logger,
@@ -57,6 +57,7 @@ public sealed class ActionExecutor(
     ElevatedActionClient elevatedActionClient)
 {
     private const int MaxProcessSelection = 20;
+    private DateTimeOffset? lastStorageCleanupPreview;
     private static readonly TimeSpan ReadActionBudget =
         TimeSpan.FromMinutes(4);
 
@@ -66,6 +67,18 @@ public sealed class ActionExecutor(
     {
         var action = catalog.GetRequired(id);
         ValidateParameters(action, parameters);
+
+        // Fail closed at the single action boundary, BEFORE an operation
+        // lease, STARTED audit record or UAC elevation can be initiated.
+        // Individual WRITE handlers still enforce their own confirmations.
+        if (action.Mode == ActionMode.WRITE &&
+            (parameters is not { ValueKind: JsonValueKind.Object } args ||
+             !args.TryGetProperty("confirmed", out var consent) ||
+             consent.ValueKind != JsonValueKind.True))
+        {
+            throw new InvalidOperationException(
+                "Falta confirmación explícita para ejecutar una acción WRITE.");
+        }
 
         if (workloadGuardService.ShouldBlock(id))
         {
@@ -133,29 +146,32 @@ public sealed class ActionExecutor(
             else
             {
                 privilege.Validate(action);
-                var work = ExecuteAllowedAsync(
-                    action,
-                    parameters,
-                    operationId);
-
-                // WRITE actions are short and must never be abandoned
-                // half-way; only read-only work is put under the watchdog.
+                // WRITE actions are never abandoned half-way. Read-only work
+                // starts inside the watchdog so timeout cancellation reaches
+                // providers that support cooperative cancellation.
                 result = action.Mode == ActionMode.WRITE
-                    ? await work
+                    ? await ExecuteAllowedAsync(
+                        action, parameters, operationId, CancellationToken.None)
                     : await OperationWatchdog.RunAsync(
-                        work,
+                        cancellationToken => ExecuteAllowedAsync(
+                            action, parameters, operationId, cancellationToken),
                         ReadActionBudget,
-                        action.Title);
+                        action.Title,
+                        lease);
             }
 
             // The action already happened: a log failure here must not turn
             // an applied change into a reported failure.
-            await logger.TryWriteAsync(id, "COMPLETED", new
-            {
-                result.Success,
-                result.DryRun,
-                result.Message
-            }, operationId);
+            await logger.TryWriteAsync(
+                id,
+                result.Success ? "COMPLETED" : "FAILED",
+                new
+                {
+                    result.Success,
+                    result.DryRun,
+                    result.Message
+                },
+                operationId);
             return result;
         }
         catch (Exception ex)
@@ -280,8 +296,10 @@ public sealed class ActionExecutor(
     private async Task<ActionResult> ExecuteAllowedAsync(
         ActionDefinition action,
         JsonElement? parameters,
-        string operationId)
+        string operationId,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         return action.Id switch
         {
             "system.actionplan.preview" => await ActionPlanAsync(operationId),
@@ -308,10 +326,12 @@ public sealed class ActionExecutor(
             "cpu.ecoqos.apply" => await EcoQoSApplyAsync(parameters),
             "cpu.ecoqos.restore" => await EcoQoSRestoreAsync(parameters),
             "disk.scan" => await StorageAsync(false),
+            "disk.duplicates.scan" => await StorageDuplicatesAsync(cancellationToken),
             "disk.cleanup.safe" => await StorageAsync(true),
             "disk.cleanup.execute" => await StorageCleanupAsync(parameters),
             "disk.appdata.rank" => await AppDataRankAsync(),
             "disk.volumes.audit" => await StorageVolumesAuditAsync(),
+            "disk.directories.watch" => await StorageDirectoryTrendAsync(cancellationToken),
             "disk.storage.watch" => await StorageWatchAsync(),
             "disk.hotspots.scan" => await StorageHotspotsAsync(),
             "disk.hibernate.status" => await HibernateAsync(false, null),
@@ -522,867 +542,6 @@ public sealed class ActionExecutor(
             });
     }
 
-    private async Task<ActionResult> NetworkFlushDnsAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(parameters, "Confirma el vaciado de caché DNS.");
-        var result = await systemRemediationService.FlushDnsAsync();
-        return RemediationActionResult(
-            result,
-            result.Success
-                ? "Red: caché DNS vaciada correctamente."
-                : "Red: no se pudo vaciar la caché DNS.");
-    }
-
-    private async Task<ActionResult> NetworkWinsockResetAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(parameters, "Confirma el reset de Winsock.");
-        var result = await systemRemediationService.ResetWinsockAsync();
-        return RemediationActionResult(
-            result,
-            result.Success
-                ? "Winsock restablecido. Reinicia Windows para completar el cambio."
-                : "Winsock no pudo restablecerse.");
-    }
-
-    private async Task<ActionResult> DriversRescanAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(parameters, "Confirma el reescaneo Plug and Play.");
-        var result = await systemRemediationService.RescanDevicesAsync();
-        var verification = await driverService.AnalyzeAsync();
-        healthState.SetDrivers(verification.Status);
-        return new ActionResult(
-            result.Success,
-            false,
-            result.Success
-                ? verification.ProblemCount == 0
-                    ? "Hardware reescaneado. Windows ya no reporta dispositivos con código de problema."
-                    : $"Hardware reescaneado; siguen apareciendo {verification.ProblemCount} dispositivo(s) con problema."
-                : "El reescaneo de hardware falló.",
-            new
-            {
-                result.Status,
-                result.RebootRequired,
-                steps = result.Steps,
-                remainingProblems = verification.ProblemCount,
-                verificationStatus = verification.Status,
-                verification.Problems
-            });
-    }
-
-    private async Task<ActionResult> AudioRestartAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(parameters, "Confirma el reinicio de Windows Audio.");
-        var result = await systemRemediationService.RestartAudioAsync();
-        var verification = await multimediaService.AnalyzeAsync();
-        return new ActionResult(
-            result.Success,
-            false,
-            result.Success
-                ? "Windows Audio reiniciado y el inventario multimedia volvió a responder."
-                : "No se pudo reiniciar Windows Audio.",
-            new
-            {
-                result.Status,
-                steps = result.Steps,
-                devices = verification.Devices
-            });
-    }
-
-    private async Task<ActionResult> ServicesPreviewAsync()
-    {
-        var preview = await serviceStartupRemediationService.PreviewAsync();
-        return new ActionResult(
-            true,
-            true,
-            $"Servicios automáticos: {preview.EligibleCount} revisable(s), {preview.ProtectedCount} protegido(s). No se modificó ninguno.",
-            new
-            {
-                preview.AutomaticCount,
-                preview.EligibleCount,
-                preview.ProtectedCount,
-                services = preview.Services,
-                note = "Cambiar a Manual no detiene el servicio actual; afecta el próximo arranque. Disabled debe usarse solo con conocimiento del servicio."
-            });
-    }
-
-    private async Task<ActionResult> ServiceDependenciesAsync(
-        JsonElement? parameters)
-    {
-        var serviceName = GetRequiredString(
-            parameters,
-            "serviceName");
-        var report =
-            await serviceStartupRemediationService
-                .AnalyzeDependenciesAsync(serviceName);
-
-        return new ActionResult(
-            true,
-            false,
-            report.DependentCount == 0
-                ? $"Servicio {report.ServiceName}: no se detectaron servicios dependientes."
-                : $"Servicio {report.ServiceName}: {report.DependentCount} servicio(s) dependiente(s); los cambios quedan protegidos.",
-            report);
-    }
-
-    private async Task<ActionResult> ServiceSetModeAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(parameters, "Confirma el cambio de inicio del servicio.");
-        var serviceName = GetRequiredString(parameters, "serviceName");
-        var targetMode = GetRequiredString(parameters, "targetMode");
-        var result = await serviceStartupRemediationService.ChangeModeAsync(
-            serviceName,
-            targetMode);
-
-        return new ActionResult(
-            result.Success,
-            false,
-            result.Success
-                ? $"Servicio {result.ServiceName}: inicio {result.BeforeMode} → {result.AfterMode}. El proceso actual no fue forzado a detenerse."
-                : $"Servicio {result.ServiceName}: no se pudo verificar el nuevo modo.",
-            new
-            {
-                result.ServiceName,
-                result.BeforeMode,
-                result.AfterMode,
-                result.CurrentState,
-                result.RestoreAvailable,
-                result.Status
-            });
-    }
-
-    private async Task<ActionResult> ServiceRestoreAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(parameters, "Confirma el rollback del servicio.");
-        var serviceName = GetRequiredString(parameters, "serviceName");
-        var result = await serviceStartupRemediationService.RestoreAsync(
-            serviceName);
-
-        return new ActionResult(
-            result.Success,
-            false,
-            result.Status == "NO_SNAPSHOT"
-                ? $"Servicio {serviceName}: no hay snapshot de inicio guardado."
-                : result.Success
-                    ? $"Servicio {serviceName}: modo de inicio restaurado a {result.AfterMode}."
-                    : $"Servicio {serviceName}: rollback no verificado.",
-            new
-            {
-                result.ServiceName,
-                result.BeforeMode,
-                result.AfterMode,
-                result.CurrentState,
-                result.RestoreAvailable,
-                result.Status
-            });
-    }
-
-    private async Task<ActionResult> StartupEntriesPreviewAsync()
-    {
-        var preview = await startupEntryRemediationService.PreviewAsync();
-        return new ActionResult(
-            true,
-            true,
-            $"Autoarranque Run/RunOnce: {preview.EligibleCount} revisable(s), {preview.ProtectedCount} protegido(s), {preview.DisabledByAppCount} con rollback.",
-            new
-            {
-                preview.RegisteredCount,
-                preview.EligibleCount,
-                preview.ProtectedCount,
-                preview.DisabledByAppCount,
-                entries = preview.Entries,
-                note = "Deshabilitar una entrada impide su próximo autoarranque; no fuerza el cierre del proceso actual."
-            });
-    }
-
-    private async Task<ActionResult> StartupEntryDisableAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(
-            parameters,
-            "Confirma la desactivación de la entrada de autoarranque.");
-        var entryId = GetRequiredString(parameters, "entryId");
-        var result = await startupEntryRemediationService.DisableAsync(
-            entryId);
-        return new ActionResult(
-            result.Success,
-            false,
-            result.Success
-                ? $"Autoarranque {result.Name}: deshabilitado con rollback disponible. El proceso actual no fue cerrado."
-                : $"Autoarranque {result.Name}: no se pudo verificar la desactivación.",
-            result);
-    }
-
-    private async Task<ActionResult> StartupEntryRestoreAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(
-            parameters,
-            "Confirma el rollback de la entrada de autoarranque.");
-        var entryId = GetRequiredString(parameters, "entryId");
-        var result = await startupEntryRemediationService.RestoreAsync(
-            entryId);
-        return new ActionResult(
-            result.Success,
-            false,
-            result.Status == "NO_SNAPSHOT"
-                ? "Autoarranque: no existe snapshot para esa entrada."
-                : result.Success
-                    ? $"Autoarranque {result.Name}: restaurado y verificado."
-                    : $"Autoarranque {result.Name}: rollback no verificado.",
-            result);
-    }
-
-    private async Task<ActionResult> ScheduledTasksPreviewAsync()
-    {
-        var preview =
-            await scheduledTaskRemediationService.PreviewAsync();
-        return new ActionResult(
-            true,
-            true,
-            $"Tareas programadas: {preview.EligibleCount} revisable(s), " +
-            $"{preview.ProtectedCount} protegida(s), " +
-            $"{preview.RestoreAvailableCount} con rollback.",
-            new
-            {
-                preview.TaskCount,
-                preview.EligibleCount,
-                preview.ProtectedCount,
-                preview.RestoreAvailableCount,
-                tasks = preview.Tasks,
-                note = "Deshabilitar una tarea afecta futuras ejecuciones; no se termina ningún proceso actual."
-            });
-    }
-
-    private async Task<ActionResult> ScheduledTaskDisableAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(
-            parameters,
-            "Confirma la desactivación de la tarea programada.");
-        var entryId = GetRequiredString(parameters, "entryId");
-        var result =
-            await scheduledTaskRemediationService.DisableAsync(
-                entryId);
-
-        return new ActionResult(
-            result.Success,
-            false,
-            result.Success
-                ? $"Tarea {result.FullName}: deshabilitada y verificada; rollback disponible."
-                : $"Tarea {result.FullName}: no se pudo verificar la desactivación.",
-            result);
-    }
-
-    private async Task<ActionResult> ScheduledTaskRestoreAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(
-            parameters,
-            "Confirma el rollback de la tarea programada.");
-        var entryId = GetRequiredString(parameters, "entryId");
-        var result =
-            await scheduledTaskRemediationService.RestoreAsync(
-                entryId);
-
-        return new ActionResult(
-            result.Success,
-            false,
-            result.Status == "NO_SNAPSHOT"
-                ? "Tarea programada: no existe snapshot guardado."
-                : result.Success
-                    ? $"Tarea {result.FullName}: restaurada y verificada."
-                    : $"Tarea {result.FullName}: rollback no verificado ({result.Status}).",
-            result);
-    }
-
-    private async Task<ActionResult> WindowsUpdateServicesRestartAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(
-            parameters,
-            "Confirma el reinicio de BITS y Windows Update.");
-        var result =
-            await systemRemediationService.RestartWindowsUpdateServicesAsync();
-        var verification = windowsUpdateAuditService.Analyze();
-        return new ActionResult(
-            result.Success,
-            false,
-            result.Success
-                ? "Servicios de Windows Update reiniciados. No se borró SoftwareDistribution ni el historial."
-                : "El reinicio de servicios de Windows Update quedó incompleto.",
-            new
-            {
-                result.Status,
-                steps = result.Steps,
-                recentEvents = verification.Items.Take(10).ToArray()
-            });
-    }
-
-    private async Task<ActionResult> PowerPlanBalancedAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(parameters, "Confirma el cambio al plan Equilibrado.");
-        var result = await powerPlanTuningService.SetBalancedAsync();
-        return PowerPlanActionResult(result, "Equilibrado");
-    }
-
-    private async Task<ActionResult> PowerPlanPerformanceAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(parameters, "Confirma el cambio a Alto rendimiento.");
-        var result = await powerPlanTuningService.SetPerformanceAsync();
-        return PowerPlanActionResult(result, "Alto rendimiento");
-    }
-
-    private async Task<ActionResult> PowerPlanRestoreAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(parameters, "Confirma el rollback del plan de energía.");
-        var result = await powerPlanTuningService.RestoreAsync();
-        return PowerPlanActionResult(result, "plan anterior");
-    }
-
-    private async Task<ActionResult> ExplorerRestartAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(parameters, "Confirma el reinicio de Explorer.");
-        var result = await systemRemediationService.RestartExplorerAsync();
-        var verification = explorerAuditService.Analyze();
-        return new ActionResult(
-            result.Success,
-            false,
-            result.Success
-                ? "Explorer reiniciado y verificado."
-                : "Explorer no pudo reiniciarse o verificarse.",
-            new
-            {
-                result.Status,
-                verificationStatus = verification.Status,
-                items = verification.Items
-            });
-    }
-
-    private static ActionResult RemediationActionResult(
-        SystemRemediationResult result,
-        string message) =>
-        new(
-            result.Success,
-            false,
-            message,
-            new
-            {
-                result.Status,
-                result.RebootRequired,
-                steps = result.Steps
-            });
-
-    private static ActionResult PowerPlanActionResult(
-        PowerPlanChangeResult result,
-        string label) =>
-        new(
-            result.Success,
-            false,
-            result.Status == "NO_SNAPSHOT"
-                ? "No hay un plan anterior guardado por la app para restaurar."
-                : result.Success
-                    ? $"Plan de energía aplicado/restaurado: {label}."
-                    : $"No se pudo verificar el cambio de energía ({result.Status}).",
-            new
-            {
-                result.Status,
-                result.BeforeGuid,
-                result.AfterGuid,
-                result.RestoreAvailable
-            });
-
-    private static int GetRequiredInt32(
-        JsonElement? parameters,
-        string name)
-    {
-        if (parameters is not { ValueKind: JsonValueKind.Object } args ||
-            !args.TryGetProperty(name, out var value) ||
-            value.ValueKind != JsonValueKind.Number ||
-            !value.TryGetInt32(out var result) ||
-            result <= 0)
-        {
-            throw new InvalidOperationException(
-                "Falta parámetro entero positivo: " + name);
-        }
-
-        return result;
-    }
-
-    private static string GetRequiredString(
-        JsonElement? parameters,
-        string name)
-    {
-        if (parameters is not { ValueKind: JsonValueKind.Object } args ||
-            !args.TryGetProperty(name, out var value) ||
-            value.ValueKind != JsonValueKind.String ||
-            string.IsNullOrWhiteSpace(value.GetString()))
-        {
-            throw new InvalidOperationException(
-                "Falta parámetro obligatorio: " + name);
-        }
-
-        return value.GetString()!;
-    }
-
-    private async Task<ActionResult> ReliabilityAsync()
-    {
-        var events = await reliabilityService.GetRecentAsync();
-        return new ActionResult(
-            true,
-            false,
-            $"Reliability Analyzer completado: {events.Count} eventos relevantes en la ventana analizada.",
-            new { events });
-    }
-
-    private async Task<ActionResult> CrashIntelligenceAsync()
-    {
-        var report = await crashIntelligenceService.AnalyzeAsync();
-        return new ActionResult(
-            true,
-            false,
-            report.Insights.Count == 0
-                ? "Crash Intelligence: no se agruparon patrones accionables en la ventana analizada."
-                : $"Crash Intelligence: {report.Insights.Count} patrón(es), {report.HighSeverityCount} de prioridad alta.",
-            report);
-    }
-
-    private async Task<ActionResult> MemoryAsync()
-    {
-        var snapshot = await snapshotService.CaptureAsync();
-        return new ActionResult(
-            true,
-            false,
-            "Análisis de memoria completado sin modificar working sets.",
-            new
-            {
-                snapshot.MemoryTotalBytes,
-                snapshot.MemoryUsedBytes,
-                snapshot.MemoryAvailableBytes
-            });
-    }
-
-    private ActionResult ProcessHygieneAnalyze()
-    {
-        var report = processHygieneService.Analyze();
-        return new ActionResult(
-            true,
-            true,
-            report.StoppableCount == 0
-                ? $"Process Hygiene: no se detectaron residuos detenibles; {report.ProtectedCount} proceso(s) sensibles quedaron protegidos."
-                : $"Process Hygiene: {report.StoppableCount} residuo(s) detenible(s), ~{report.EstimatedReclaimMb:F1} MiB potenciales. No se detuvo nada.",
-            report);
-    }
-
-    private async Task<ActionResult> ProcessHygieneStopAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(
-            parameters,
-            "Confirma la detención del residuo de laboratorio seleccionado.");
-        var processId = GetRequiredInt32(
-            parameters,
-            "processId");
-        var fingerprint = GetRequiredString(
-            parameters,
-            "fingerprint");
-
-        var result = await processHygieneService.StopAsync(
-            processId,
-            fingerprint);
-
-        return new ActionResult(
-            result.Success,
-            false,
-            result.Success
-                ? $"Process Hygiene: {result.Identity} detenido y verificado (~{result.EstimatedReclaimMb:F1} MiB observados en la previsualización)."
-                : $"Process Hygiene: la detención de {result.Identity} no pudo verificarse ({result.Status}).",
-            result);
-    }
-
-    private async Task<ActionResult> PageFileAsync()
-    {
-        var analysis = await pageFileService.AnalyzeAsync();
-        return new ActionResult(
-            true,
-            false,
-            analysis.Entries.Count == 0
-                ? "Pagefile: Windows no devolvió datos de uso."
-                : $"Pagefile: {analysis.Entries.Count} archivo(s) de paginación detectados.",
-            new
-            {
-                automaticallyManaged = analysis.AutomaticallyManaged,
-                entries = analysis.Entries
-            });
-    }
-
-    private async Task<ActionResult> PageFileCappedAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(
-            parameters,
-            "Confirma el perfil C: 512 MB + D: 4–8 GB.");
-        var result = await pageFileTuningService.ApplyCappedProfileAsync();
-        var verification = await pageFileService.AnalyzeAsync();
-
-        return new ActionResult(
-            result.Success,
-            false,
-            result.Status == "ALREADY_CAPPED"
-                ? "Pagefile: ya está en el perfil recomendado C: 512 MB + D: 4–8 GB. No se cambió nada."
-                : result.Success
-                    ? "Pagefile configurado: C: 512 MB + D: 4 GB inicial / 8 GB máximo. Reinicia para aplicar completamente."
-                    : $"Pagefile: no se pudo verificar el perfil limitado ({result.Status}).",
-            new
-            {
-                result.Status,
-                result.BeforeAutomatic,
-                result.AfterAutomatic,
-                result.RestoreAvailable,
-                result.RebootRequired,
-                verification.AutomaticallyManaged,
-                entries = verification.Entries
-            });
-    }
-
-    private async Task<ActionResult> PageFileRestoreAsync(
-        JsonElement? parameters)
-    {
-        RequireConfirmed(
-            parameters,
-            "Confirma el rollback del pagefile.");
-        var result = await pageFileTuningService.RestoreAsync();
-        var verification = await pageFileService.AnalyzeAsync();
-
-        return new ActionResult(
-            result.Success,
-            false,
-            result.Status == "NO_SNAPSHOT"
-                ? "Pagefile: no hay configuración previa guardada por la app."
-                : result.Success
-                    ? "Pagefile: configuración previa restaurada. Reinicia para completar el rollback."
-                    : $"Pagefile: rollback no verificado ({result.Status}).",
-            new
-            {
-                result.Status,
-                result.BeforeAutomatic,
-                result.AfterAutomatic,
-                result.RestoreAvailable,
-                result.RebootRequired,
-                verification.AutomaticallyManaged,
-                entries = verification.Entries
-            });
-    }
-
-    private async Task<ActionResult> MemoryTrimAsync(
-        JsonElement? parameters)
-    {
-        var processIds = GetConfirmedProcessIds(parameters);
-        var targets = processService.ValidateMemoryTrimSelection(
-            processIds);
-        var result = await processTuningService.TrimWorkingSetsAsync(
-            targets);
-
-        var before = result.Items
-            .Where(item => item.Success)
-            .Sum(item => item.BeforeWorkingSetBytes ?? 0);
-        var after = result.Items
-            .Where(item => item.Success)
-            .Sum(item => item.AfterWorkingSetBytes ?? 0);
-
-        return new ActionResult(
-            result.Succeeded > 0,
-            false,
-            $"MemoryTrim: {result.Succeeded}/{result.Attempted} procesos recortados. " +
-            "La reducción de working set es transitoria, no memoria ganada permanentemente.",
-            new
-            {
-                result.Attempted,
-                result.Succeeded,
-                result.Failed,
-                beforeWorkingSetBytes = before,
-                afterWorkingSetBytes = after,
-                items = result.Items,
-                transient = true
-            });
-    }
-
-    private async Task<ActionResult> EcoQoSApplyAsync(
-        JsonElement? parameters)
-    {
-        var processIds = GetConfirmedProcessIds(parameters);
-        var targets = processService.ValidateEcoQosSelection(
-            processIds);
-        var result = await processTuningService.ApplyEcoQosAsync(
-            targets);
-
-        return new ActionResult(
-            result.Succeeded > 0,
-            false,
-            $"EcoQoS: {result.Succeeded}/{result.Attempted} procesos actualizados. " +
-            "Se guardó estado previo para rollback.",
-            new
-            {
-                result.Attempted,
-                result.Succeeded,
-                result.Failed,
-                items = result.Items,
-                rollbackAvailable = result.Succeeded > 0
-            });
-    }
-
-    private async Task<ActionResult> EcoQoSRestoreAsync(
-        JsonElement? parameters)
-    {
-        var processIds = GetConfirmedProcessIds(parameters);
-        var result = await processTuningService.RestoreEcoQosAsync(
-            processIds);
-
-        return new ActionResult(
-            result.Succeeded > 0,
-            false,
-            $"EcoQoS rollback: {result.Succeeded}/{result.Attempted} procesos restaurados.",
-            new
-            {
-                result.Attempted,
-                result.Succeeded,
-                result.Failed,
-                items = result.Items
-            });
-    }
-
-    private static int[] GetConfirmedProcessIds(
-        JsonElement? parameters)
-    {
-        if (parameters is not { ValueKind: JsonValueKind.Object } value)
-            throw new InvalidOperationException(
-                "Faltan parámetros de proceso.");
-
-        if (!value.TryGetProperty("confirmed", out var confirmed) ||
-            confirmed.ValueKind is not JsonValueKind.True)
-        {
-            throw new InvalidOperationException(
-                "La operación WRITE requiere confirmación explícita.");
-        }
-
-        if (!value.TryGetProperty("processIds", out var processIds) ||
-            processIds.ValueKind != JsonValueKind.Array)
-        {
-            throw new InvalidOperationException(
-                "Falta la selección de procesos.");
-        }
-
-        var ids = processIds
-            .EnumerateArray()
-            .Select(item => item.GetInt32())
-            .Distinct()
-            .ToArray();
-
-        if (ids.Length is < 1 or > 20 ||
-            ids.Any(processId => processId <= 0))
-        {
-            throw new InvalidOperationException(
-                "La selección de procesos debe contener entre 1 y 20 PIDs positivos.");
-        }
-
-        return ids;
-    }
-
-    private ActionResult MemoryTrimPreview()
-    {
-        var analysis = processService.AnalyzeMemoryTrimCandidates();
-        return new ActionResult(
-            true,
-            true,
-            $"MemoryTrim: {analysis.Candidates.Count} procesos requieren revisión por working set alto. No se modificó memoria.",
-            new
-            {
-                analysis.ObservedProcesses,
-                candidates = analysis.Candidates,
-                note = "La lista es una previsualización; no implica que todos los procesos deban recortarse."
-            });
-    }
-
-    private ActionResult EcoQoSAnalyze()
-    {
-        var analysis = processService.AnalyzeEcoQosCandidates();
-        return new ActionResult(
-            true,
-            true,
-            $"EcoQoS: {analysis.Candidates.Count} candidatos de fondo requieren revisión. No se aplicaron políticas.",
-            new
-            {
-                analysis.ObservedProcesses,
-                candidates = analysis.Candidates,
-                note = "La candidatura es heurística. La aplicación WRITE exige selección explícita, confirmación y snapshot para rollback."
-            });
-    }
-
-    private async Task<ActionResult> StorageAsync(bool cleanupPreview)
-    {
-        var estimate = await storageService.AnalyzeSafeAsync();
-        return new ActionResult(
-            true,
-            cleanupPreview,
-            cleanupPreview
-                ? "Previsualización completada. No se eliminó ningún archivo."
-                : "Análisis de almacenamiento seguro completado.",
-            new
-            {
-                estimatedBytes = estimate.EstimatedBytes,
-                categories = estimate.Categories
-            });
-    }
-
-    private async Task<ActionResult> StorageCleanupAsync(JsonElement? parameters)
-    {
-        if (parameters is not { ValueKind: JsonValueKind.Object } args ||
-            !args.TryGetProperty("confirmed", out var flag) ||
-            flag.ValueKind != JsonValueKind.True)
-            throw new InvalidOperationException("Confirmá la limpieza después de previsualizarla.");
-        var summary = await storageService.CleanupSafeAsync();
-        return new ActionResult(summary.FailedFiles == 0, false,
-            $"Limpieza: {summary.DeletedFiles} archivos eliminados, {summary.DeletedBytes / 1048576d:F1} MiB liberados. " +
-            $"Errores: {summary.FailedFiles}; categorías omitidas: {summary.SkippedCategories.Count}.",
-            new
-            {
-                summary.DeletedBytes,
-                summary.DeletedFiles,
-                summary.FailedFiles,
-                summary.SkippedCategories
-            });
-    }
-
-    private async Task<ActionResult> AppDataRankAsync()
-    {
-        var rank = await storageService.RankLocalAsync();
-        var scope = rank.Complete
-            ? "completo"
-            : "parcial (límite de tiempo alcanzado)";
-        return new ActionResult(true, false,
-            $"Ranking {scope} de AppData\\Local: {rank.Folders.Count} carpetas mostradas en {rank.ElapsedMilliseconds} ms.",
-            new
-            {
-                folders = rank.Folders,
-                rank.Complete,
-                rank.DiscoveredFolders,
-                rank.ElapsedMilliseconds,
-                readOnly = true
-            });
-    }
-
-    private async Task<ActionResult> StorageVolumesAuditAsync()
-    {
-        var audit = await storageWatchService.AuditAsync();
-        return new ActionResult(
-            true,
-            false,
-            audit.WarningCount == 0
-                ? $"Volúmenes: {audit.Volumes.Count} unidades fijas sin presión de espacio."
-                : $"Volúmenes: {audit.WarningCount} unidad(es) requieren atención por espacio libre.",
-            new
-            {
-                audit.CapturedAt,
-                audit.WarningCount,
-                volumes = audit.Volumes,
-                readOnly = true
-            });
-    }
-
-    private async Task<ActionResult> StorageWatchAsync()
-    {
-        var report = await storageWatchService.WatchAsync();
-        return new ActionResult(
-            true,
-            false,
-            report.BaselineCreated
-                ? $"Storage Watch: baseline creado para {report.Volumes.Count} volumen(es)."
-                : report.AlertCount == 0
-                    ? $"Storage Watch: sin crecimiento anormal en {report.Volumes.Count} volumen(es)."
-                    : $"Storage Watch: {report.AlertCount} alerta(s) de espacio o crecimiento.",
-            new
-            {
-                report.CapturedAt,
-                report.PreviousCapturedAt,
-                report.BaselineCreated,
-                report.AlertCount,
-                volumes = report.Volumes,
-                stateIsAppLocalOnly = true
-            });
-    }
-
-    private async Task<ActionResult> StorageHotspotsAsync()
-    {
-        var report = await storageWatchService.ScanLowSpaceHotspotsAsync();
-        return new ActionResult(
-            true,
-            false,
-            report.Volumes.Count == 0
-                ? "Hotspots: ninguna unidad fija está por debajo del umbral de vigilancia (15%)."
-                : report.Partial
-                    ? $"Hotspots: escaneo parcial y acotado en {report.Volumes.Count} unidad(es); no se borró nada."
-                    : $"Hotspots: escaneo completado en {report.Volumes.Count} unidad(es); no se borró nada.",
-            new
-            {
-                report.CapturedAt,
-                report.BudgetSeconds,
-                report.ElapsedMilliseconds,
-                report.Partial,
-                volumes = report.Volumes,
-                readOnly = true
-            });
-    }
-
-    private static async Task<ActionResult> HibernateAsync(
-        bool reduce,
-        JsonElement? parameters)
-    {
-        if (reduce)
-            RequireConfirmed(parameters, "Confirma la reducción de hibernación.");
-
-        // The elevated runner validates administrative privileges for writes.
-        var psi = new ProcessStartInfo
-        {
-            FileName = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.System),
-                "powercfg.exe"),
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-        psi.ArgumentList.Add(reduce ? "/h" : "/a");
-        if (reduce) { psi.ArgumentList.Add("/type"); psi.ArgumentList.Add("reduced"); }
-        using var process = Process.Start(psi) ??
-            throw new InvalidOperationException("No se pudo ejecutar powercfg.exe.");
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25));
-        var output = process.StandardOutput.ReadToEndAsync(deadline.Token);
-        var error = process.StandardError.ReadToEndAsync(deadline.Token);
-        try { await process.WaitForExitAsync(deadline.Token); }
-        catch (OperationCanceledException)
-        {
-            if (!process.HasExited) process.Kill();
-            throw new TimeoutException("powercfg excedió el plazo de 25 segundos.");
-        }
-        var stdout = await output;
-        var stderr = await error;
-        var success = process.ExitCode == 0;
-        return new ActionResult(success, false, reduce
-            ? (success ? "Hibernación reducida aplicada. Inicio rápido disponible; hibernación completa deshabilitada."
-                : "No se pudo reducir la hibernación.")
-            : "Estado de suspensión consultado sin modificar Windows.",
-            new { exitCode = process.ExitCode, output = stdout, error = stderr });
-    }
-
     private async Task<ActionResult> NetworkAsync()
     {
         var snapshot = await snapshotService.CaptureAsync();
@@ -1586,6 +745,11 @@ public sealed class ActionExecutor(
                 $"({orphanBytes / 1048576d:F1} MiB). No están ejecutándose; limpiarlos es opcional.",
             _ => "Edge: las extensiones instaladas están íntegras y no se detectaron residuos relevantes."
         };
+        if (health.NameCollisions.Count > 0)
+        {
+            message += $" Además hay {health.NameCollisions.Count} nombre(s) repetido(s) entre instalaciones con ID distinto. " +
+                "Revisar manualmente en Edge; ninguna instalación se eliminará automáticamente.";
+        }
 
         return new ActionResult(
             true,
@@ -1601,12 +765,15 @@ public sealed class ActionExecutor(
                 health.DeveloperLoadedCount,
                 health.DataOnlyCount,
                 health.BrokenCount,
+                nameCollisions = health.NameCollisions,
                 orphanBytes,
                 recommendedNextStep = health.BrokenCount > 0
                     ? "Revisa las extensiones rotas antes de limpiar residuos. La app no eliminará automáticamente una instalación dañada."
-                    : health.DataOnlyCount > 0
-                        ? "Puedes dejar los residuos sin riesgo funcional o previsualizar una cuarentena reversible para recuperar espacio."
-                        : "No necesitas hacer nada.",
+                    : health.NameCollisions.Count > 0
+                        ? "Compara en edge://extensions las extensiones que comparten nombre pero tienen IDs distintos; solo Edge debe desinstalar la copia que elijas."
+                        : health.DataOnlyCount > 0
+                            ? "Puedes dejar los residuos sin riesgo funcional o previsualizar una cuarentena reversible para recuperar espacio."
+                            : "No necesitas hacer nada.",
                 items = health.Items
             });
     }
@@ -2040,10 +1207,12 @@ public sealed class ActionExecutor(
         return new ActionResult(
             true,
             false,
-            $"Recovery: {status.IncompleteOperations.Count} operación(es) incompleta(s) y {status.RollbackSnapshots.Count} snapshot(s) de rollback.",
+            $"Recovery: {status.IncompleteOperations.Count} operación(es) incompleta(s), {status.PotentiallyChangedFailedOperations.Count} WRITE fallida(s), {status.PotentiallyChangedCancelledOperations.Count} WRITE cancelada(s) por revisar y {status.RollbackSnapshots.Count} snapshot(s) de rollback.",
             new
             {
                 incompleteOperations = status.IncompleteOperations,
+                potentiallyChangedFailedOperations = status.PotentiallyChangedFailedOperations,
+                potentiallyChangedCancelledOperations = status.PotentiallyChangedCancelledOperations,
                 rollbackSnapshots = status.RollbackSnapshots,
                 ecoQosTargets = status.EcoQosTargets
             });

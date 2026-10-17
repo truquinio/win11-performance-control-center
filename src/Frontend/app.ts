@@ -1,1231 +1,10 @@
-export {};
+import type { OperationState, SystemSnapshot, ReliabilityEvent, ActionDefinition, ActionResult, Provider } from "./contracts";
+import { LocalProvider } from "./providers/local";
+import { DemoProvider } from "./providers/demo";
+import { moduleDefinitions } from "./module-definitions";
+import { formatBytes, formatDuration, asRecord, asArray, displayValue } from "./components/formatting";
+import { configureResultRenderer, renderStructuredResult } from "./components/action-results";
 
-type OperationState = "IDLE" | "ANALYZING" | "OPTIMIZING" | "MAINTENANCE" | "REBOOT_REQUIRED" | "ERROR";
-type Risk = "SAFE" | "CAUTION" | "EXPLICIT_CONFIRMATION";
-type EvidenceClassification = "HECHO" | "INDICIO" | "CAUSA_POSIBLE" | "NO_DETERMINADO";
-type ActionCategory = "System" | "Reliability" | "Memory" | "CPU" | "Storage" | "Network" | "Integrity" | "Drivers" | "Browsers" | "Multimedia" | "Startup" | "WindowsUpdate" | "Apps" | "Privacy" | "Developer" | "Thermal" | "Boot" | "SleepResume" | "Explorer" | "Backup";
-type Connectivity = "OFFLINE" | "OPTIONAL_ONLINE" | "ONLINE_REQUIRED";
-type ActionMode = "READ" | "DRY_RUN" | "WRITE";
-
-interface NetworkSnapshot {
-  name: string;
-  linkMbps: number;
-  receiveMegabytesPerSecond: number;
-  sendMegabytesPerSecond: number;
-}
-
-interface SystemSnapshot {
-  capturedAt: string;
-  cpuPercent: number;
-  memoryTotalBytes: number;
-  memoryUsedBytes: number;
-  memoryAvailableBytes: number;
-  diskDrive: string;
-  diskTotalBytes: number;
-  diskFreeBytes: number;
-  network: NetworkSnapshot | null;
-  integrityStatus: string;
-  driverStatus: string;
-  activationStatus: string;
-  rebootRequired: boolean | null;
-  uptimeSeconds: number;
-  operationState: OperationState;
-}
-
-interface ReliabilityEvent {
-  time: string;
-  id: number;
-  provider: string;
-  classification: EvidenceClassification;
-  message: string;
-}
-
-interface ActionParameterDefinition {
-  name: string;
-  type: string;
-  required: boolean;
-  description: string;
-}
-
-interface ActionDefinition {
-  id: string;
-  title: string;
-  description: string;
-  category: ActionCategory;
-  risk: Risk;
-  requiresAdmin: boolean;
-  connectivity: Connectivity;
-  reversible: boolean;
-  mode: ActionMode;
-  parameters?: ActionParameterDefinition[] | null;
-}
-
-interface ActionResult {
-  success: boolean;
-  dryRun: boolean;
-  message: string;
-  data?: Record<string, unknown>;
-}
-
-interface HostResponse<T> {
-  requestId: string;
-  ok: boolean;
-  result?: T;
-  error?: string;
-}
-
-interface Provider {
-  readonly surface: "local" | "demo";
-  snapshot(): Promise<SystemSnapshot>;
-  reliability(): Promise<ReliabilityEvent[]>;
-  catalog(): Promise<ActionDefinition[]>;
-  runAction(id: string, parameters?: Record<string, unknown>): Promise<ActionResult>;
-}
-
-declare global {
-  interface Window {
-    chrome?: {
-      webview?: {
-        postMessage(message: unknown): void;
-        addEventListener(type: "message", listener: (event: MessageEvent) => void): void;
-      };
-    };
-  }
-}
-
-class LocalProvider implements Provider {
-  readonly surface = "local" as const;
-  private pending = new Map<string, { resolve: (value: unknown) => void; reject: (reason: Error) => void; timer: number }>();
-
-  constructor() {
-    window.chrome?.webview?.addEventListener("message", event => {
-      const message = event.data as HostResponse<unknown>;
-      if (!message?.requestId) return;
-      const pending = this.pending.get(message.requestId);
-      if (!pending) return;
-      window.clearTimeout(pending.timer);
-      this.pending.delete(message.requestId);
-      if (message.ok) pending.resolve(message.result);
-      else pending.reject(new Error(message.error ?? "Error del backend local"));
-    });
-  }
-
-  private request<T>(
-    method: string,
-    payload: Record<string, unknown> = {},
-    timeoutMs = 20000
-  ): Promise<T> {
-    const requestId = crypto.randomUUID();
-    return new Promise<T>((resolve, reject) => {
-      const timer = window.setTimeout(() => {
-        this.pending.delete(requestId);
-        reject(new Error("Timeout esperando al backend local"));
-      }, timeoutMs);
-      this.pending.set(requestId, { resolve: value => resolve(value as T), reject, timer });
-      window.chrome?.webview?.postMessage({ type: "request", requestId, method, payload });
-    });
-  }
-
-  snapshot(): Promise<SystemSnapshot> { return this.request("system.snapshot"); }
-  reliability(): Promise<ReliabilityEvent[]> { return this.request("system.reliability"); }
-  catalog(): Promise<ActionDefinition[]> { return this.request("actions.catalog"); }
-  runAction(id: string, parameters: Record<string, unknown> = {}): Promise<ActionResult> {
-    const payload: Record<string, unknown> = { id };
-    if (Object.keys(parameters).length > 0) payload.parameters = parameters;
-    // The backend can legitimately keep a read operation alive for up to
-    // four minutes (and an elevated helper for up to three). The UI timeout
-    // must outlive those budgets or it can report a false failure while the
-    // global operation interlock is still held.
-    const defaultActionTimeoutMs = 270000;
-    const integrityRepairTimeoutMs = 60 * 60 * 1000;
-    const timeoutMs = id === "system.integrity.repair"
-      ? integrityRepairTimeoutMs
-      : defaultActionTimeoutMs;
-    return this.request("actions.run", payload, timeoutMs);
-  }
-}
-
-class DemoProvider implements Provider {
-  readonly surface = "demo" as const;
-
-  async snapshot(): Promise<SystemSnapshot> {
-    await delay(220);
-    return {
-      capturedAt: new Date().toISOString(),
-      cpuPercent: 18,
-      memoryTotalBytes: 15.8 * 1024 ** 3,
-      memoryUsedBytes: 11.2 * 1024 ** 3,
-      memoryAvailableBytes: 4.6 * 1024 ** 3,
-      diskDrive: "C:",
-      diskTotalBytes: 476 * 1024 ** 3,
-      diskFreeBytes: 91.6 * 1024 ** 3,
-      network: { name: "Wi-Fi", linkMbps: 866, receiveMegabytesPerSecond: 12.4, sendMegabytesPerSecond: 8.1 },
-      integrityStatus: "OK",
-      driverStatus: "OK",
-      activationStatus: "OK",
-      rebootRequired: false,
-      uptimeSeconds: 18632,
-      operationState: "IDLE"
-    };
-  }
-
-  async reliability(): Promise<ReliabilityEvent[]> {
-    return [
-      { time: new Date(Date.now() - 8.5e6).toISOString(), id: 6008, provider: "EventLog", classification: "HECHO", message: "Ejemplo DEMO: el cierre anterior fue inesperado." },
-      { time: new Date(Date.now() - 8.4e6).toISOString(), id: 41, provider: "Microsoft-Windows-Kernel-Power", classification: "INDICIO", message: "Ejemplo DEMO: Windows detectó un inicio posterior a un apagado no limpio." },
-      { time: new Date(Date.now() - 3.4e6).toISOString(), id: 1074, provider: "User32", classification: "HECHO", message: "Ejemplo DEMO: reinicio solicitado por un proceso." }
-    ];
-  }
-
-  async catalog(): Promise<ActionDefinition[]> {
-    return demoCatalog;
-  }
-
-  async runAction(id: string, parameters: Record<string, unknown> = {}): Promise<ActionResult> {
-    await delay(450);
-
-    if (id === "processes.hygiene.analyze") {
-      return {
-        success: true,
-        dryRun: true,
-        message: "DEMO: 3 residuos detenibles y 2 procesos protegidos.",
-        data: {
-          capturedAt: new Date().toISOString(),
-          stoppableCount: 3,
-          protectedCount: 2,
-          estimatedReclaimMb: 1878,
-          items: [
-            {
-              processId: 100,
-              processName: "msedge.exe",
-              category: "HEADLESS_SIG_TEST",
-              identity: "sig-edge-headless-profile3",
-              reason: "Navegador Edge headless con perfil dedicado de pruebas SIG.",
-              protected: false,
-              stoppable: true,
-              fingerprint: "AAAAAAAAAAAAAAAAAAAAAAAA",
-              estimatedReclaimMb: 150,
-              ageMinutes: 120,
-              relatedProcessIds: [100, 101]
-            },
-            {
-              processId: 200,
-              processName: "qemu-system-x86_64-headless.exe",
-              category: "ANDROID_LAB",
-              identity: "spotify_api28_hooklab2",
-              reason: "Emulador Android marcado como laboratorio/prueba.",
-              protected: false,
-              stoppable: true,
-              fingerprint: "BBBBBBBBBBBBBBBBBBBBBBBB",
-              estimatedReclaimMb: 1536,
-              ageMinutes: 480,
-              relatedProcessIds: [200]
-            },
-            {
-              processId: 300,
-              processName: "python.exe",
-              category: "ORPHAN_UVICORN",
-              identity: "127.0.0.1:8773",
-              reason: "Servidor Uvicorn cuyo proceso iniciador ya no existe.",
-              protected: false,
-              stoppable: true,
-              fingerprint: "CCCCCCCCCCCCCCCCCCCCCCCC",
-              estimatedReclaimMb: 102,
-              ageMinutes: 240,
-              relatedProcessIds: [300, 301]
-            },
-            {
-              processId: 400,
-              processName: "python.exe",
-              category: "ACTIVE_DEV_SERVER",
-              identity: "127.0.0.1:8877",
-              reason: "Servidor de desarrollo con cadena activa.",
-              protected: true,
-              stoppable: false,
-              fingerprint: "DDDDDDDDDDDDDDDDDDDDDDDD",
-              estimatedReclaimMb: 132,
-              ageMinutes: 20,
-              relatedProcessIds: [400, 401]
-            },
-            {
-              processId: 500,
-              processName: "chrome-headless-shell.exe",
-              category: "PROTECTED_HEADLESS_BROWSER",
-              identity: "Playwright / Chromium",
-              reason: "Pertenece a PM2/bot/automatización protegida.",
-              protected: true,
-              stoppable: false,
-              fingerprint: "EEEEEEEEEEEEEEEEEEEEEEEE",
-              estimatedReclaimMb: 100,
-              ageMinutes: 30,
-              relatedProcessIds: [500]
-            }
-          ]
-        }
-      };
-    }
-
-    if (id === "processes.hygiene.stop") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: residuo detenido y verificado.",
-        data: {
-          success: true,
-          status: "EVALUATION",
-          category: "ANDROID_LAB",
-          identity: "spotify_api28_hooklab2",
-          stoppedProcessIds: [200],
-          stillAliveProcessIds: [],
-          estimatedReclaimMb: 1536,
-          detail: "Detención sintética verificada; no se tocó el host."
-        }
-      };
-    }
-
-    if (id === "memory.trim" || id === "cpu.ecoqos.apply" || id === "cpu.ecoqos.restore") {
-      const processIds = Array.isArray(parameters.processIds)
-        ? parameters.processIds.filter((value): value is number => typeof value === "number")
-        : [];
-      return {
-        success: processIds.length > 0,
-        dryRun: false,
-        message: `DEMO: ${id} simulado sobre ${processIds.length} proceso(s).`,
-        data: {
-          attempted: processIds.length,
-          succeeded: processIds.length,
-          failed: 0,
-          items: processIds.map(processId => ({
-            processId,
-            name: "demo-process",
-            success: true,
-            beforeWorkingSetBytes: 400 * 1024 ** 2,
-            afterWorkingSetBytes: id === "memory.trim" ? 260 * 1024 ** 2 : null,
-            beforeEcoQos: id === "cpu.ecoqos.restore",
-            afterEcoQos: id === "cpu.ecoqos.apply"
-          })),
-          rollbackAvailable: id === "cpu.ecoqos.apply"
-        }
-      };
-    }
-
-    if (id === "disk.cleanup.execute") {
-      return { success: true, dryRun: false, message: "DEMO: limpieza simulada; no se elimina ningún archivo.", data: { deletedBytes: 0, deletedFiles: 0, failedFiles: 0 } };
-    }
-    if (id === "disk.scan" || id === "disk.cleanup.safe") {
-      return {
-        success: true,
-        dryRun: id === "disk.cleanup.safe",
-        message: "DEMO: análisis de almacenamiento simulado.",
-        data: {
-          estimatedBytes: 13.4 * 1024 ** 3,
-          categories: [
-            { label: "Temporales de usuario", bytes: 5.2 * 1024 ** 3, risk: "LOW" },
-            { label: "Temporales de Windows", bytes: 8.2 * 1024 ** 3, risk: "CAUTION" }
-          ]
-        }
-      };
-    }
-
-    if (id === "system.integrity.check") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: comprobación de integridad simulada.",
-        data: {
-          status: "OK",
-          exitCode: 0,
-          durationMs: 620,
-          output: "DEMO: No component store corruption detected."
-        }
-      };
-    }
-
-    if (id === "drivers.analyze") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: Windows no reporta dispositivos con problemas.",
-        data: { status: "OK", problemCount: 0, problems: [] }
-      };
-    }
-
-    if (id === "system.activation.analyze") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: Windows informa una licencia activa.",
-        data: {
-          status: "LICENSED",
-          licenseStatus: 1,
-          description: "DEMO: Windows edition"
-        }
-      };
-    }
-
-    if (id === "browsers.inventory") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: 2 navegadores detectados.",
-        data: {
-          browsers: [
-            { name: "Microsoft Edge", version: "DEMO", profileDetected: true, executablePath: "DEMO" },
-            { name: "Google Chrome", version: "DEMO", profileDetected: true, executablePath: "DEMO" }
-          ]
-        }
-      };
-    }
-
-    if (id === "browsers.edge.performance.audit") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: Edge Performance requiere optimización.",
-        data: {
-          processCount: 24,
-          visibleWindowCount: 1,
-          workingSetBytes: 5.5 * 1024 ** 3,
-          privateBytes: 6.1 * 1024 ** 3,
-          policy: {
-            backgroundModeEnabled: 0,
-            startupBoostEnabled: 0,
-            sleepingTabsEnabled: null,
-            sleepingTabsTimeout: null,
-            autoDiscardSleepingTabsEnabled: null,
-            efficiencyModeEnabled: null,
-            efficiencyMode: null,
-            launchEdgeOnWindowsStartupEnabled: null,
-            mandatoryPerformanceOverridesPresent: true
-          },
-          autoLaunchEntryCount: 1,
-          restoreAvailable: false,
-          optimized: false,
-          guidance: "Pendiente: sleeping tabs, timeout 5 min, auto-discard, efficiency mode, Windows startup, Run auto-launch."
-        }
-      };
-    }
-
-    if (id === "browsers.edge.performance.optimize" ||
-        id === "browsers.edge.performance.restore") {
-      const optimized = id.endsWith(".optimize");
-      return {
-        success: true,
-        dryRun: false,
-        message: optimized
-          ? "DEMO: perfil Edge aplicado."
-          : "DEMO: perfil Edge restaurado.",
-        data: {
-          success: true,
-          status: optimized ? "OPTIMIZED" : "RESTORED",
-          restoreAvailable: optimized,
-          detail: "DEMO",
-          report: {
-            processCount: 12,
-            visibleWindowCount: 1,
-            workingSetBytes: 1.8 * 1024 ** 3,
-            privateBytes: 2.4 * 1024 ** 3,
-            policy: {
-              backgroundModeEnabled: optimized ? 0 : 1,
-              startupBoostEnabled: optimized ? 0 : 1,
-              sleepingTabsEnabled: optimized ? 1 : null,
-              sleepingTabsTimeout: optimized ? 300 : null,
-              autoDiscardSleepingTabsEnabled: optimized ? 1 : null,
-              efficiencyModeEnabled: optimized ? 1 : null,
-              efficiencyMode: optimized ? 0 : null,
-              launchEdgeOnWindowsStartupEnabled: optimized ? 0 : null,
-              mandatoryPerformanceOverridesPresent: false
-            },
-            autoLaunchEntryCount: optimized ? 0 : 1,
-            restoreAvailable: optimized,
-            optimized,
-            guidance: optimized ? "Optimizado." : "Restaurado."
-          }
-        }
-      };
-    }
-
-    if (id === "browsers.extensions.health") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: salud de extensiones Edge simulada.",
-        data: {
-          browser: "Microsoft Edge",
-          status: "WARNING",
-          profilesScanned: 1,
-          developerMode: true,
-          installedCount: 5,
-          developerLoadedCount: 1,
-          dataOnlyCount: 2,
-          brokenCount: 1,
-          items: [
-            { profile: "Default", extensionId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", name: "Demo instalada", status: "OK", dataBytes: 1200000, installationPath: "DEMO", developerLoaded: false },
-            { profile: "Default", extensionId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", name: "Demo datos huérfanos", status: "DATA_WITHOUT_INSTALLATION", dataBytes: 2400000, installationPath: null, developerLoaded: false }
-          ]
-        }
-      };
-    }
-
-    if (id === "startup.services.preview") {
-      return {
-        success: true,
-        dryRun: true,
-        message: "DEMO: 1 servicio revisable y 1 protegido.",
-        data: {
-          automaticCount: 2,
-          eligibleCount: 1,
-          protectedCount: 1,
-          services: [
-            {
-              serviceName: "DemoVendorSvc",
-              displayName: "Demo Vendor Updater",
-              state: "Stopped",
-              startMode: "Auto",
-              pathName: "C:\\Program Files\\DemoVendor\\updater.exe",
-              protected: false,
-              reason: "Servicio de terceros automático y actualmente detenido.",
-              restoreAvailable: false
-            },
-            {
-              serviceName: "RpcSs",
-              displayName: "Remote Procedure Call",
-              state: "Running",
-              startMode: "Auto",
-              pathName: "C:\\Windows\\System32\\svchost.exe",
-              protected: true,
-              reason: "Servicio esencial o de infraestructura de Windows.",
-              restoreAvailable: false
-            }
-          ]
-        }
-      };
-    }
-
-    if (id === "multimedia.inventory") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: inventario multimedia simulado.",
-        data: {
-          devices: [
-            { kind: "Audio", name: "DEMO Audio Device", status: "OK" },
-            { kind: "Video", name: "DEMO Display Adapter", status: "OK" }
-          ]
-        }
-      };
-    }
-
-    if (id === "memory.pagefile.analyze") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: pagefile administrado automáticamente.",
-        data: {
-          automaticallyManaged: true,
-          entries: [
-            { name: "C:\\\\pagefile.sys", allocatedMb: 4096, currentUsageMb: 620, peakUsageMb: 1240 }
-          ]
-        }
-      };
-    }
-
-    if (id === "memory.trim.preview" || id === "cpu.ecoqos.analyze") {
-      return {
-        success: true,
-        dryRun: true,
-        message: "DEMO: candidatos simulados; no se aplicaron cambios.",
-        data: {
-          observedProcesses: 128,
-          candidates: [
-            { processId: 4242, name: "example", workingSetBytes: 420 * 1024 ** 2, hasMainWindow: false }
-          ]
-        }
-      };
-    }
-
-    if (id === "browsers.automation.audit") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: Chrome Playwright y Chromium headless separados, sin cerrar procesos.",
-        data: {
-          capturedAt: new Date().toISOString(),
-          totalBrowserProcesses: 16,
-          workingSetBytes: 1940000000,
-          privateBytes: 1300000000,
-          sampleCount: 3,
-          accountingNotice: "La suma de working sets puede duplicar páginas compartidas. La memoria privada representa compromiso, no RAM exclusiva.",
-          safetyNotice: "Solo observación, no se ejecuta ningún cierre ni EcoQoS.",
-          families: [
-            {
-              family: "PLAYWRIGHT_CHROME", processCount: 13,
-              workingSetBytes: 1500000000, privateBytes: 1100000000,
-              peakPrivateBytes: 1550000000, status: "OBSERVED",
-              detail: "Una muestra no demuestra fuga. El navegador se reduce al acabar el trabajo.",
-              confirmedOwners: ["LINKEDIN_BOT"],
-              recentSamples: []
-            },
-            {
-              family: "PLAYWRIGHT_HEADLESS", processCount: 3,
-              workingSetBytes: 145000000, privateBytes: 125000000,
-              peakPrivateBytes: 300000000, status: "TRANSIENT_RECOVERED",
-              detail: "Un pico temporal volvió al nivel base: no intervenir.",
-              confirmedOwners: ["SEPE_AGENT"],
-              recentSamples: []
-            }
-          ],
-          processes: [
-            {
-              processId: 12345, parentProcessId: 23456,
-              family: "PLAYWRIGHT_CHROME", role: "renderer",
-              owner: "LINKEDIN_BOT", attribution: "CONFIRMED",
-              workingSetBytes: 368000000, privateBytes: 320000000
-            }
-          ]
-        }
-      };
-    }
-
-    if (id === "system.crash.analyze") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: Crash Intelligence agrupó patrones de evidencia.",
-        data: {
-          eventsRead: 6,
-          highSeverityCount: 1,
-          mediumSeverityCount: 1,
-          insights: [
-            {
-              category: "Estabilidad",
-              severity: "HIGH",
-              title: "Apagados o reinicios no limpios",
-              occurrences: 2,
-              latestAt: new Date().toISOString(),
-              recommendedActionId: "system.health.scan",
-              rationale: "El evento confirma un cierre no limpio, pero no determina la causa.",
-              latestEvidence: "DEMO Kernel-Power"
-            },
-            {
-              category: "Aplicaciones",
-              severity: "MEDIUM",
-              title: "Aplicaciones sin responder",
-              occurrences: 1,
-              latestAt: new Date().toISOString(),
-              recommendedActionId: "memory.analyze",
-              rationale: "Se requiere contexto antes de reparar.",
-              latestEvidence: "DEMO Application Hang"
-            }
-          ]
-        }
-      };
-    }
-
-    if (id === "drivers.usb.analyze") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: 1 USB con problema y elegible para reinicio controlado.",
-        data: {
-          deviceCount: 2,
-          problemCount: 1,
-          restartEligibleCount: 1,
-          devices: [
-            {
-              deviceInstanceId: "USB\\VID_1234&PID_5678\\DEMO",
-              name: "Demo USB Camera",
-              manufacturer: "Demo Vendor",
-              pnpClass: "Camera",
-              service: "usbvideo",
-              problemCode: 43,
-              status: "Error",
-              restartEligible: true,
-              reason: "Dispositivo USB con problema y fuera de categorías protegidas."
-            },
-            {
-              deviceInstanceId: "USB\\ROOT_HUB30\\DEMO",
-              name: "USB Root Hub (USB 3.0)",
-              manufacturer: "Microsoft",
-              pnpClass: "USB",
-              service: "USBHUB3",
-              problemCode: 0,
-              status: "OK",
-              restartEligible: false,
-              reason: "Sin código de problema."
-            }
-          ]
-        }
-      };
-    }
-
-    if (id === "startup.entries.preview") {
-      return {
-        success: true,
-        dryRun: true,
-        message: "DEMO: autoarranque clasificado con rollback.",
-        data: {
-          registeredCount: 2,
-          eligibleCount: 1,
-          protectedCount: 1,
-          disabledByAppCount: 0,
-          entries: [
-            {
-              entryId: "0123456789ABCDEF01234567",
-              name: "DemoVendor",
-              command: "C:\\Program Files\\DemoVendor\\agent.exe --background",
-              location: "HKCU\\Run",
-              scope: "HKCU",
-              view: "Registry64",
-              enabled: true,
-              protected: false,
-              reason: "Entrada de terceros revisable.",
-              restoreAvailable: false
-            },
-            {
-              entryId: "89ABCDEF0123456789ABCDEF",
-              name: "PM2",
-              command: "node.exe pm2 resurrect",
-              location: "HKCU\\Run",
-              scope: "HKCU",
-              view: "Registry64",
-              enabled: true,
-              protected: true,
-              reason: "Protegido por política local.",
-              restoreAvailable: false
-            }
-          ]
-        }
-      };
-    }
-
-    if (id === "startup.service.dependencies") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: servicio sin dependientes.",
-        data: {
-          serviceName: "DemoVendorSvc",
-          displayName: "Demo Vendor Updater",
-          dependentCount: 0,
-          dependents: []
-        }
-      };
-    }
-
-    if (id === "startup.tasks.preview") {
-      return {
-        success: true,
-        dryRun: true,
-        message: "DEMO: tareas programadas clasificadas.",
-        data: {
-          taskCount: 4,
-          eligibleCount: 2,
-          protectedCount: 2,
-          restoreAvailableCount: 0,
-          tasks: [
-            {
-              entryId: "111111111111111111111111",
-              fullName: "\\DemoVendor\\Updater",
-              taskName: "Updater",
-              taskPath: "\\DemoVendor\\",
-              state: "Ready",
-              execute: "C:\\Program Files\\DemoVendor\\updater.exe",
-              arguments: "--background",
-              protected: false,
-              reason: "Tarea de terceros revisable.",
-              restoreAvailable: false
-            },
-            {
-              entryId: "222222222222222222222222",
-              fullName: "\\Microsoft\\Windows\\Defrag\\ScheduledDefrag",
-              taskName: "ScheduledDefrag",
-              taskPath: "\\Microsoft\\Windows\\Defrag\\",
-              state: "Ready",
-              execute: "C:\\Windows\\System32\\defrag.exe",
-              arguments: null,
-              protected: true,
-              reason: "Tarea bajo el namespace Microsoft.",
-              restoreAvailable: false
-            },
-            {
-              entryId: "333333333333333333333333",
-              fullName: "\\Automation\\PM2 resurrect",
-              taskName: "PM2 resurrect",
-              taskPath: "\\Automation\\",
-              state: "Ready",
-              execute: "C:\\Program Files\\nodejs\\node.exe",
-              arguments: "pm2 resurrect",
-              protected: true,
-              reason: "Protegida por política local.",
-              restoreAvailable: false,
-              actionKind: "EXEC",
-              actionStatus: "NORMAL"
-            },
-            {
-              entryId: "444444444444444444444444",
-              fullName: "\\SoftLanding\\StaleCreativeTask",
-              taskName: "StaleCreativeTask",
-              taskPath: "\\SoftLanding\\",
-              state: "Ready",
-              execute: null,
-              arguments: null,
-              protected: false,
-              reason: "COM handler sin registro CLSID. La tarea está stale y puede deshabilitarse con rollback.",
-              restoreAvailable: false,
-              actionKind: "COM_HANDLER",
-              comHandlerClassId: "{F576B2F9-7850-4226-ADB0-E5993FED4F02}",
-              actionStatus: "STALE_COM_HANDLER"
-            }
-          ]
-        }
-      };
-    }
-
-    if (id === "system.registry.evidence" ||
-        id === "system.com.evidence" ||
-        id === "system.certificates.audit") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: evidencia read-only simulada.",
-        data: {
-          area: id.includes("registry") ? "Registry" :
-            id.includes(".com.") ? "COM" : "Certificates",
-          status: "OK",
-          partial: id.includes(".com."),
-          attentionCount: 1,
-          items: [
-            {
-              category: "DEMO",
-              name: "Hallazgo de ejemplo",
-              status: "ATTENTION",
-              source: "Read-only",
-              detail: "La demo no modifica ni elimina este elemento."
-            }
-          ]
-        }
-      };
-    }
-
-    if (id === "diagnostics.bundle.create") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: bundle diagnóstico sanitizado creado.",
-        data: {
-          success: true,
-          generatedAt: new Date().toISOString(),
-          path: "C:\\Users\\demo\\AppData\\Local\\Win11PerformanceControlCenter\\Exports\\Win11PCC-diagnostic-demo.zip",
-          bytes: 24000,
-          jsonFiles: 10,
-          sanitized: true,
-          message: "No incluye comandos, argumentos, IDs PnP/USB, claves, cookies, sesiones ni logs crudos."
-        }
-      };
-    }
-
-    if (id === "network.test") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: adaptador simulado medido.",
-        data: {
-          network: { name: "Wi-Fi", linkMbps: 866, receiveMegabytesPerSecond: 12.4, sendMegabytesPerSecond: 8.1 }
-        }
-      };
-    }
-
-    if (id === "memory.analyze") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: análisis de memoria simulado.",
-        data: {
-          memoryTotalBytes: 15.8 * 1024 ** 3,
-          memoryUsedBytes: 11.2 * 1024 ** 3,
-          memoryAvailableBytes: 4.6 * 1024 ** 3
-        }
-      };
-    }
-
-    if (id === "system.actionplan.preview") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: plan de acción construido.",
-        data: {
-          highPriorityCount: 1,
-          mediumPriorityCount: 1,
-          actionableCount: 2,
-          deferredCount: 1,
-          workload: {
-            configuredMode: "AUTO",
-            effectiveMode: "IN_USE",
-            idleSeconds: 42,
-            dFreePercent: 12.5,
-            storageCritical: false,
-            heavyActionsAllowed: false,
-            reason: "El equipo está en uso."
-          },
-          items: [
-            {
-              priority: "HIGH",
-              title: "Espacio bajo en D:",
-              reason: "12.5% libre.",
-              actionId: "disk.hotspots.scan",
-              mode: "READ",
-              risk: "SAFE",
-              requiresAdmin: false,
-              deferred: true,
-              deferReason: "PC en uso"
-            },
-            {
-              priority: "LOW",
-              title: "Rollbacks disponibles",
-              reason: "Hay cambios recuperables.",
-              actionId: "backup.rollback.center",
-              mode: "READ",
-              risk: "SAFE",
-              requiresAdmin: false,
-              deferred: false,
-              deferReason: null
-            }
-          ]
-        }
-      };
-    }
-
-    if (id.startsWith("system.workload.")) {
-      const configured = id.endsWith(".inuse")
-        ? "IN_USE"
-        : id.endsWith(".maintenance")
-          ? "MAINTENANCE"
-          : "AUTO";
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: modo de carga actualizado.",
-        data: {
-          configuredMode: configured,
-          effectiveMode: configured === "AUTO" ? "IDLE" : configured,
-          idleSeconds: 900,
-          dFreePercent: 50,
-          storageCritical: false,
-          heavyActionsAllowed: configured !== "IN_USE",
-          reason: configured === "IN_USE"
-            ? "PC protegido mientras está en uso."
-            : "Mantenimiento permitido."
-        }
-      };
-    }
-
-    if (id === "backup.rollback.center") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: 2 cambios con rollback disponible.",
-        data: {
-          incompleteOperations: [],
-          entries: [
-            {
-              id: "pagefile",
-              title: "Archivo de paginación",
-              detail: "Configuración previa guardada.",
-              actionId: "memory.pagefile.restore",
-              parameters: {},
-              requiresAdmin: true,
-              risk: "SAFE"
-            },
-            {
-              id: "power-plan",
-              title: "Plan de energía",
-              detail: "Plan anterior disponible.",
-              actionId: "thermal.power.restore",
-              parameters: {},
-              requiresAdmin: false,
-              risk: "SAFE"
-            }
-          ]
-        }
-      };
-    }
-
-    if (id === "system.healthscore.analyze") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: Health Score 82/100 (GOOD).",
-        data: {
-          capturedAt: new Date().toISOString(),
-          score: 82,
-          band: "GOOD",
-          previousCapturedAt: new Date(Date.now() - 86400000).toISOString(),
-          baselineCreated: false,
-          historyCount: 4,
-          factors: [
-            { category: "Almacenamiento", status: "WATCH", penalty: 10, detail: "12.4% libre en D:." },
-            { category: "Memoria", status: "WATCH", penalty: 8, detail: "82% de RAM en uso." }
-          ],
-          changes: [
-            { category: "Métrica", name: "Health Score", impact: "IMPROVED", before: "77", after: "82", delta: 5, unit: "puntos" }
-          ],
-          trend: [
-            { capturedAt: new Date(Date.now() - 86400000).toISOString(), score: 77, band: "GOOD", memoryUsedPercent: 79, systemDiskFreePercent: 22 },
-            { capturedAt: new Date().toISOString(), score: 82, band: "GOOD", memoryUsedPercent: 76, systemDiskFreePercent: 25 }
-          ]
-        }
-      };
-    }
-
-    if (id === "system.changes.analyze") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: 2 cambios materiales.",
-        data: {
-          previousCapturedAt: new Date(Date.now() - 86400000).toISOString(),
-          currentCapturedAt: new Date().toISOString(),
-          baselineRequired: false,
-          changes: [
-            { category: "Métrica", name: "Health Score", impact: "IMPROVED", before: "77", after: "82", delta: 5, unit: "puntos" },
-            { category: "Volumen", name: "D:\\", impact: "IMPROVED", before: "40 GB", after: "45 GB", delta: 5368709120, unit: "bytes" }
-          ],
-          trend: []
-        }
-      };
-    }
-
-    if (id === "lab.outcomes.status") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: 100% de acciones WRITE clasificadas.",
-        data: {
-          writeActionCount: 25,
-          classifiedCount: 25,
-          postcheckedCount: 17,
-          coveragePercent: 100,
-          incompleteRuns: 0,
-          actions: [
-            { actionId: "system.integrity.repair", title: "Reparar integridad de Windows", verificationLevel: "POSTCHECK", verificationDetail: "DISM/SFC + CheckHealth", reversible: false, rollbackExpected: true, completedRuns: 1, failedRuns: 0, rejectedRuns: 0, incompleteRuns: 0 },
-            { actionId: "network.winsock.reset", title: "Restablecer Winsock", verificationLevel: "REBOOT_REQUIRED", verificationDetail: "Estado final tras reinicio", reversible: false, rollbackExpected: false, completedRuns: 0, failedRuns: 0, rejectedRuns: 0, incompleteRuns: 0 }
-          ]
-        }
-      };
-    }
-
-    if (id.startsWith("maintenance.policy.")) {
-      const mode = id.endsWith(".readonly") ? "READ_ONLY_IDLE" :
-        id.endsWith(".off") ? "OFF" : "OFF";
-      return {
-        success: true,
-        dryRun: false,
-        message: mode === "OFF"
-          ? "DEMO: automatización segura OFF."
-          : "DEMO: automatización READ_ONLY_IDLE activada.",
-        data: {
-          mode,
-          canRunNow: mode === "READ_ONLY_IDLE",
-          workload: {
-            configuredMode: "AUTO",
-            effectiveMode: "IDLE",
-            idleSeconds: 900,
-            dFreePercent: 50,
-            storageCritical: false,
-            heavyActionsAllowed: true,
-            reason: "Equipo inactivo."
-          },
-          fixedReadOnlyScope: [
-            "system.health.scan",
-            "disk.volumes.audit",
-            "drivers.analyze",
-            "system.crash.analyze"
-          ],
-          updatedAt: new Date().toISOString(),
-          reason: mode === "OFF"
-            ? "Automatización desactivada."
-            : "Lote read-only elegible."
-        }
-      };
-    }
-
-    if (id === "maintenance.safe.run") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: mantenimiento read-only completado.",
-        data: {
-          completedAt: new Date().toISOString(),
-          executed: true,
-          message: "No se ejecutó ninguna acción WRITE.",
-          policy: {
-            mode: "READ_ONLY_IDLE",
-            canRunNow: true,
-            fixedReadOnlyScope: ["drivers.analyze", "disk.volumes.audit"]
-          },
-          items: [
-            { actionId: "drivers.analyze", status: "OK", summary: "0 dispositivos con problema.", errorType: null },
-            { actionId: "disk.volumes.audit", status: "OK", summary: "2 volúmenes, 0 con presión.", errorType: null }
-          ]
-        }
-      };
-    }
-
-    if (id === "system.reliability.analyze") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: Reliability Analyzer completado.",
-        data: { events: await this.reliability() }
-      };
-    }
-
-    if (id === "backup.status") {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: estado de recovery simulado.",
-        data: {
-          incompleteOperations: [],
-          rollbackSnapshots: ["DEMO: EcoQoS snapshot"],
-          ecoQosTargets: [
-            { processId: 4242, name: "example", capturedAt: new Date().toISOString(), restorable: true }
-          ]
-        }
-      };
-    }
-
-    if ([
-      "startup.audit",
-      "windows.update.audit",
-      "apps.inventory",
-      "privacy.audit",
-      "developer.audit",
-      "thermal.audit",
-      "boot.audit",
-      "sleepresume.audit",
-      "explorer.audit"
-    ].includes(id)) {
-      return {
-        success: true,
-        dryRun: false,
-        message: "DEMO: auditoría avanzada simulada.",
-        data: {
-          status: "OK",
-          items: [
-            {
-              category: "DEMO",
-              name: id,
-              value: "Example",
-              detail: "Datos simulados; la demo no inspecciona Windows.",
-              status: "OBSERVED"
-            }
-          ]
-        }
-      };
-    }
-
-    return {
-      success: true,
-      dryRun: true,
-      message: "DEMO: acción simulada. Los datos reales solo están disponibles en la aplicación local.",
-      data: { reliabilityEvents: 3 }
-    };
-  }
-}
-
-const demoCatalog: ActionDefinition[] = [
-  { id: "system.actionplan.preview", title: "Construir plan de acción", description: "Prioriza problemas y enlaza cada hallazgo con su acción segura.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "system.healthscore.analyze", title: "Health Score y baseline", description: "Captura una línea base y calcula un score explicable.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "system.changes.analyze", title: "Qué cambió", description: "Compara las dos últimas líneas base.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "system.workload.status", title: "Estado PC en uso", description: "Indica si el mantenimiento pesado está permitido.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "system.workload.inuse", title: "Proteger PC en uso", description: "Bloquea tareas pesadas o disruptivas.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "system.workload.auto", title: "Volver a modo automático", description: "Decide según inactividad.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "system.workload.maintenance", title: "Permitir mantenimiento", description: "Habilita tareas pesadas de forma explícita.", category: "System", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "system.health.scan", title: "Diagnóstico del sistema", description: "Obtiene una línea base segura.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "system.integrity.check", title: "Comprobar integridad de Windows", description: "Ejecuta DISM /CheckHealth en modo lectura.", category: "System", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "system.integrity.repair", title: "Reparar integridad de Windows", description: "Ejecuta DISM /RestoreHealth + SFC y verifica.", category: "System", risk: "CAUTION", requiresAdmin: true, connectivity: "OPTIONAL_ONLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "system.reliability.analyze", title: "Reliability Analyzer", description: "Correlaciona eventos de arranque y apagado.", category: "Reliability", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "system.crash.analyze", title: "Crash Intelligence", description: "Agrupa fallos, hangs, WHEA y apagados no limpios sin inventar causas.", category: "Reliability", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "memory.analyze", title: "Analizar memoria", description: "Mide presión y uso de RAM.", category: "Memory", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "processes.hygiene.analyze", title: "Process Hygiene", description: "Detecta residuos de laboratorio y protege bots/automatizaciones.", category: "Memory", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "DRY_RUN" },
-  { id: "processes.hygiene.stop", title: "Detener residuo seleccionado", description: "Solo detiene un residuo preclasificado si PID y huella siguen coincidiendo.", category: "Memory", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "processId", type: "INTEGER", required: true, description: "PID exacto" }, { name: "fingerprint", type: "STRING", required: true, description: "Huella efímera" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "memory.trim.preview", title: "Previsualizar MemoryTrim", description: "Identifica working sets altos sin modificar memoria.", category: "Memory", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "DRY_RUN" },
-  { id: "memory.trim", title: "MemoryTrim seleccionado", description: "Recorta working sets sólo de procesos seleccionados.", category: "Memory", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "processIds", type: "INTEGER_ARRAY", required: true, description: "PIDs seleccionados" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "memory.pagefile.analyze", title: "Analizar archivo de paginación", description: "Lee configuración y uso del pagefile.", category: "Memory", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "memory.pagefile.capped", title: "Aplicar pagefile 4–8 GB en D:", description: "Mantiene 512 MB en C: y limita D: a 4 GB inicial / 8 GB máximo.", category: "Memory", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "memory.pagefile.restore", title: "Restaurar configuración de pagefile", description: "Restaura la configuración previa guardada.", category: "Memory", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "cpu.ecoqos.analyze", title: "Analizar EcoQoS", description: "Detecta candidatos sin aplicar cambios.", category: "CPU", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "cpu.ecoqos.apply", title: "Aplicar EcoQoS seleccionado", description: "Aplica EcoQoS sólo a procesos seleccionados.", category: "CPU", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "processIds", type: "INTEGER_ARRAY", required: true, description: "PIDs seleccionados" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "cpu.ecoqos.restore", title: "Restaurar EcoQoS", description: "Restaura el estado previo registrado.", category: "CPU", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "processIds", type: "INTEGER_ARRAY", required: true, description: "PIDs modificados" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "disk.scan", title: "Analizar almacenamiento", description: "Calcula espacio y temporales.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "disk.cleanup.safe", title: "Limpieza segura", description: "Dry-run del pipeline de limpieza.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "DRY_RUN" },
-  { id: "disk.cleanup.execute", title: "Eliminar cachés regenerables", description: "Solo después de la previsualización y una confirmación explícita.", category: "Storage", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "disk.appdata.rank", title: "Ranking de AppData Local", description: "Tamaños por carpeta, nunca borra programas ni datos.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "disk.volumes.audit", title: "Auditar C: / D: y volúmenes", description: "Mide presión de almacenamiento en todos los volúmenes fijos.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "disk.storage.watch", title: "Storage Watch", description: "Compara espacio libre con el baseline anterior y detecta crecimiento anormal.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "disk.hotspots.scan", title: "Buscar hotspots de disco", description: "Escaneo read-only con presupuesto temporal en unidades con poco espacio.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "disk.hibernate.status", title: "Estado de hibernación", description: "Consulta estados disponibles con powercfg.", category: "Storage", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "disk.hibernate.reduce", title: "Hibernación reducida", description: "Con UAC; conserva inicio rápido, deshabilita hibernación completa.", category: "Storage", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "network.test", title: "Analizar red", description: "Mide el adaptador activo.", category: "Network", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "network.flushdns", title: "Vaciar caché DNS", description: "Vacía la caché DNS local.", category: "Network", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "network.winsock.reset", title: "Restablecer Winsock", description: "Restablece Winsock; puede requerir reinicio.", category: "Network", risk: "EXPLICIT_CONFIRMATION", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "drivers.analyze", title: "Analizar drivers", description: "Detecta dispositivos con códigos de problema.", category: "Drivers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "drivers.rescan", title: "Reescanear hardware", description: "Pide a Plug and Play que vuelva a detectar dispositivos.", category: "Drivers", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "drivers.usb.analyze", title: "USB Repair Center", description: "Clasifica USB con problemas y cuáles pueden reiniciarse de forma controlada.", category: "Drivers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "drivers.usb.restart", title: "Reiniciar dispositivo USB", description: "Reinicia solo el USB seleccionado y elegible.", category: "Drivers", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "deviceInstanceId", type: "STRING", required: true, description: "Instance ID seleccionado" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "system.activation.analyze", title: "Comprobar activación", description: "Lee el estado de licencia de Windows.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "system.registry.evidence", title: "Evidencia Registry", description: "Audita AppInit, IFEO y Winlogon sin limpiar el registro.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "system.com.evidence", title: "Evidencia COM", description: "Busca servidores COM locales ausentes con escaneo acotado y read-only.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "system.certificates.audit", title: "Auditar certificados personales", description: "Lee vencidos/próximos a vencer sin eliminarlos.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "browsers.automation.audit", title: "Medir Chrome del bot, SEPE y Edge", description: "Agrupa procesos Playwright, headless y Edge; compara picos y verifica recuperación sin cerrar nada.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "browsers.inventory", title: "Inventario de navegadores", description: "Detecta navegadores y perfiles locales.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "browsers.edge.performance.audit", title: "Edge Performance", description: "Mide memoria/procesos y revisa políticas de rendimiento/autoarranque.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "browsers.edge.performance.optimize", title: "Optimizar Edge", description: "Perfil reversible: sin background/boost, Sleeping Tabs 5 min, auto-discard, Efficiency Mode y sin autoarranque.", category: "Browsers", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "browsers.edge.performance.restore", title: "Restaurar configuración Edge", description: "Restaura la configuración capturada antes de optimizar.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "browsers.extensions.health", title: "Integridad de extensiones Edge", description: "Explica qué está correcto, qué son residuos y qué requiere reparación.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "browsers.extensions.orphans.preview", title: "Revisar residuos de extensiones", description: "Muestra datos de extensiones ya desinstaladas y cuánto espacio ocupan.", category: "Browsers", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "browsers.extensions.orphans.quarantine", title: "Poner residuos en cuarentena", description: "Con Edge cerrado, mueve residuos a una cuarentena reversible.", category: "Browsers", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "browsers.extensions.orphans.restore", title: "Restaurar última cuarentena Edge", description: "Devuelve los datos del último lote a su ubicación original.", category: "Browsers", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "multimedia.inventory", title: "Inventario multimedia", description: "Enumera dispositivos de audio y vídeo.", category: "Multimedia", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "multimedia.audio.restart", title: "Reiniciar audio de Windows", description: "Reinicia Windows Audio y verifica dispositivos.", category: "Multimedia", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "startup.audit", title: "Auditar inicio y servicios", description: "Enumera inicio y servicios automáticos.", category: "Startup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "startup.services.preview", title: "Revisar servicios automáticos", description: "Clasifica servicios protegidos y revisables.", category: "Startup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "startup.service.dependencies", title: "Ver dependencias de servicio", description: "Enumera dependientes antes de cualquier cambio.", category: "Startup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ", parameters: [{ name: "serviceName", type: "STRING", required: true, description: "Servicio exacto" }] },
-  { id: "startup.service.setmode", title: "Cambiar inicio de servicio", description: "Cambia Manual/Disabled solo sobre servicios revisables.", category: "Startup", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "serviceName", type: "STRING", required: true, description: "Servicio exacto" }, { name: "targetMode", type: "STRING", required: true, description: "Manual o Disabled" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "startup.service.restore", title: "Restaurar inicio de servicio", description: "Restaura StartMode guardado.", category: "Startup", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "serviceName", type: "STRING", required: true, description: "Servicio exacto" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "startup.entries.preview", title: "Revisar autoarranque Run/RunOnce", description: "Clasifica entradas protegidas, revisables y con rollback.", category: "Startup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "startup.entry.disable", title: "Deshabilitar entrada de autoarranque", description: "Quita la entrada seleccionada y guarda snapshot sin cerrar el proceso actual.", category: "Startup", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "entryId", type: "STRING", required: true, description: "ID exacto" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "startup.entry.restore", title: "Restaurar entrada de autoarranque", description: "Restaura una entrada Run/RunOnce deshabilitada por la app.", category: "Startup", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "entryId", type: "STRING", required: true, description: "ID exacto" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "startup.tasks.preview", title: "Revisar tareas programadas", description: "Clasifica tareas protegidas y revisables.", category: "Startup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "startup.task.disable", title: "Deshabilitar tarea programada", description: "Deshabilita solo la tarea seleccionada y guarda rollback.", category: "Startup", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "entryId", type: "STRING", required: true, description: "ID exacto" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "startup.task.restore", title: "Restaurar tarea programada", description: "Restaura una tarea deshabilitada por la app.", category: "Startup", risk: "SAFE", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "entryId", type: "STRING", required: true, description: "ID exacto" }, { name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "windows.update.audit", title: "Auditar Windows Update", description: "Resume eventos recientes de Windows Update.", category: "WindowsUpdate", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "windows.update.services.restart", title: "Reiniciar servicios de Windows Update", description: "Reinicia BITS y Windows Update sin borrar historial.", category: "WindowsUpdate", risk: "CAUTION", requiresAdmin: true, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "apps.inventory", title: "Inventario de aplicaciones", description: "Enumera aplicaciones instaladas.", category: "Apps", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "privacy.audit", title: "Auditar privacidad", description: "Lee configuraciones seleccionadas sin modificarlas.", category: "Privacy", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "developer.audit", title: "Auditar developer tooling", description: "Detecta toolchains y versiones.", category: "Developer", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "lab.reliability.status", title: "Reliability Lab", description: "Verifica regresiones históricas y barreras de seguridad sin tocar el Windows real.", category: "Developer", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "lab.outcomes.status", title: "Outcome coverage", description: "Audita post-check, rollback y evidencia de acciones WRITE.", category: "Developer", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "thermal.audit", title: "Auditar energía y temperaturas", description: "Lee plan de energía y sensores disponibles.", category: "Thermal", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "thermal.power.balanced", title: "Usar plan Equilibrado", description: "Activa Equilibrado y guarda rollback.", category: "Thermal", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "thermal.power.performance", title: "Usar Alto rendimiento", description: "Activa Alto rendimiento; aumenta consumo/temperatura.", category: "Thermal", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "thermal.power.restore", title: "Restaurar plan de energía", description: "Restaura el plan anterior guardado.", category: "Thermal", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "boot.audit", title: "Auditar arranque", description: "Lee eventos de rendimiento de arranque.", category: "Boot", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "sleepresume.audit", title: "Auditar suspensión/reanudación", description: "Construye timeline de sleep/resume.", category: "SleepResume", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "explorer.audit", title: "Auditar Explorer", description: "Mide memoria, threads y respuesta.", category: "Explorer", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "explorer.restart", title: "Reiniciar Explorer", description: "Reinicia explorer.exe y verifica que vuelva.", category: "Explorer", risk: "CAUTION", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "backup.rollback.center", title: "Rollback Center", description: "Reúne todos los cambios reversibles disponibles.", category: "Backup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "diagnostics.bundle.create", title: "Crear bundle diagnóstico sanitizado", description: "Crea un ZIP local sin secretos, IDs de hardware ni logs crudos.", category: "Backup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "maintenance.policy.status", title: "Estado de automatización segura", description: "Muestra la política read-only; por defecto OFF.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "maintenance.policy.readonly", title: "Activar mantenimiento read-only en reposo", description: "Habilita solo el lote fijo de diagnósticos, nunca WRITE.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "maintenance.policy.off", title: "Desactivar automatización", description: "Vuelve a OFF.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: true, mode: "WRITE", parameters: [{ name: "confirmed", type: "BOOLEAN", required: true, description: "Confirmación explícita" }] },
-  { id: "maintenance.safe.run", title: "Ejecutar lote read-only", description: "Ejecuta diagnósticos fijos solo cuando la política y el estado del PC lo permiten.", category: "System", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" },
-  { id: "backup.status", title: "Estado de backup y rollback", description: "Detecta operaciones incompletas y snapshots.", category: "Backup", risk: "SAFE", requiresAdmin: false, connectivity: "OFFLINE", reversible: false, mode: "READ" }
-];
-
-const delay = (ms: number) => new Promise<void>(resolve => window.setTimeout(resolve, ms));
 const hasLocalBridge = Boolean(window.chrome?.webview);
 const provider: Provider = hasLocalBridge ? new LocalProvider() : new DemoProvider();
 const queryParameters = new URLSearchParams(window.location.search);
@@ -1240,6 +19,9 @@ let latestTemperatureCelsius: number | null = null;
 let latestTemperatureSensor = "Sensor no expuesto";
 let activeView = "dashboard";
 let actionInFlight = false;
+// Keep one verified result per module when navigating or when an action
+// finishes after the user has moved elsewhere. Never show it in a new module.
+const latestResultByView = new Map<string, { id: string; result: ActionResult }>();
 // The backend runs one operation at a time. Background telemetry and
 // user-triggered actions are therefore serialized here as well, so neither
 // is rejected with "operación activa" because of the other.
@@ -1247,7 +29,18 @@ let backgroundWork: Promise<void> | null = null;
 const cpuHistory: number[] = [];
 const networkHistory: number[] = [];
 const HistoryLimit = 36;
-const MaxProcessSelection = 20;
+configureResultRenderer({
+  runAction: (id, button, parameters) => runAction(id, button, parameters),
+  getCatalog: () => currentCatalog,
+  toast: (title, message, kind) => toast(title, message, kind)
+});
+// When Windows text scaling collapses the sidebar to icons, native tooltips
+// keep every destination discoverable by mouse. The original span text stays
+// in the accessibility tree for screen readers and keyboard navigation.
+document.querySelectorAll<HTMLButtonElement>(".nav-item").forEach(button => {
+  const label = button.querySelector("span:not(.chev)")?.textContent?.trim();
+  if (label) button.title = label;
+});
 
 function byId<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -1255,14 +48,7 @@ function byId<T extends HTMLElement>(id: string): T {
   return element as T;
 }
 
-function formatBytes(value: number, decimals = 1): string {
-  if (!Number.isFinite(value) || value < 0) return "No disponible";
-  if (value === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  // Values below one byte would otherwise produce a negative unit index.
-  const index = Math.max(0, Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1));
-  return (value / 1024 ** index).toFixed(index === 0 ? 0 : decimals) + " " + units[index];
-}
+
 
 function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
@@ -1319,160 +105,9 @@ function setHealth(prefix: string, status: string): void {
       : status.replaceAll("_", " ");
 }
 
-const moduleDefinitions: Record<string, {
-  kicker: string;
-  title: string;
-  description: string;
-  actionIds: string[];
-}> = {
-  performance: {
-    kicker: "RENDIMIENTO",
-    title: "CPU y memoria",
-    description: "Métricas locales y análisis seguros antes de aplicar optimizaciones.",
-    actionIds: ["memory.analyze", "processes.hygiene.analyze", "memory.trim.preview", "memory.pagefile.analyze", "cpu.ecoqos.analyze"]
-  },
-  cleanup: {
-    kicker: "LIMPIEZA",
-    title: "Almacenamiento seguro",
-    description: "Análisis multiunidad, tendencias y previsualización de espacio recuperable sin borrar archivos.",
-    actionIds: ["disk.scan", "disk.cleanup.safe", "disk.cleanup.execute", "disk.appdata.rank", "disk.volumes.audit", "disk.storage.watch", "disk.hotspots.scan", "disk.hibernate.status", "disk.hibernate.reduce"]
-  },
-  system: {
-    kicker: "SISTEMA",
-    title: "Estado y fiabilidad",
-    description: "Evidencia de Windows, reinicios y señales de mantenimiento.",
-    actionIds: ["system.actionplan.preview", "system.healthscore.analyze", "system.changes.analyze", "system.workload.status", "system.health.scan", "system.integrity.check", "system.integrity.repair", "system.reliability.analyze", "system.crash.analyze", "drivers.analyze", "drivers.rescan", "system.activation.analyze"]
-  },
-  network: {
-    kicker: "RED",
-    title: "Conectividad",
-    description: "Diagnóstico y reparación controlada de conectividad local.",
-    actionIds: ["network.test", "network.flushdns", "network.winsock.reset"]
-  },
-  browsers: {
-    kicker: "NAVEGADORES",
-    title: "Navegadores",
-    description: "Rendimiento de Edge, integridad de extensiones y limpieza reversible de residuos sin perder sesiones ni funciones.",
-    actionIds: ["browsers.automation.audit", "browsers.inventory", "browsers.edge.performance.audit", "browsers.extensions.health", "browsers.extensions.orphans.preview"]
-  },
-  multimedia: {
-    kicker: "MULTIMEDIA",
-    title: "Audio y vídeo",
-    description: "Inventario multimedia y reinicio controlado del subsistema de audio.",
-    actionIds: ["multimedia.inventory", "multimedia.audio.restart"]
-  },
-  memory: {
-    kicker: "MEMORIA",
-    title: "RAM",
-    description: "Presión de memoria, residuos de laboratorio, MemoryTrim y pagefile limitado con rollback.",
-    actionIds: ["memory.analyze", "browsers.automation.audit", "processes.hygiene.analyze", "memory.trim.preview", "memory.pagefile.analyze", "memory.pagefile.capped", "memory.pagefile.restore"]
-  },
-  cpu: {
-    kicker: "CPU / ECOQOS",
-    title: "Procesador y EcoQoS",
-    description: "Carga de CPU y análisis de procesos elegibles antes de aplicar EcoQoS.",
-    actionIds: ["cpu.ecoqos.analyze"]
-  },
-  startup: {
-    kicker: "INICIO",
-    title: "Inicio y servicios",
-    description: "Audita inicio y permite ajustar servicios de terceros con protección y rollback.",
-    actionIds: ["startup.audit", "startup.services.preview", "startup.entries.preview", "startup.tasks.preview"]
-  },
-  integrity: {
-    kicker: "INTEGRIDAD",
-    title: "Integridad de Windows",
-    description: "Comprueba, repara y verifica la integridad de Windows.",
-    actionIds: ["system.health.scan", "system.integrity.check", "system.integrity.repair"]
-  },
-  drivers: {
-    kicker: "HARDWARE",
-    title: "Drivers y hardware",
-    description: "Detecta problemas y permite reescanear Plug and Play sin instalar drivers arbitrarios.",
-    actionIds: ["drivers.analyze", "drivers.usb.analyze", "drivers.rescan"]
-  },
-  "windows-update": {
-    kicker: "WINDOWS UPDATE",
-    title: "Actualizaciones",
-    description: "Audita Windows Update y permite reiniciar sus servicios sin borrar historial.",
-    actionIds: ["windows.update.audit", "windows.update.services.restart"]
-  },
-  apps: {
-    kicker: "APLICACIONES",
-    title: "Aplicaciones instaladas",
-    description: "Inventario local read-only de software detectado.",
-    actionIds: ["apps.inventory"]
-  },
-  privacy: {
-    kicker: "PRIVACIDAD",
-    title: "Privacidad",
-    description: "Auditoría read-only de configuraciones seleccionadas.",
-    actionIds: ["privacy.audit"]
-  },
-  developer: {
-    kicker: "DEVELOPER",
-    title: "Developer Performance",
-    description: "Toolchains, versiones y señales relevantes para desarrollo.",
-    actionIds: ["developer.audit"]
-  },
-  "reliability-lab": {
-    kicker: "REAL-WORLD RELIABILITY",
-    title: "Reliability Lab",
-    description: "Regresiones históricas, outcome checks y barreras fail-closed. Los escenarios destructivos nunca se ejecutan sobre el Windows real.",
-    actionIds: ["lab.reliability.status", "lab.outcomes.status"]
-  },
-  thermal: {
-    kicker: "ENERGÍA / TEMPERATURAS",
-    title: "Energía y sensores",
-    description: "Observa temperaturas y permite cambiar el plan de energía con rollback.",
-    actionIds: ["thermal.audit", "thermal.power.balanced", "thermal.power.performance", "thermal.power.restore"]
-  },
-  diagnostics: {
-    kicker: "DIAGNÓSTICO AVANZADO",
-    title: "Arranque, suspensión y Explorer",
-    description: "Diagnóstico avanzado, evidencia Windows read-only y reparación controlada de Explorer.",
-    actionIds: ["boot.audit", "sleepresume.audit", "explorer.audit", "system.registry.evidence", "system.com.evidence", "system.certificates.audit", "explorer.restart"]
-  },
-  activation: {
-    kicker: "ACTIVACIÓN",
-    title: "Licencia de Windows",
-    description: "Estado de activación reportado por Windows.",
-    actionIds: ["system.activation.analyze"]
-  },
-  backup: {
-    kicker: "RECOVERY",
-    title: "Backups y rollback",
-    description: "Operaciones incompletas, snapshots y bundle diagnóstico sanitizado.",
-    actionIds: ["backup.status", "backup.rollback.center", "diagnostics.bundle.create"]
-  },
-  history: {
-    kicker: "HISTORIAL",
-    title: "Fiabilidad y reinicios",
-    description: "Eventos recientes que explican apagados, reinicios y estabilidad.",
-    actionIds: ["system.healthscore.analyze", "system.changes.analyze", "system.reliability.analyze", "system.crash.analyze"]
-  },
-  tools: {
-    kicker: "HERRAMIENTAS",
-    title: "Action Catalog",
-    description: "Capacidades allowlisted disponibles en esta build.",
-    actionIds: []
-  },
-  settings: {
-    kicker: "CONFIGURACIÓN",
-    title: "Aplicación y carga",
-    description: "Controla carga y automatización segura. La automatización está OFF por defecto y nunca habilita WRITE.",
-    actionIds: ["system.workload.status", "system.workload.inuse", "system.workload.auto", "system.workload.maintenance", "maintenance.policy.status", "maintenance.policy.readonly", "maintenance.policy.off", "maintenance.safe.run"]
-  }
-};
 
-function formatDuration(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return "No disponible";
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  if (days > 0) return days + " d " + hours + " h";
-  const minutes = Math.floor((seconds % 3600) / 60);
-  return hours + " h " + minutes + " min";
-}
+
+
 
 function createSummaryCard(
   label: string,
@@ -1666,12 +301,12 @@ function renderModuleView(view: string): void {
         ? "Solicitar UAC"
         : action.mode === "READ" ? "Analizar" : "Previsualizar";
     if (action.id === "disk.cleanup.execute") {
-      button.textContent = "Limpiar (confirmar)";
+      button.textContent = "A Papelera (confirmar)";
       button.disabled = !cleanupPreviewReady;
       button.title = cleanupPreviewReady ? "Limpiar solo cachés antiguas, con confirmación." : "Primero previsualizá la limpieza.";
       button.addEventListener("click", () => {
         if (!cleanupPreviewReady) return;
-        if (!window.confirm("¿Eliminar únicamente cachés regenerables con más de 7 días?\nNo se tocarán sesiones, extensiones instaladas, WhatsApp ni documentos.")) return;
+        if (!window.confirm("¿Enviar a la Papelera únicamente cachés regenerables con más de 7 días?\nNo se tocarán sesiones, extensiones instaladas, WhatsApp ni documentos.")) return;
         void runAction(action.id, button, { confirmed: true });
       });
     } else if (action.id === "disk.hibernate.reduce") {
@@ -1708,68 +343,27 @@ function renderModuleView(view: string): void {
   }));
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
 
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
 
-function displayValue(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "boolean") return value ? "Sí" : "No";
-  if (typeof value === "number") return Number.isFinite(value)
-    ? value.toLocaleString()
-    : "—";
-  return String(value);
-}
 
-function createResultGrid(
-  entries: Array<[string, string]>
-): HTMLElement {
-  const grid = document.createElement("div");
-  grid.className = "result-grid";
 
-  for (const [label, value] of entries) {
-    const item = document.createElement("div");
-    item.className = "result-kv";
-    const labelNode = document.createElement("span");
-    labelNode.textContent = label;
-    const valueNode = document.createElement("strong");
-    valueNode.textContent = value;
-    item.append(labelNode, valueNode);
-    grid.append(item);
+
+
+
+
+
+
+function invalidateRecoveryEstimate(): void {
+  recoverableBytes = null;
+  byId("storage-recoverable").textContent = "—";
+  const body = document.getElementById("recovery-body") as HTMLTableSectionElement | null;
+  if (body) {
+    body.replaceChildren();
+    const cell = body.insertRow().insertCell();
+    cell.colSpan = 6;
+    cell.textContent = "Previsualización pendiente. Ejecutá un análisis nuevo.";
   }
-  return grid;
-}
-
-function createResultTable(
-  headers: string[],
-  rows: string[][]
-): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "result-table-wrap";
-  const table = document.createElement("table");
-  const head = table.createTHead().insertRow();
-  for (const header of headers) {
-    const cell = document.createElement("th");
-    cell.scope = "col";
-    cell.textContent = header;
-    head.append(cell);
-  }
-
-  const body = table.createTBody();
-  for (const values of rows) {
-    const row = body.insertRow();
-    for (const value of values) {
-      row.insertCell().textContent = value;
-    }
-  }
-  wrap.append(table);
-  return wrap;
+  if (activeView === "cleanup") renderModuleSummary(activeView);
 }
 
 function renderRecoveryCategories(data: Record<string, unknown>): void {
@@ -1780,7 +374,13 @@ function renderRecoveryCategories(data: Record<string, unknown>): void {
     .map(asRecord)
     .filter((item): item is Record<string, unknown> => item !== null);
 
-  if (!categories.length) return;
+  if (!categories.length) {
+    body.replaceChildren();
+    const cell = body.insertRow().insertCell();
+    cell.colSpan = 6;
+    cell.textContent = "No se detectaron categorías regenerables en el análisis.";
+    return;
+  }
 
   body.replaceChildren();
 
@@ -1790,18 +390,21 @@ function renderRecoveryCategories(data: Record<string, unknown>): void {
     const bytes = typeof item.bytes === "number" ? formatBytes(item.bytes) : "—";
     const risk = displayValue(item.risk);
     const riskLower = risk.toLowerCase();
+    const recoverable = riskLower === "safe";
 
     row.insertCell().textContent = label;
     row.insertCell().textContent = label.includes("Windows")
       ? "Temporales del sistema detectados"
       : "Archivos regenerables detectados";
     row.insertCell().textContent = bytes;
-    row.insertCell().textContent = bytes;
+    // Only SAFE categories contribute to backend EstimatedBytes. Never
+    // show CAUTION/EN_USO bytes as recoverable capacity.
+    row.insertCell().textContent = recoverable ? bytes : "—";
 
     const riskCell = row.insertCell();
     const chip = document.createElement("span");
-    chip.className = "risk-chip " + (riskLower.includes("low") || riskLower.includes("safe") ? "safe" : "caution");
-    chip.textContent = riskLower.includes("low") || riskLower.includes("safe") ? "Seguro" : "Precaución";
+    chip.className = "risk-chip " + (recoverable ? "safe" : "caution");
+    chip.textContent = recoverable ? "Seguro" : "Precaución";
     riskCell.append(chip);
 
     row.insertCell().textContent = "Revisar";
@@ -1828,20 +431,35 @@ function renderActionResult(
   content.replaceChildren();
   byId("module-result-title").textContent =
     currentCatalog.find(action => action.id === actionId)?.title ?? actionId;
-  byId("module-result-subtitle").textContent =
-    "Evidencia de la última ejecución local.";
-  status.textContent = result.success ? (result.dryRun ? "DRY-RUN" : "OK") : "WARNING";
+  byId("module-result-subtitle").textContent = provider.surface === "demo"
+    ? "Resultado simulado (DEMO). No se ejecutó ninguna operación en Windows."
+    : "Evidencia de la última ejecución local.";
+  const failedPagefile = !result.success && actionId.startsWith("memory.pagefile.");
+  status.textContent = result.success ? (result.dryRun ? "DRY-RUN" : "OK")
+    : failedPagefile ? "FALLIDO" : "WARNING";
   status.className = "badge " + (result.success ? "badge-green" : "");
-  if (actionId === "browsers.extensions.health" && data) {
+  if (result.success && data &&
+      (actionId === "backup.status" || actionId === "backup.rollback.center") &&
+      (asArray(data.incompleteOperations).length > 0 ||
+       asArray(data.potentiallyChangedFailedOperations).length > 0 ||
+       asArray(data.potentiallyChangedCancelledOperations).length > 0)) {
+    status.textContent = "REVISAR";
+    status.className = "badge";
+  }
+  // Never override an unsuccessful operation with an optimistic fixture/partial-data badge.
+  if (actionId === "browsers.extensions.health" && result.success && data) {
     const broken = typeof data.brokenCount === "number" ? data.brokenCount : 0;
     const residues = typeof data.dataOnlyCount === "number" ? data.dataOnlyCount : 0;
+    const collisions = asArray(data.nameCollisions).length;
     status.textContent = broken > 0
       ? "REVISAR"
-      : residues > 0
-        ? "LIMPIEZA OPCIONAL"
-        : "OK";
+      : collisions > 0
+        ? "REVISAR NOMBRES"
+        : residues > 0
+          ? "LIMPIEZA OPCIONAL"
+          : "OK";
     status.className = "badge " +
-      (broken === 0 && residues === 0 ? "badge-green" : "");
+      (broken === 0 && residues === 0 && collisions === 0 ? "badge-green" : "");
   }
 
   const message = document.createElement("p");
@@ -1849,1645 +467,40 @@ function renderActionResult(
   message.textContent = result.message;
   content.append(message);
 
-  renderStructuredResult(actionId, data, content);
-}
-
-function createProcessSelection(
-  candidates: Record<string, unknown>[],
-  actionId: "memory.trim" | "cpu.ecoqos.apply",
-  label: string
-): HTMLElement {
-  const host = document.createElement("div");
-  host.className = "process-selection";
-
-  const wrap = document.createElement("div");
-  wrap.className = "result-table-wrap";
-  const table = document.createElement("table");
-  const head = table.createTHead().insertRow();
-  for (const header of ["Seleccionar", "PID", "Proceso", "Working set"]) {
-    const cell = document.createElement("th");
-    cell.scope = "col";
-    cell.textContent = header;
-    head.append(cell);
-  }
-
-  const body = table.createTBody();
-  for (const item of candidates) {
-    const processId = typeof item.processId === "number"
-      ? item.processId
-      : 0;
-    if (processId <= 0) continue;
-
-    const row = body.insertRow();
-    const selectCell = row.insertCell();
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = false;
-    input.dataset.processId = String(processId);
-    input.setAttribute("aria-label", "Seleccionar " + displayValue(item.name));
-    selectCell.append(input);
-    row.insertCell().textContent = String(processId);
-    row.insertCell().textContent = displayValue(item.name);
-    row.insertCell().textContent =
-      typeof item.workingSetBytes === "number"
-        ? formatBytes(item.workingSetBytes)
-        : "—";
-  }
-  wrap.append(table);
-
-  const controls = document.createElement("div");
-  controls.className = "result-actions";
-  const notice = document.createElement("span");
-  notice.textContent = actionId === "memory.trim"
-    ? "El efecto sobre working sets es transitorio."
-    : "Se guardará estado previo para rollback.";
-  const button = document.createElement("button");
-  button.className = "btn btn-primary";
-  button.textContent = label;
-  button.addEventListener("click", async () => {
-    const processIds = Array.from(
-      host.querySelectorAll<HTMLInputElement>(
-        'input[type="checkbox"]:checked'))
-      .map(input => Number(input.dataset.processId))
-      .filter(Number.isInteger);
-
-    if (processIds.length === 0) {
-      toast("Selección requerida", "Seleccioná al menos un proceso.", "error");
-      return;
-    }
-
-    if (processIds.length > MaxProcessSelection) {
-      toast(
-        "Demasiados procesos",
-        `Seleccioná como máximo ${MaxProcessSelection} procesos por operación.`,
-        "error");
-      return;
-    }
-
-    const confirmed = window.confirm(
-      actionId === "memory.trim"
-        ? `MemoryTrim actuará sobre ${processIds.length} proceso(s). El cambio de working set es transitorio. ¿Continuar?`
-        : `EcoQoS se aplicará a ${processIds.length} proceso(s) de fondo. Se guardará estado para rollback. ¿Continuar?`);
-    if (!confirmed) return;
-
-    await runAction(
-      actionId,
-      button,
-      { processIds, confirmed: true });
-  });
-
-  controls.append(notice, button);
-  host.append(wrap, controls);
-  return host;
-}
-
-function createEcoQosRollback(
-  items: Record<string, unknown>[]
-): HTMLElement | null {
-  const processIds = items
-    .filter(item => item.success === true &&
-      typeof item.processId === "number")
-    .map(item => item.processId as number)
-    .slice(0, MaxProcessSelection);
-
-  if (!processIds.length) return null;
-
-  const controls = document.createElement("div");
-  controls.className = "result-actions";
-  const notice = document.createElement("span");
-  notice.textContent = "Rollback disponible para los procesos modificados.";
-  const button = document.createElement("button");
-  button.className = "btn btn-secondary";
-  button.textContent = "Restaurar EcoQoS";
-  button.addEventListener("click", async () => {
-    if (!window.confirm(
-      `Restaurar el estado EcoQoS previo de ${processIds.length} proceso(s)?`))
-      return;
-
-    await runAction(
-      "cpu.ecoqos.restore",
-      button,
-      { processIds, confirmed: true });
-  });
-  controls.append(notice, button);
-  return controls;
-}
-
-function createServiceStartupControls(
-  services: Record<string, unknown>[]
-): HTMLElement {
-  const host = document.createElement("div");
-  host.className = "process-selection";
-
-  const wrap = document.createElement("div");
-  wrap.className = "result-table-wrap";
-  const table = document.createElement("table");
-  const head = table.createTHead().insertRow();
-  for (const header of ["Servicio", "Estado", "Clasificación", "Motivo", "Acciones"]) {
-    const cell = document.createElement("th");
-    cell.textContent = header;
-    head.append(cell);
-  }
-
-  const body = table.createTBody();
-  for (const service of services) {
-    const row = body.insertRow();
-    const protectedService = service.protected === true;
-    const serviceName = String(service.serviceName ?? "");
-    const displayName = String(service.displayName ?? serviceName);
-
-    for (const value of [
-      displayName,
-      displayValue(service.state),
-      protectedService ? "Protegido" : "Revisable",
-      displayValue(service.reason) +
-        (typeof service.dependentServiceCount === "number" &&
-         service.dependentServiceCount > 0
-          ? " · Dependientes: " + service.dependentServiceCount
-          : "")
-    ]) {
-      const cell = row.insertCell();
-      cell.textContent = value;
-    }
-
-    const actions = row.insertCell();
-    actions.className = "inline-actions";
-    if (!serviceName) {
-      actions.textContent = "Sin acciones";
-      continue;
-    }
-
-    const dependencies = document.createElement("button");
-    dependencies.className = "btn btn-small";
-    dependencies.textContent = "Dependencias";
-    dependencies.addEventListener("click", () => {
-      void runAction(
-        "startup.service.dependencies",
-        dependencies,
-        { serviceName });
-    });
-    actions.append(dependencies);
-
-    if (protectedService) {
-      const note = document.createElement("span");
-      note.textContent = "Cambios bloqueados";
-      actions.append(note);
-      continue;
-    }
-
-    const manual = document.createElement("button");
-    manual.className = "btn btn-small";
-    manual.textContent = "Manual";
-    manual.addEventListener("click", () => {
-      if (!window.confirm(
-        displayName +
-        "\n\nCambiar inicio de Automático a Manual. " +
-        "El servicio que ya esté ejecutándose NO se detendrá ahora. ¿Continuar?"
-      )) return;
-      void runAction(
-        "startup.service.setmode",
-        manual,
-        { serviceName, targetMode: "Manual", confirmed: true });
-    });
-
-    const disable = document.createElement("button");
-    disable.className = "btn btn-small";
-    disable.textContent = "Deshabilitar";
-    disable.addEventListener("click", () => {
-      if (!window.confirm(
-        displayName +
-        "\n\nDESHABILITAR el inicio del servicio. " +
-        "No se forzará su cierre ahora y habrá rollback del StartMode. ¿Continuar?"
-      )) return;
-      void runAction(
-        "startup.service.setmode",
-        disable,
-        { serviceName, targetMode: "Disabled", confirmed: true });
-    });
-
-    actions.append(manual, disable);
-
-    if (service.restoreAvailable === true) {
-      const restore = document.createElement("button");
-      restore.className = "btn btn-small";
-      restore.textContent = "Restaurar";
-      restore.addEventListener("click", () => {
-        if (!window.confirm(
-          "¿Restaurar el modo de inicio guardado para " + displayName + "?"
-        )) return;
-        void runAction(
-          "startup.service.restore",
-          restore,
-          { serviceName, confirmed: true });
-      });
-      actions.append(restore);
-    }
-  }
-
-  wrap.append(table);
-  host.append(wrap);
-  return host;
-}
-
-function renderStructuredResult(  actionId: string,
-  data: Record<string, unknown> | null,
-  content: HTMLElement
-): void {
-  if (!data) return;
-
-  if (actionId === "system.integrity.check") {
-    content.append(createResultGrid([
-      ["Estado", displayValue(data.status)],
-      ["Código DISM", displayValue(data.exitCode)],
-      ["Duración", typeof data.durationMs === "number"
-        ? Math.round(data.durationMs) + " ms" : "—"]
-    ]));
-    if (typeof data.output === "string" && data.output.trim()) {
-      const pre = document.createElement("pre");
-      pre.className = "result-pre";
-      pre.textContent = data.output;
-      content.append(pre);
-    }
-    if (data.status === "REPAIRABLE") {
-      const controls = document.createElement("div");
-      controls.className = "result-actions";
-      const note = document.createElement("span");
-      note.textContent = "Windows informó corrupción reparable. DISM /RestoreHealth + SFC puede tardar bastante.";
-      const repair = document.createElement("button");
-      repair.className = "btn btn-primary";
-      repair.textContent = "Reparar y verificar (UAC)";
-      repair.addEventListener("click", () => {
-        if (!window.confirm(
-          "¿Ejecutar DISM /RestoreHealth y después SFC /scannow? " +
-          "La operación puede tardar varios minutos."
-        )) return;
-        void runAction(
-          "system.integrity.repair",
-          repair,
-          { confirmed: true });
-      });
-      controls.append(note, repair);
-      content.append(controls);
-    }
-    return;
-  }
-
-  if (actionId === "drivers.analyze") {
-    const problems = asArray(data.problems)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    content.append(createResultGrid([
-      ["Estado", displayValue(data.status)],
-      ["Problemas", displayValue(data.problemCount)],
-      ["Mostrados", String(problems.length)]
-    ]));
-    if (problems.length) {
-      content.append(createResultTable(
-        ["Dispositivo", "Código", "Fabricante"],
-        problems.map(item => [
-          displayValue(item.name),
-          displayValue(item.errorCode),
-          displayValue(item.manufacturer)
-        ])
-      ));
-      const controls = document.createElement("div");
-      controls.className = "result-actions";
-      const note = document.createElement("span");
-      note.textContent = "Primero reescanea Plug and Play. La app no instalará un driver arbitrario.";
-      const rescan = document.createElement("button");
-      rescan.className = "btn btn-primary";
-      rescan.textContent = "Reescanear hardware (UAC)";
-      rescan.addEventListener("click", () => {
-        if (!window.confirm("¿Pedir a Windows que vuelva a detectar el hardware?")) return;
-        void runAction("drivers.rescan", rescan, { confirmed: true });
-      });
-      controls.append(note, rescan);
-      content.append(controls);
-    }
-    return;
-  }
-
-  if (actionId === "system.activation.analyze") {
-    content.append(createResultGrid([
-      ["Estado", displayValue(data.status)],
-      ["LicenseStatus", displayValue(data.licenseStatus)],
-      ["Descripción", displayValue(data.description)]
-    ]));
-    return;
-  }
-
-  if (actionId === "browsers.inventory") {
-    const browsers = asArray(data.browsers)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    content.append(createResultTable(
-      ["Navegador", "Versión", "Perfil", "Ejecutable"],
-      browsers.map(item => [
-        displayValue(item.name),
-        displayValue(item.version),
-        item.profileDetected === true ? "Detectado" : "No",
-        displayValue(item.executablePath)
-      ])
-    ));
-    return;
-  }
-
-  if (actionId === "browsers.edge.performance.audit" ||
-      actionId === "browsers.edge.performance.optimize" ||
-      actionId === "browsers.edge.performance.restore") {
-    const root = actionId === "browsers.edge.performance.audit"
-      ? data
-      : (asRecord(data.report) ?? {});
-    const policy = asRecord(root.policy);
-    const optimized = root.optimized === true;
-    const restoreAvailable = actionId === "browsers.edge.performance.audit"
-      ? root.restoreAvailable === true
-      : data.restoreAvailable === true;
-
-    content.append(createResultGrid([
-      ["Estado", optimized ? "Optimizado" : "Revisar"],
-      ["Procesos Edge", displayValue(root.processCount)],
-      ["Ventanas visibles", displayValue(root.visibleWindowCount)],
-      ["RAM (working set)", typeof root.workingSetBytes === "number" ? formatBytes(root.workingSetBytes) : "—"],
-      ["Memoria privada", typeof root.privateBytes === "number" ? formatBytes(root.privateBytes) : "—"],
-      ["AutoLaunch", displayValue(root.autoLaunchEntryCount)],
-      ["Sleeping Tabs", policy?.sleepingTabsEnabled === 1 ? "ON" : "No optimizado"],
-      ["Timeout", policy?.sleepingTabsTimeout === 300 ? "5 min" : displayValue(policy?.sleepingTabsTimeout)],
-      ["Efficiency Mode", policy?.efficiencyModeEnabled === 1 && policy?.efficiencyMode === 0 ? "Siempre activo" : "No optimizado"],
-      ["Background / Boost", policy?.backgroundModeEnabled === 0 && policy?.startupBoostEnabled === 0 ? "OFF / OFF" : "Revisar"],
-      ["Rollback", restoreAvailable ? "Disponible" : "Sin snapshot"]
-    ]));
-
-    const guidance = document.createElement("div");
-    guidance.className = "result-guidance";
-    const title = document.createElement("strong");
-    title.textContent = optimized ? "Configuración correcta" : "Qué puede mejorar";
-    const detail = document.createElement("span");
-    detail.textContent = String(root.guidance ?? data.detail ?? "Sin detalles.");
-    guidance.append(title, detail);
-    content.append(guidance);
-
-    const controls = document.createElement("div");
-    controls.className = "result-actions";
-
-    if (!optimized) {
-      const optimize = document.createElement("button");
-      optimize.className = "btn btn-primary";
-      optimize.textContent = "Optimizar Edge";
-      optimize.addEventListener("click", () => {
-        if (!window.confirm(
-          "Se aplicarán políticas reversibles de rendimiento de Edge.\n\nNo se cerrará Edge ni se borrarán sesiones, favoritos o extensiones. ¿Continuar?"
-        )) return;
-        void runAction(
-          "browsers.edge.performance.optimize",
-          optimize,
-          { confirmed: true });
-      });
-      controls.append(optimize);
-    }
-
-    if (restoreAvailable) {
-      const restore = document.createElement("button");
-      restore.className = "btn btn-secondary";
-      restore.textContent = "Restaurar configuración anterior";
-      restore.addEventListener("click", () => {
-        if (!window.confirm(
-          "¿Restaurar las políticas y entradas de autoarranque capturadas antes de la optimización?"
-        )) return;
-        void runAction(
-          "browsers.edge.performance.restore",
-          restore,
-          { confirmed: true });
-      });
-      controls.append(restore);
-    }
-
-    if (controls.childElementCount) content.append(controls);
-    return;
-  }
-
-  if (actionId === "browsers.extensions.health") {
-    const items = asArray(data.items)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    const dataOnlyCount = typeof data.dataOnlyCount === "number" ? data.dataOnlyCount : 0;
-    const brokenCount = typeof data.brokenCount === "number" ? data.brokenCount : 0;
-    const orphanBytes = typeof data.orphanBytes === "number" ? data.orphanBytes : 0;
-    const humanStatus = brokenCount > 0
-      ? "Requiere revisión"
-      : dataOnlyCount > 0
-        ? "Limpieza opcional"
-        : "Todo correcto";
-
-    content.append(createResultGrid([
-      ["Resultado", humanStatus],
-      ["Instaladas", displayValue(data.installedCount)],
-      ["Residuos", String(dataOnlyCount)],
-      ["Espacio de residuos", formatBytes(orphanBytes)],
-      ["Problemas reales", String(brokenCount)],
-      ["Developer Mode", data.developerMode === true
-        ? "Activo" : data.developerMode === false ? "Desactivado" : "Sin determinar"]
-    ]));
-
-    const guidance = document.createElement("div");
-    guidance.className = "result-guidance";
-    const guidanceTitle = document.createElement("strong");
-    guidanceTitle.textContent = brokenCount > 0
-      ? "Qué requiere tu atención"
-      : dataOnlyCount > 0
-        ? "Qué significa"
-        : "Qué hacer ahora";
-    const guidanceText = document.createElement("span");
-    guidanceText.textContent = brokenCount > 0
-      ? String(brokenCount) + " extensión(es) sí tienen código o manifest ausente. No se eliminan automáticamente porque podrían ser instalaciones recuperables."
-      : dataOnlyCount > 0
-        ? String(dataOnlyCount) + " entradas son solo datos de extensiones que ya no están instaladas. No están corriendo ni consumen RAM/CPU; únicamente ocupan " + formatBytes(orphanBytes) + "."
-        : "No necesitas hacer nada. Las extensiones instaladas están íntegras.";
-    guidance.append(guidanceTitle, guidanceText);
-    content.append(guidance);
-
-    const statusInfo = (status: unknown): [string, string, string] => {
-      switch (String(status ?? "")) {
-        case "DATA_WITHOUT_INSTALLATION":
-          return ["Residuo", "Datos de una extensión ya desinstalada", "Cuarentena opcional"];
-        case "CODE_MISSING":
-          return ["Instalación rota", "Edge la registra pero faltan archivos", "Revisar en Edge"];
-        case "MANIFEST_MISSING":
-          return ["Instalación incompleta", "Existe código pero falta manifest.json", "Revisar / reinstalar"];
-        case "UNPACKED":
-          return ["Extensión local", "Cargada manualmente en modo desarrollador", "Sin acción automática"];
-        case "POLICY_REMOVED":
-          return ["Retirada por política", "Windows/Edge la retiró mediante política", "Informativo"];
-        case "STALE_METADATA":
-          return ["Metadatos antiguos", "Registro residual sin instalación activa", "Informativo"];
-        case "INSTALLED_NO_LOCAL_DATA":
-          return ["Correcta", "Instalada sin datos locales propios", "Nada"];
-        case "OK":
-          return ["Correcta", "Instalación y datos coherentes", "Nada"];
-        default:
-          return [displayValue(status), "Estado técnico sin clasificar", "Revisar"];
-      }
+  // These pagefile interlocks fail before OS mutation. Preserve the recovery
+  // record; a postcheck failure must never claim that no change occurred.
+  if (failedPagefile) {
+    const guidanceByStatus: Record<string, string> = {
+      SNAPSHOT_UNREADABLE: "No se ejecutó ningún cambio. Conservá el archivo de recuperación original; revisá permisos o corrupción antes de reintentar.",
+      SNAPSHOT_INCOMPLETE: "No se ejecutó ningún cambio. Conservá el snapshot incompleto; falta la configuración original necesaria para restaurar con seguridad.",
+      SNAPSHOT_RETAINED_REVIEW_REQUIRED: "No se ejecutó ningún cambio. El estado coincide con el baseline guardado; revisá y conservá el registro de recuperación antes de volver a aplicar un perfil.",
+      SNAPSHOT_SAVE_FAILED: "No se ejecutó ningún cambio. Conservá cualquier snapshot existente y comprobá permisos y espacio del directorio de estado."
     };
-
-    const relevantItems = items.filter(item =>
-      String(item.status ?? "") !== "OK" &&
-      String(item.status ?? "") !== "INSTALLED_NO_LOCAL_DATA");
-
-    if (relevantItems.length) {
-      content.append(createResultTable(
-        ["Perfil", "Extensión", "Situación", "Qué significa", "Datos", "Qué hacer"],
-        relevantItems.map(item => {
-          const info = statusInfo(item.status);
-          const rawName = typeof item.name === "string" && item.name.trim()
-            ? item.name
-            : typeof item.extensionId === "string"
-              ? "Extensión " + item.extensionId.slice(0, 8) + "…"
-              : "Extensión";
-          return [
-            displayValue(item.profile),
-            rawName,
-            info[0],
-            info[1],
-            typeof item.dataBytes === "number" ? formatBytes(item.dataBytes) : "—",
-            info[2]
-          ];
-        })
-      ));
+    const guidanceText = typeof data?.status === "string"
+      ? guidanceByStatus[data.status] : undefined;
+    if (guidanceText) {
+      const guidance = document.createElement("p");
+      guidance.className = "result-message";
+      guidance.textContent = guidanceText;
+      content.append(guidance);
     }
-
-    if (dataOnlyCount > 0) {
-      const controls = document.createElement("div");
-      controls.className = "result-actions";
-      const note = document.createElement("span");
-      note.textContent = "Primero previsualiza. La limpieza moverá residuos a cuarentena; no los borrará definitivamente.";
-      const button = document.createElement("button");
-      button.className = "btn btn-primary";
-      button.textContent = "Revisar residuos →";
-      button.addEventListener("click", () =>
-        void runAction("browsers.extensions.orphans.preview", button));
-      controls.append(note, button);
-      content.append(controls);
-    }
-    return;
   }
 
-  if (actionId === "browsers.extensions.orphans.preview") {
-    const candidates = asArray(data.candidates)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    const count = typeof data.candidateCount === "number" ? data.candidateCount : candidates.length;
-    const totalBytes = typeof data.totalBytes === "number" ? data.totalBytes : 0;
-    const edgeRunning = data.edgeRunning === true;
-    const restoreAvailable = data.restoreAvailable === true;
-
-    content.append(createResultGrid([
-      ["Residuos", String(count)],
-      ["Espacio", formatBytes(totalBytes)],
-      ["Edge", edgeRunning ? "Abierto" : "Cerrado"],
-      ["Acción", count > 0 ? "Cuarentena reversible" : "Nada que limpiar"],
-      ["Rollback", restoreAvailable ? "Disponible" : "Sin cuarentenas previas"],
-      ["Impacto RAM/CPU", "Ninguno: no están ejecutándose"]
-    ]));
-
-    const guidance = document.createElement("div");
-    guidance.className = "result-guidance";
-    const strong = document.createElement("strong");
-    strong.textContent = edgeRunning
-      ? "Cierra Edge para continuar"
-      : "Limpieza segura disponible";
-    const span = document.createElement("span");
-    span.textContent = edgeRunning
-      ? "No se moverá ningún dato mientras Edge esté abierto. Cierra todas sus ventanas y vuelve a ejecutar esta revisión."
-      : "Solo se moverán carpetas de Local Extension Settings que pertenecen a extensiones ya no instaladas. Puedes restaurarlas después.";
-    guidance.append(strong, span);
-    content.append(guidance);
-
-    if (candidates.length) {
-      content.append(createResultTable(
-        ["Perfil", "Extensión", "Datos", "Resultado si aplicas"],
-        candidates.map(item => [
-          displayValue(item.profile),
-          typeof item.extensionId === "string"
-            ? item.extensionId.slice(0, 8) + "…"
-            : "—",
-          typeof item.dataBytes === "number" ? formatBytes(item.dataBytes) : "—",
-          "Mover a cuarentena"
-        ])
-      ));
-    }
-
-    const controls = document.createElement("div");
-    controls.className = "result-actions";
-    const note = document.createElement("span");
-    note.textContent = count === 0
-      ? "No hay residuos que resolver."
-      : edgeRunning
-        ? "Bloqueado mientras Edge esté abierto."
-        : "No borra definitivamente; crea un lote de rollback.";
-
-    if (count > 0) {
-      const quarantine = document.createElement("button");
-      quarantine.className = "btn btn-primary";
-      quarantine.textContent = "Poner en cuarentena";
-      quarantine.disabled = edgeRunning;
-      quarantine.addEventListener("click", () => {
-        if (!window.confirm(
-          "¿Mover " + String(count) + " residuo(s) (" + formatBytes(totalBytes) + ") a cuarentena reversible?"
-        )) return;
-        void runAction(
-          "browsers.extensions.orphans.quarantine",
-          quarantine,
-          { confirmed: true });
-      });
-      controls.append(note, quarantine);
-    } else {
-      controls.append(note);
-    }
-
-    if (restoreAvailable) {
-      const restore = document.createElement("button");
-      restore.className = "btn";
-      restore.textContent = "Restaurar última cuarentena";
-      restore.disabled = edgeRunning;
-      restore.addEventListener("click", () => {
-        if (!window.confirm(
-          "¿Restaurar el último lote de residuos de Edge a su ubicación original?"
-        )) return;
-        void runAction(
-          "browsers.extensions.orphans.restore",
-          restore,
-          { confirmed: true });
-      });
-      controls.append(restore);
-    }
-    content.append(controls);
-    return;
-  }
-
-  if (actionId === "browsers.extensions.orphans.quarantine") {
-    content.append(createResultGrid([
-      ["Movidos", displayValue(data.movedCount)],
-      ["Datos", typeof data.movedBytes === "number" ? formatBytes(data.movedBytes) : "—"],
-      ["Omitidos", displayValue(data.skippedCount)],
-      ["Rollback", data.rollbackAvailable === true ? "Disponible" : "No"],
-      ["Lote", displayValue(data.batchId)],
-      ["Estado", displayValue(data.status)]
-    ]));
-    return;
-  }
-
-  if (actionId === "browsers.extensions.orphans.restore") {
-    content.append(createResultGrid([
-      ["Restaurados", displayValue(data.restoredCount)],
-      ["Datos", typeof data.restoredBytes === "number" ? formatBytes(data.restoredBytes) : "—"],
-      ["Lote", displayValue(data.batchId)],
-      ["Estado", displayValue(data.status)]
-    ]));
-    return;
-  }
-
-  if (actionId === "startup.services.preview") {
-    const services = asArray(data.services)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    content.append(createResultGrid([
-      ["Automáticos", displayValue(data.automaticCount)],
-      ["Revisables", displayValue(data.eligibleCount)],
-      ["Protegidos", displayValue(data.protectedCount)],
-      ["Política", "Fail-closed"],
-      ["Cambio seguro", "Manual antes que Disabled"],
-      ["Rollback", "StartMode guardado"]
-    ]));
-    if (services.length) {
-      content.append(createServiceStartupControls(services));
-    }
-    return;
-  }
-
-  if (actionId === "multimedia.inventory") {
-    const devices = asArray(data.devices)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    content.append(createResultTable(
-      ["Tipo", "Dispositivo", "Estado"],
-      devices.map(item => [
-        displayValue(item.kind),
-        displayValue(item.name),
-        displayValue(item.status)
-      ])
-    ));
-    return;
-  }
-
-  if (actionId === "memory.pagefile.analyze") {
-    const entries = asArray(data.entries)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    content.append(createResultGrid([
-      ["Administración", data.automaticallyManaged === true
-        ? "Automática" : data.automaticallyManaged === false ? "Manual" : "No determinada"],
-      ["Pagefiles", String(entries.length)],
-      ["Perfil recomendado", "C: 512 MB + D: 4096–8192 MB"],
-      ["Techo recomendado", "8 GB en D: (< 10 GB)"]
-    ]));
-    if (entries.length) {
-      content.append(createResultTable(
-        ["Archivo", "Inicial", "Máximo", "Asignado", "Uso actual", "Pico"],
-        entries.map(item => [
-          displayValue(item.name),
-          typeof item.initialSizeMb === "number" ? item.initialSizeMb + " MB" : "—",
-          typeof item.maximumSizeMb === "number" ? item.maximumSizeMb + " MB" : "—",
-          typeof item.allocatedMb === "number" ? item.allocatedMb + " MB" : "—",
-          typeof item.currentUsageMb === "number" ? item.currentUsageMb + " MB" : "—",
-          typeof item.peakUsageMb === "number" ? item.peakUsageMb + " MB" : "—"
-        ])
-      ));
-    }
-    return;
-  }
-
-  if (actionId === "memory.trim.preview" ||
-      actionId === "cpu.ecoqos.analyze") {
-    const candidates = asArray(data.candidates)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    content.append(createResultGrid([
-      ["Procesos observados", displayValue(data.observedProcesses)],
-      ["Candidatos elegibles", String(candidates.length)],
-      ["Modo", "Análisis previo"]
-    ]));
-    if (candidates.length) {
-      content.append(createProcessSelection(
-        candidates,
-        actionId === "memory.trim.preview"
-          ? "memory.trim"
-          : "cpu.ecoqos.apply",
-        actionId === "memory.trim.preview"
-          ? "Aplicar MemoryTrim seleccionado"
-          : "Aplicar EcoQoS seleccionado"));
-    }
-    return;
-  }
-
-  if (actionId === "memory.trim" ||
-      actionId === "cpu.ecoqos.apply" ||
-      actionId === "cpu.ecoqos.restore") {
-    const items = asArray(data.items)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-
-    content.append(createResultGrid([
-      ["Intentados", displayValue(data.attempted)],
-      ["Correctos", displayValue(data.succeeded)],
-      ["Fallidos", displayValue(data.failed)]
-    ]));
-
-    if (items.length) {
-      content.append(createResultTable(
-        ["PID", "Proceso", "Resultado", "Antes", "Después"],
-        items.map(item => [
-          displayValue(item.processId),
-          displayValue(item.name),
-          item.success === true ? "OK" : displayValue(item.error),
-          actionId === "memory.trim" &&
-          typeof item.beforeWorkingSetBytes === "number"
-            ? formatBytes(item.beforeWorkingSetBytes)
-            : displayValue(item.beforeEcoQos),
-          actionId === "memory.trim" &&
-          typeof item.afterWorkingSetBytes === "number"
-            ? formatBytes(item.afterWorkingSetBytes)
-            : displayValue(item.afterEcoQos)
-        ])
-      ));
-    }
-
-    if (actionId === "cpu.ecoqos.apply") {
-      const rollback = createEcoQosRollback(items);
-      if (rollback) content.append(rollback);
-    }
-    return;
-  }
-
-  if (actionId === "disk.scan" ||
-      actionId === "disk.cleanup.safe") {
-    const categories = asArray(data.categories)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    content.append(createResultGrid([
-      ["Recuperable", typeof data.estimatedBytes === "number"
-        ? formatBytes(data.estimatedBytes) : "—"],
-      ["Categorías", String(categories.length)],
-      ["Modo", actionId === "disk.cleanup.safe" ? "Dry-run" : "Read-only"]
-    ]));
-    if (categories.length) {
-      content.append(createResultTable(
-        ["Categoría", "Tamaño", "Riesgo"],
-        categories.map(item => [
-          displayValue(item.label),
-          typeof item.bytes === "number" ? formatBytes(item.bytes) : "—",
-          displayValue(item.risk)
-        ])
-      ));
-    }
-    return;
-  }
-
-  if (actionId === "network.test") {
-    const network = asRecord(data.network);
-    if (network) {
-      content.append(createResultGrid([
-        ["Adaptador", displayValue(network.name)],
-        ["Enlace", typeof network.linkMbps === "number"
-          ? Math.round(network.linkMbps) + " Mbps" : "—"],
-        ["Tráfico", "↓ " + displayValue(network.receiveMegabytesPerSecond) +
-          " MB/s · ↑ " + displayValue(network.sendMegabytesPerSecond) + " MB/s"]
-      ]));
-    }
-    return;
-  }
-
-  if (actionId === "system.crash.analyze") {
-    const insights = asArray(data.insights)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-
-    content.append(createResultGrid([
-      ["Eventos leídos", displayValue(data.eventsRead)],
-      ["Patrones", String(insights.length)],
-      ["Alta prioridad", displayValue(data.highSeverityCount)],
-      ["Prioridad media", displayValue(data.mediumSeverityCount)]
-    ]));
-
-    if (insights.length) {
-      content.append(createResultTable(
-        ["Prioridad", "Patrón", "Veces", "Evidencia", "Siguiente paso"],
-        insights.map(item => [
-          displayValue(item.severity),
-          displayValue(item.title),
-          displayValue(item.occurrences),
-          displayValue(item.latestEvidence),
-          displayValue(item.recommendedActionId)
-        ])
-      ));
-
-      const controls = document.createElement("div");
-      controls.className = "result-actions";
-      const seen = new Set<string>();
-      for (const item of insights) {
-        if (typeof item.recommendedActionId !== "string" ||
-            seen.has(item.recommendedActionId)) continue;
-        seen.add(item.recommendedActionId);
-        const actionIdValue = item.recommendedActionId;
-        const button = document.createElement("button");
-        button.className = "btn btn-secondary";
-        button.textContent = "Analizar · " + displayValue(item.title);
-        button.addEventListener("click", () =>
-          void runAction(actionIdValue, button));
-        controls.append(button);
-      }
-      if (controls.childElementCount) content.append(controls);
-    }
-    return;
-  }
-
-  if (actionId === "drivers.usb.analyze") {
-    const devices = asArray(data.devices)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-
-    content.append(createResultGrid([
-      ["USB observados", displayValue(data.deviceCount)],
-      ["Con problema", displayValue(data.problemCount)],
-      ["Reinicio elegible", displayValue(data.restartEligibleCount)],
-      ["Política", "Fail-closed"]
-    ]));
-
-    if (devices.length) {
-      content.append(createResultTable(
-        ["Dispositivo", "Código", "Clase", "Estado", "Decisión"],
-        devices.map(item => [
-          displayValue(item.name),
-          displayValue(item.problemCode),
-          displayValue(item.pnpClass),
-          displayValue(item.status),
-          item.restartEligible === true ? "Reinicio disponible" : displayValue(item.reason)
-        ])
-      ));
-
-      const controls = document.createElement("div");
-      controls.className = "result-actions";
-      for (const device of devices.filter(item =>
-        item.restartEligible === true &&
-        typeof item.deviceInstanceId === "string").slice(0, 8)) {
-        const button = document.createElement("button");
-        button.className = "btn btn-primary";
-        button.textContent = "Reiniciar · " + displayValue(device.name);
-        button.addEventListener("click", () => {
-          if (!window.confirm(
-            "¿Reiniciar únicamente " + displayValue(device.name) +
-            "?\n\nWindows solicitará UAC. No se reiniciarán hubs, teclado, ratón, almacenamiento ni red protegidos."
-          )) return;
-          void runAction(
-            "drivers.usb.restart",
-            button,
-            {
-              deviceInstanceId: String(device.deviceInstanceId),
-              confirmed: true
-            });
-        });
-        controls.append(button);
-      }
-      if (controls.childElementCount) content.append(controls);
-    }
-    return;
-  }
-
-  if (actionId === "startup.service.dependencies") {
-    const dependents = asArray(data.dependents);
-    content.append(createResultGrid([
-      ["Servicio", displayValue(data.displayName)],
-      ["Nombre", displayValue(data.serviceName)],
-      ["Dependientes", displayValue(data.dependentCount)],
-      ["Decisión", Number(data.dependentCount) > 0 ? "Cambios protegidos" : "Sin dependientes detectados"]
-    ]));
-    if (dependents.length) {
-      const pre = document.createElement("pre");
-      pre.className = "result-pre";
-      pre.textContent = dependents.map(displayValue).join("\n");
-      content.append(pre);
-    }
-    return;
-  }
-
-  if (actionId === "startup.tasks.preview") {
-    const tasks = asArray(data.tasks)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-
-    content.append(createResultGrid([
-      ["Tareas", displayValue(data.taskCount)],
-      ["Revisables", displayValue(data.eligibleCount)],
-      ["Protegidas", displayValue(data.protectedCount)],
-      ["Con rollback", displayValue(data.restoreAvailableCount)]
-    ]));
-
-    if (tasks.length) {
-      content.append(createResultTable(
-        ["Tarea", "Estado", "Acción", "Diagnóstico", "Clasificación", "Motivo"],
-        tasks.map(item => [
-          displayValue(item.fullName),
-          displayValue(item.state),
-          displayValue(item.actionKind),
-          displayValue(item.actionStatus),
-          item.protected === true ? "Protegida" : "Revisable",
-          displayValue(item.reason)
-        ])
-      ));
-
-      const controls = document.createElement("div");
-      controls.className = "result-actions";
-      for (const task of tasks.slice(0, 30)) {
-        if (typeof task.entryId !== "string") continue;
-
-        if (task.protected !== true &&
-            String(task.state ?? "").toLowerCase() !== "disabled") {
-          const disable = document.createElement("button");
-          disable.className = "btn btn-secondary";
-          disable.textContent = "Deshabilitar · " + displayValue(task.taskName);
-          disable.addEventListener("click", () => {
-            if (!window.confirm(
-              "¿Deshabilitar " + displayValue(task.fullName) +
-              " para futuras ejecuciones?\n\nNo se terminará ningún proceso actual y se guardará rollback."
-            )) return;
-            void runAction(
-              "startup.task.disable",
-              disable,
-              { entryId: String(task.entryId), confirmed: true });
-          });
-          controls.append(disable);
-        }
-
-        if (task.restoreAvailable === true) {
-          const restore = document.createElement("button");
-          restore.className = "btn btn-secondary";
-          restore.textContent = "Restaurar · " + displayValue(task.taskName);
-          restore.addEventListener("click", () => {
-            if (!window.confirm(
-              "¿Volver a habilitar " + displayValue(task.fullName) + "?"
-            )) return;
-            void runAction(
-              "startup.task.restore",
-              restore,
-              { entryId: String(task.entryId), confirmed: true });
-          });
-          controls.append(restore);
-        }
-      }
-      if (controls.childElementCount) content.append(controls);
-    }
-    return;
-  }
-
-  if (actionId === "startup.task.disable" ||
-      actionId === "startup.task.restore") {
-    content.append(createResultGrid([
-      ["Estado", displayValue(data.status)],
-      ["Tarea", displayValue(data.fullName)],
-      ["Antes", displayValue(data.beforeState)],
-      ["Después", displayValue(data.afterState)],
-      ["Rollback", data.restoreAvailable === true ? "Disponible" : "—"],
-      ["Detalle", displayValue(data.detail)]
-    ]));
-    return;
-  }
-
-  if (actionId === "system.registry.evidence" ||
-      actionId === "system.com.evidence" ||
-      actionId === "system.certificates.audit") {
-    const items = asArray(data.items)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    content.append(createResultGrid([
-      ["Área", displayValue(data.area)],
-      ["Estado", displayValue(data.status)],
-      ["Atención", displayValue(data.attentionCount)],
-      ["Escaneo", data.partial === true ? "Parcial / acotado" : "Completo dentro del scope"],
-      ["Modo", "Read-only"]
-    ]));
-    if (items.length) {
-      content.append(createResultTable(
-        ["Elemento", "Estado", "Fuente", "Detalle"],
-        items.map(item => [
-          displayValue(item.name),
-          displayValue(item.status),
-          displayValue(item.source),
-          displayValue(item.detail)
-        ])
-      ));
-    }
-    return;
-  }
-
-  if (actionId === "diagnostics.bundle.create") {
-    content.append(createResultGrid([
-      ["Sanitizado", data.sanitized === true ? "Sí" : "No"],
-      ["JSON", displayValue(data.jsonFiles)],
-      ["Tamaño", typeof data.bytes === "number" ? formatBytes(data.bytes) : "—"],
-      ["Ruta local", displayValue(data.path)]
-    ]));
-    const note = document.createElement("p");
-    note.className = "result-message";
-    note.textContent =
-      "Excluye comandos de autoarranque, argumentos de tareas, IDs PnP/USB, claves de producto, cookies, sesiones y logs crudos.";
-    content.append(note);
-    return;
-  }
-
-  if (actionId === "startup.entries.preview") {
-    const entries = asArray(data.entries)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-
-    content.append(createResultGrid([
-      ["Registradas", displayValue(data.registeredCount)],
-      ["Revisables", displayValue(data.eligibleCount)],
-      ["Protegidas", displayValue(data.protectedCount)],
-      ["Con rollback", displayValue(data.disabledByAppCount)]
-    ]));
-
-    if (entries.length) {
-      content.append(createResultTable(
-        ["Entrada", "Ubicación", "Estado", "Protección", "Motivo"],
-        entries.map(item => [
-          displayValue(item.name),
-          displayValue(item.scope),
-          item.enabled === true ? "Activa" : "Deshabilitada por la app",
-          item.protected === true ? "Protegida" : "Revisable",
-          displayValue(item.reason)
-        ])
-      ));
-
-      const controls = document.createElement("div");
-      controls.className = "result-actions";
-      for (const entry of entries.slice(0, 24)) {
-        if (typeof entry.entryId !== "string") continue;
-
-        if (entry.enabled === true && entry.protected !== true) {
-          const disable = document.createElement("button");
-          disable.className = "btn btn-secondary";
-          disable.textContent = "Deshabilitar · " + displayValue(entry.name);
-          disable.addEventListener("click", () => {
-            if (!window.confirm(
-              "¿Quitar " + displayValue(entry.name) +
-              " del próximo autoarranque?\n\nEl proceso actual NO se cerrará y la app guardará rollback."
-            )) return;
-            void runAction(
-              "startup.entry.disable",
-              disable,
-              { entryId: String(entry.entryId), confirmed: true });
-          });
-          controls.append(disable);
-        }
-
-        if (entry.restoreAvailable === true) {
-          const restore = document.createElement("button");
-          restore.className = "btn btn-secondary";
-          restore.textContent = "Restaurar · " + displayValue(entry.name);
-          restore.addEventListener("click", () => {
-            if (!window.confirm(
-              "¿Restaurar " + displayValue(entry.name) +
-              " al autoarranque original?"
-            )) return;
-            void runAction(
-              "startup.entry.restore",
-              restore,
-              { entryId: String(entry.entryId), confirmed: true });
-          });
-          controls.append(restore);
-        }
-      }
-      if (controls.childElementCount) content.append(controls);
-    }
-    return;
-  }
-
-  if (actionId === "drivers.usb.restart" ||
-      actionId === "startup.entry.disable" ||
-      actionId === "startup.entry.restore") {
-    content.append(createResultGrid([
-      ["Estado", displayValue(data.status)],
-      ["Elemento", displayValue(data.name ?? data.deviceInstanceId)],
-      ["Detalle", displayValue(data.detail)],
-      ["Rollback", data.restoreAvailable === true ? "Disponible" : "—"]
-    ]));
-    return;
-  }
-
-  if (actionId === "processes.hygiene.analyze") {
-    const items = asArray(data.items)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-
-    content.append(createResultGrid([
-      ["Detenibles", displayValue(data.stoppableCount)],
-      ["Protegidos", displayValue(data.protectedCount)],
-      ["RAM potencial", typeof data.estimatedReclaimMb === "number"
-        ? Number(data.estimatedReclaimMb).toFixed(1) + " MiB" : "—"],
-      ["Política", "PID + huella + reclasificación"]
-    ]));
-
-    if (items.length) {
-      content.append(createResultTable(
-        ["Tipo", "Identidad", "PID", "RAM", "Edad", "Decisión", "Motivo"],
-        items.map(item => [
-          displayValue(item.category),
-          displayValue(item.identity),
-          displayValue(item.processId),
-          typeof item.estimatedReclaimMb === "number"
-            ? Number(item.estimatedReclaimMb).toFixed(1) + " MiB" : "—",
-          typeof item.ageMinutes === "number"
-            ? formatDuration(Number(item.ageMinutes) * 60) : "—",
-          item.protected === true
-            ? "Protegido"
-            : item.stoppable === true
-              ? "Puede detenerse"
-              : "Solo observar",
-          displayValue(item.reason)
-        ])
-      ));
-
-      const controls = document.createElement("div");
-      controls.className = "result-actions";
-      for (const item of items.filter(candidate =>
-        candidate.stoppable === true &&
-        candidate.protected !== true &&
-        typeof candidate.processId === "number" &&
-        typeof candidate.fingerprint === "string").slice(0, 12)) {
-        const button = document.createElement("button");
-        button.className = "btn btn-secondary";
-        button.textContent = "Detener · " + displayValue(item.identity);
-        button.addEventListener("click", () => {
-          if (!window.confirm(
-            "¿Detener únicamente " + displayValue(item.identity) +
-            "?\n\nLa app volverá a verificar PID, huella y clasificación antes de detenerlo. " +
-            "Bots, PM2, Desktop Commander, ChatGPT, Claude y procesos no clasificados quedan fuera."
-          )) return;
-          void runAction(
-            "processes.hygiene.stop",
-            button,
-            {
-              processId: Number(item.processId),
-              fingerprint: String(item.fingerprint),
-              confirmed: true
-            });
-        });
-        controls.append(button);
-      }
-      if (controls.childElementCount) content.append(controls);
-    }
-    return;
-  }
-
-  if (actionId === "processes.hygiene.stop") {
-    content.append(createResultGrid([
-      ["Estado", displayValue(data.status)],
-      ["Tipo", displayValue(data.category)],
-      ["Elemento", displayValue(data.identity)],
-      ["Detenidos", asArray(data.stoppedProcessIds).map(displayValue).join(", ") || "—"],
-      ["Siguen vivos", asArray(data.stillAliveProcessIds).map(displayValue).join(", ") || "0"],
-      ["RAM observada", typeof data.estimatedReclaimMb === "number"
-        ? Number(data.estimatedReclaimMb).toFixed(1) + " MiB" : "—"]
-    ]));
-    const detail = document.createElement("p");
-    detail.className = "result-message";
-    detail.textContent = displayValue(data.detail);
-    content.append(detail);
-    return;
-  }
-
-  if (actionId === "browsers.automation.audit") {
-    const groups = asArray(data.families)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    const processes = asArray(data.processes)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-
-    content.append(createResultGrid([
-      ["Procesos observados", displayValue(data.totalBrowserProcesses)],
-      ["Working sets sumados", typeof data.workingSetBytes === "number"
-        ? formatBytes(data.workingSetBytes) : "—"],
-      ["Memoria privada", typeof data.privateBytes === "number"
-        ? formatBytes(data.privateBytes) : "—"],
-      ["Capturas", displayValue(data.sampleCount)],
-      ["Ejecución", "Solo lectura, sin cierres"]
-    ]));
-
-    if (groups.length) {
-      content.append(createResultTable(
-        ["Familia", "Procesos", "Working set", "Privada", "Estado", "Propietario confirmado"],
-        groups.map(item => [
-          displayValue(item.family),
-          displayValue(item.processCount),
-          typeof item.workingSetBytes === "number"
-            ? formatBytes(item.workingSetBytes) : "—",
-          typeof item.privateBytes === "number"
-            ? formatBytes(item.privateBytes) : "—",
-          displayValue(item.status),
-          asArray(item.confirmedOwners).map(displayValue).join(", ") || "Sin atribución"
-        ])
-      ));
-      const detail = document.createElement("p");
-      detail.className = "result-message";
-      detail.textContent = groups.map(item =>
-        displayValue(item.family) + ": " + displayValue(item.detail)
-      ).join(" ");
-      content.append(detail);
-    }
-
-    if (processes.length) {
-      content.append(createResultTable(
-        ["PID", "PPID", "Familia", "Rol", "Dueño", "Working set", "Privada"],
-        processes.slice(0, 40).map(item => [
-          displayValue(item.processId),
-          displayValue(item.parentProcessId),
-          displayValue(item.family),
-          displayValue(item.role),
-          displayValue(item.owner),
-          typeof item.workingSetBytes === "number"
-            ? formatBytes(item.workingSetBytes) : "—",
-          typeof item.privateBytes === "number"
-            ? formatBytes(item.privateBytes) : "—"
-        ])
-      ));
-    }
-
-    const note = document.createElement("p");
-    note.className = "result-message";
-    note.textContent = displayValue(data.accountingNotice) + " " +
-      displayValue(data.safetyNotice);
-    content.append(note);
-
-    const actions = document.createElement("div");
-    actions.className = "result-actions";
-    for (const [label, next] of [
-      ["Volver a medir", "browsers.automation.audit"],
-      ["Revisar Edge", "browsers.edge.performance.audit"],
-      ["Revisar residuos de laboratorio", "processes.hygiene.analyze"]
-    ] as const) {
-      const button = document.createElement("button");
-      button.className = "btn btn-secondary";
-      button.textContent = label;
-      button.addEventListener("click", () => {
-        void runAction(next, button);
-      });
-      actions.append(button);
-    }
-    content.append(actions);
-    return;
-  }
-
-  if (actionId === "memory.analyze") {
-    content.append(createResultGrid([
-      ["RAM total", typeof data.memoryTotalBytes === "number"
-        ? formatBytes(data.memoryTotalBytes) : "—"],
-      ["RAM usada", typeof data.memoryUsedBytes === "number"
-        ? formatBytes(data.memoryUsedBytes) : "—"],
-      ["Disponible", typeof data.memoryAvailableBytes === "number"
-        ? formatBytes(data.memoryAvailableBytes) : "—"]
-    ]));
-    return;
-  }
-
-  if (actionId === "system.reliability.analyze") {
-    const events = asArray(data.events);
-    content.append(createResultGrid([
-      ["Eventos", String(events.length)],
-      ["Ventana", "7 días"],
-      ["Modelo", "HECHO / INDICIO"]
-    ]));
-    return;
-  }
-
-  if (actionId === "system.health.scan") {
-    content.append(createResultGrid([
-      ["Reliability", displayValue(data.reliabilityEvents) + " eventos"],
-      ["Drivers", "Evaluados"],
-      ["Activación", "Evaluada"]
-    ]));
-    return;
-  }
-
-  if (actionId === "system.healthscore.analyze") {
-    const factors = asArray(data.factors)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    const changes = asArray(data.changes)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-
-    content.append(createResultGrid([
-      ["Health Score", displayValue(data.score) + "/100"],
-      ["Banda", displayValue(data.band)],
-      ["Historial", displayValue(data.historyCount) + " captura(s)"],
-      ["Baseline", data.baselineCreated === true ? "Creada" : "Comparada"]
-    ]));
-
-    if (factors.length) {
-      content.append(createResultTable(
-        ["Factor", "Estado", "Penalización", "Evidencia"],
-        factors.map(item => [
-          displayValue(item.category),
-          displayValue(item.status),
-          "-" + displayValue(item.penalty),
-          displayValue(item.detail)
-        ])
-      ));
-    }
-
-    if (changes.length) {
-      content.append(createResultTable(
-        ["Cambio", "Impacto", "Antes", "Después", "Delta"],
-        changes.map(item => [
-          displayValue(item.name),
-          displayValue(item.impact),
-          displayValue(item.before),
-          displayValue(item.after),
-          displayValue(item.delta) + (item.unit ? " " + displayValue(item.unit) : "")
-        ])
-      ));
-    }
-    return;
-  }
-
-  if (actionId === "system.changes.analyze") {
-    const changes = asArray(data.changes)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-
-    content.append(createResultGrid([
-      ["Baseline previa", displayValue(data.previousCapturedAt)],
-      ["Baseline actual", displayValue(data.currentCapturedAt)],
-      ["Cambios materiales", String(changes.length)],
-      ["Comparación", data.baselineRequired === true ? "Falta baseline" : "Disponible"]
-    ]));
-
-    if (changes.length) {
-      content.append(createResultTable(
-        ["Categoría", "Elemento", "Impacto", "Antes", "Después"],
-        changes.map(item => [
-          displayValue(item.category),
-          displayValue(item.name),
-          displayValue(item.impact),
-          displayValue(item.before),
-          displayValue(item.after)
-        ])
-      ));
-    }
-    return;
-  }
-
-  if (actionId === "lab.outcomes.status") {
-    const actions = asArray(data.actions)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-
-    content.append(createResultGrid([
-      ["WRITE", displayValue(data.writeActionCount)],
-      ["Clasificadas", displayValue(data.classifiedCount)],
-      ["Post-check", displayValue(data.postcheckedCount)],
-      ["Cobertura", displayValue(data.coveragePercent) + "%"],
-      ["Incompletas", displayValue(data.incompleteRuns)]
-    ]));
-
-    if (actions.length) {
-      content.append(createResultTable(
-        ["Acción", "Verificación", "Rollback", "OK / Fallos", "Detalle"],
-        actions.map(item => [
-          displayValue(item.actionId),
-          displayValue(item.verificationLevel),
-          item.rollbackExpected === true ? "Esperado" : item.reversible === true ? "Disponible" : "No",
-          displayValue(item.completedRuns) + " / " + displayValue(item.failedRuns),
-          displayValue(item.verificationDetail)
-        ])
-      ));
-    }
-    return;
-  }
-
-  if (actionId.startsWith("maintenance.policy.")) {
-    const workload = asRecord(data.workload);
-    const scope = asArray(data.fixedReadOnlyScope);
-    content.append(createResultGrid([
-      ["Política", displayValue(data.mode)],
-      ["Ejecutable ahora", data.canRunNow === true ? "Sí" : "No"],
-      ["PC", workload ? displayValue(workload.effectiveMode) : "—"],
-      ["Scope", String(scope.length) + " diagnósticos fijos"],
-      ["Motivo", displayValue(data.reason)]
-    ]));
-    if (scope.length) {
-      const pre = document.createElement("pre");
-      pre.className = "result-pre";
-      pre.textContent = scope.map(displayValue).join("\n");
-      content.append(pre);
-    }
-    return;
-  }
-
-  if (actionId === "maintenance.safe.run") {
-    const items = asArray(data.items)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    const policy = asRecord(data.policy);
-
-    content.append(createResultGrid([
-      ["Ejecutado", data.executed === true ? "Sí" : "No"],
-      ["Política", policy ? displayValue(policy.mode) : "—"],
-      ["Diagnósticos", String(items.length)],
-      ["WRITE ejecutados", "0"]
-    ]));
-
-    if (items.length) {
-      content.append(createResultTable(
-        ["Diagnóstico", "Estado", "Resumen"],
-        items.map(item => [
-          displayValue(item.actionId),
-          displayValue(item.status),
-          displayValue(item.summary)
-        ])
-      ));
-    }
-    return;
-  }
-
-  if (actionId === "system.actionplan.preview") {
-    const items = asArray(data.items)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    const workload = asRecord(data.workload);
-
-    content.append(createResultGrid([
-      ["Prioridad alta", displayValue(data.highPriorityCount)],
-      ["Prioridad media", displayValue(data.mediumPriorityCount)],
-      ["Accionables", displayValue(data.actionableCount)],
-      ["Diferidas", displayValue(data.deferredCount)],
-      ["PC", workload ? displayValue(workload.effectiveMode) : "—"],
-      ["Mantenimiento pesado", workload?.heavyActionsAllowed === true ? "Permitido" : "Protegido"]
-    ]));
-
-    if (items.length) {
-      content.append(createResultTable(
-        ["Prioridad", "Hallazgo", "Motivo", "Acción", "Estado"],
-        items.map(item => [
-          displayValue(item.priority),
-          displayValue(item.title),
-          displayValue(item.reason),
-          displayValue(item.actionId ?? "Informativo"),
-          item.deferred === true ? "Diferida" : "Disponible"
-        ])
-      ));
-
-      const controls = document.createElement("div");
-      controls.className = "result-actions";
-      const actionable = items.filter(item =>
-        typeof item.actionId === "string" &&
-        item.deferred !== true);
-      for (const item of actionable.slice(0, 8)) {
-        const actionIdValue = String(item.actionId);
-        const definition = currentCatalog.find(action =>
-          action.id === actionIdValue);
-        const button = document.createElement("button");
-        button.className = "btn btn-secondary";
-        button.textContent = "Abrir · " + displayValue(item.title);
-
-        const requiredSelection = definition?.parameters?.some(parameter =>
-          parameter.required && parameter.name !== "confirmed") === true;
-        if (requiredSelection) {
-          button.disabled = true;
-          button.title = "Primero ejecutá el análisis específico que genera una selección segura.";
-        } else {
-          button.addEventListener("click", () => {
-            if (definition?.mode === "WRITE") {
-              if (!window.confirm(
-                definition.title + "\n\n" + definition.description +
-                "\n\n¿Ejecutar esta acción del plan?"
-              )) return;
-              void runAction(actionIdValue, button, { confirmed: true });
-            } else {
-              void runAction(actionIdValue, button);
-            }
-          });
-        }
-        controls.append(button);
-      }
-      if (controls.childElementCount) content.append(controls);
-    }
-    return;
-  }
-
-  if (actionId.startsWith("system.workload.")) {
-    content.append(createResultGrid([
-      ["Configurado", displayValue(data.configuredMode)],
-      ["Efectivo", displayValue(data.effectiveMode)],
-      ["Inactividad", typeof data.idleSeconds === "number"
-        ? formatDuration(data.idleSeconds) : "—"],
-      ["D: libre", typeof data.dFreePercent === "number"
-        ? Number(data.dFreePercent).toFixed(1) + "%" : "—"],
-      ["Carga pesada", data.heavyActionsAllowed === true
-        ? "Permitida" : "Protegida"],
-      ["Motivo", displayValue(data.reason)]
-    ]));
-    return;
-  }
-
-  if (actionId === "backup.rollback.center") {
-    const entries = asArray(data.entries)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    const incomplete = asArray(data.incompleteOperations);
-
-    content.append(createResultGrid([
-      ["Rollbacks", String(entries.length)],
-      ["Operaciones incompletas", String(incomplete.length)],
-      ["Estado", incomplete.length ? "REVISAR" : entries.length ? "RECUPERABLE" : "LIMPIO"]
-    ]));
-
-    if (entries.length) {
-      content.append(createResultTable(
-        ["Cambio", "Detalle", "Acción", "UAC"],
-        entries.map(item => [
-          displayValue(item.title),
-          displayValue(item.detail),
-          displayValue(item.actionId),
-          item.requiresAdmin === true ? "Sí" : "No"
-        ])
-      ));
-
-      const controls = document.createElement("div");
-      controls.className = "result-actions";
-      for (const entry of entries.slice(0, 12)) {
-        if (typeof entry.actionId !== "string") continue;
-        const params = asRecord(entry.parameters) ?? {};
-        const button = document.createElement("button");
-        button.className = "btn btn-secondary";
-        button.textContent = "Restaurar · " + displayValue(entry.title);
-        button.addEventListener("click", () => {
-          if (!window.confirm(
-            "¿Restaurar " + displayValue(entry.title) +
-            "?\n\n" + displayValue(entry.detail)
-          )) return;
-          void runAction(
-            String(entry.actionId),
-            button,
-            { ...params, confirmed: true });
-        });
-        controls.append(button);
-      }
-      content.append(controls);
-    }
-    return;
-  }
-
-  if (actionId === "backup.status") {
-    const incomplete = asArray(data.incompleteOperations)
-      .map(asRecord)
-      .filter((item): item is Record<string, unknown> => item !== null);
-    const snapshots = asArray(data.rollbackSnapshots);
-    content.append(createResultGrid([
-      ["Operaciones incompletas", String(incomplete.length)],
-      ["Snapshots rollback", String(snapshots.length)],
-      ["Estado", incomplete.length ? "REVISAR" : "OK"]
-    ]));
-    if (incomplete.length) {
-      content.append(createResultTable(
-        ["Acción", "Inicio", "Último estado"],
-        incomplete.map(item => [
-          displayValue(item.actionId),
-          displayValue(item.startedAt),
-          displayValue(item.lastStatus)
-        ])
-      ));
-    }
-    if (snapshots.length) {
-      const pre = document.createElement("pre");
-      pre.className = "result-pre";
-      pre.textContent = snapshots.map(displayValue).join("\n");
-      content.append(pre);
-    }
-
-    // The rollback offered right after an apply disappears with that
-    // result panel; persisted snapshots stay restorable from here.
-    const rollback = createEcoQosRollback(
-      asArray(data.ecoQosTargets)
-        .map(asRecord)
-        .filter((item): item is Record<string, unknown> => item !== null)
-        .map(item => ({ processId: item.processId, success: item.restorable === true })));
-    if (rollback) content.append(rollback);
-    return;
-  }
-
-  const auditItems = asArray(data.items)
-    .map(asRecord)
-    .filter((item): item is Record<string, unknown> => item !== null);
-  if (auditItems.length || typeof data.status === "string") {
-    content.append(createResultGrid([
-      ["Estado", displayValue(data.status)],
-      ["Elementos", String(auditItems.length)],
-      ["Modo", "Read-only"]
-    ]));
-    if (auditItems.length) {
-      content.append(createResultTable(
-        ["Categoría", "Nombre", "Valor", "Estado"],
-        auditItems.map(item => [
-          displayValue(item.category),
-          displayValue(item.name),
-          displayValue(item.value),
-          displayValue(item.status)
-        ])
-      ));
-    }
+  renderStructuredResult(actionId, data, content);
+  if (!result.success) {
+    // Partial failure evidence remains readable, but it must never provide
+    // operational controls or create a WRITE flow from incomplete analysis.
+    content.querySelectorAll<
+      HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+    >("button, input, select, textarea").forEach(control => {
+      control.disabled = true;
+      control.setAttribute("aria-disabled", "true");
+      control.title = "Acción no disponible tras un análisis fallido.";
+    });
   }
 }
+
+
 
 function renderSnapshot(snapshot: SystemSnapshot): void {
   currentSnapshot = snapshot;
@@ -3500,8 +513,18 @@ function renderSnapshot(snapshot: SystemSnapshot): void {
   pushHistory(cpuHistory, snapshot.cpuPercent);
   renderSparkline("cpu-sparkline", cpuHistory);
 
-  byId("ram-value").textContent = formatBytes(snapshot.memoryUsedBytes) + " / " + formatBytes(snapshot.memoryTotalBytes);
-  byId("ram-sub").textContent = memoryPercent.toFixed(0) + "% en uso · " + formatBytes(snapshot.memoryAvailableBytes) + " disponibles";
+  // Compact has five metric columns: show the used value in full rather than
+  // silently ellipsizing the used/total pair at 1366px. Total stays in Developer.
+  byId("ram-value").textContent = document.body.dataset.mode === "compact"
+    ? formatBytes(snapshot.memoryUsedBytes)
+    : formatBytes(snapshot.memoryUsedBytes) + " / " + formatBytes(snapshot.memoryTotalBytes);
+  const ramDetail = memoryPercent.toFixed(0) + "% en uso · " + formatBytes(snapshot.memoryAvailableBytes) + " disponibles";
+  const ramSub = byId("ram-sub");
+  ramSub.textContent = document.body.dataset.mode === "compact"
+    ? memoryPercent.toFixed(0) + "% en uso"
+    : ramDetail;
+  ramSub.setAttribute("title", ramDetail);
+  ramSub.setAttribute("aria-label", ramDetail);
   setBar("ram-bar", memoryPercent);
 
   byId("disk-label").textContent = "Disco " + snapshot.diskDrive;
@@ -3535,6 +558,20 @@ function renderSnapshot(snapshot: SystemSnapshot): void {
     : snapshot.integrityStatus === "NOT_EVALUATED"
       ? "Ejecuta la comprobación de integridad"
       : "Revisa el resultado del diagnóstico";
+  const tabletStatus = byId("tablet-system-status");
+  const tabletSource = byId("tablet-status-source");
+  const nextTabletStatus = provider.surface === "demo"
+    ? "Estado de demostración"
+    : snapshot.integrityStatus === "NOT_EVALUATED"
+      ? "Métricas locales actualizadas"
+      : snapshot.integrityStatus === "OK"
+        ? "Integridad comprobada"
+        : "Integridad: " + snapshot.integrityStatus.replaceAll("_", " ");
+  if (tabletStatus.textContent !== nextTabletStatus) tabletStatus.textContent = nextTabletStatus;
+  const nextTabletSource = provider.surface === "demo"
+    ? "Datos simulados · no se accede a Windows"
+    : "Lecturas locales · sin cambios automáticos";
+  if (tabletSource.textContent !== nextTabletSource) tabletSource.textContent = nextTabletSource;
   setHealth("integrity", snapshot.integrityStatus);
   setHealth("drivers", snapshot.driverStatus);
   setHealth("activation", snapshot.activationStatus);
@@ -3622,6 +659,15 @@ function setGlobalState(state: OperationState): void {
     document.createTextNode(state));
   badge.className = className;
 
+  const tabletBadge = document.getElementById("tablet-state-badge");
+  if (tabletBadge) {
+    tabletBadge.className = className;
+    if (tabletBadge.textContent !== state) {
+      tabletBadge.replaceChildren(
+        document.createElement("i"),
+        document.createTextNode(state));
+    }
+  }
   const headerBadge = document.getElementById("header-state");
   if (headerBadge) {
     headerBadge.replaceChildren(
@@ -3865,11 +911,30 @@ async function runAction(
   // A result belongs to the module it was requested from. If the user has
   // moved to another view by the time it arrives, it must not appear there.
   const originView = activeView;
+  if (originView !== "dashboard") {
+    // A previous result (and its selection buttons) must not remain usable
+    // while the replacement operation is running.
+    latestResultByView.delete(originView);
+    hideModuleResult();
+  }
   const originalNodes = button
     ? Array.from(button.childNodes).map(node => node.cloneNode(true))
     : [];
   const action = currentCatalog.find(item => item.id === id);
   const isWrite = action?.mode === "WRITE";
+  // A cleanup attempt consumes its previous preview even if the backend
+  // fails or returns a partial outcome. Require a new preview to retry.
+  if (id === "disk.scan" || id === "disk.cleanup.execute" || id === "disk.cleanup.safe") {
+    // A new scan invalidates both previous estimates and permission to clean.
+    invalidateRecoveryEstimate();
+    cleanupPreviewReady = false;
+    const cleanupButton = document.querySelector<HTMLButtonElement>(
+      'button[data-action="disk.cleanup.execute"]');
+    if (cleanupButton) {
+      cleanupButton.disabled = true;
+      cleanupButton.title = "Primero previsualizá la limpieza.";
+    }
+  }
   if (button) {
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
@@ -3880,16 +945,29 @@ async function runAction(
   try {
     while (backgroundWork) await backgroundWork;
     const result = await provider.runAction(id, parameters);
-    if (id === "disk.cleanup.safe" && result.success) {
-      cleanupPreviewReady = true;
-      const cleanButton = document.querySelector<HTMLButtonElement>('button[data-action="disk.cleanup.execute"]');
-      if (cleanButton) { cleanButton.disabled = false; cleanButton.title = "Previsualización realizada. Confirmá para limpiar."; }
+    if (originView !== "dashboard") {
+      latestResultByView.set(originView, { id, result });
     }
-    if (id === "disk.cleanup.execute") cleanupPreviewReady = false;
+    if (id === "disk.cleanup.safe") {
+      const previewBytes = result.data?.estimatedBytes;
+      cleanupPreviewReady = result.success && result.dryRun &&
+        typeof previewBytes === "number" && Number.isFinite(previewBytes) &&
+        previewBytes > 0;
+      const cleanButton = document.querySelector<HTMLButtonElement>('button[data-action="disk.cleanup.execute"]');
+      if (cleanButton) {
+        cleanButton.disabled = !cleanupPreviewReady;
+        cleanButton.title = cleanupPreviewReady
+          ? "Previsualización realizada. Confirmá para limpiar."
+          : "Primero previsualizá la limpieza.";
+      }
+    }
     pushActivity(id, result.message, result.success ? "ok" : "warn");
-    toast(result.success ? "Acción completada" : "Acción con advertencias", result.message, result.success ? "success" : "info");
+    const failedPagefile = !result.success && id.startsWith("memory.pagefile.");
+    toast(result.success ? "Acción completada" : failedPagefile ? "Acción fallida" : "Acción con advertencias",
+      result.message, result.success ? "success" : failedPagefile ? "error" : "info");
     const estimated = result.data?.estimatedBytes;
-    if (typeof estimated === "number") {
+    if (result.success && (id === "disk.scan" || id === "disk.cleanup.safe") &&
+        typeof estimated === "number" && Number.isFinite(estimated) && estimated >= 0) {
       recoverableBytes = estimated;
       byId("storage-recoverable").textContent = formatBytes(estimated);
       const data = asRecord(result.data);
@@ -3918,10 +996,24 @@ async function runAction(
     const message = error instanceof Error ? error.message : String(error);
     pushActivity(id, message, "warn");
     toast("Acción fallida", message, "error");
+    // Keep the failure visible after the toast expires and across navigation;
+    // a rejected local bridge call is evidence, not an empty result panel.
+    if (originView !== "dashboard") {
+      const failed: ActionResult = {
+        success: false,
+        dryRun: false,
+        message,
+        data: { status: "ERROR", actionId: id }
+      };
+      latestResultByView.set(originView, { id, result: failed });
+      if (activeView === originView) renderActionResult(id, failed);
+    }
   } finally {
     actionInFlight = false;
     if (button) {
-      button.disabled = false;
+      button.disabled = id === "disk.cleanup.execute" && !cleanupPreviewReady;
+      if (id === "disk.cleanup.execute" && !cleanupPreviewReady)
+        button.title = "Primero previsualizá la limpieza.";
       button.removeAttribute("aria-busy");
       button.replaceChildren(...originalNodes);
     }
@@ -3949,6 +1041,8 @@ function showView(view: string): void {
     dashboard.classList.remove("active");
     module.classList.add("active");
     renderModuleView(view);
+    const saved = latestResultByView.get(view);
+    if (saved) renderActionResult(saved.id, saved.result);
   }
 
   document.querySelector<HTMLElement>(".workspace")
@@ -3981,10 +1075,14 @@ async function boot(): Promise<void> {
     ?.addEventListener("click", () => refreshSnapshot());
   byId("mode-toggle").textContent =
     initialMode === "developer" ? "Modo compacto" : "Modo experto";
+  byId("mode-status").textContent =
+    initialMode === "developer" ? "Vista experta activa" : "Vista compacta activa";
   byId("mode-toggle").addEventListener("click", async () => {
     const developer = document.body.dataset.mode !== "developer";
     document.body.dataset.mode = developer ? "developer" : "compact";
     byId("mode-toggle").textContent = developer ? "Modo compacto" : "Modo experto";
+    byId("mode-status").textContent = developer ? "Vista experta activa" : "Vista compacta activa";
+    if (currentSnapshot) renderSnapshot(currentSnapshot);
 
     if (!developer &&
         ["browsers", "multimedia", "memory", "cpu", "startup", "integrity", "drivers",

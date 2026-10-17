@@ -7,8 +7,8 @@
 The script stops at the first failing step. GitHub Actions runs this same script, so local and CI results are comparable.
 
 Gate, in order:
-1. TypeScript/frontend build.
-2. Frontend contract: views, buttons and Action IDs agree with the backend catalog; the UI action timeout outlives the backend budgets.
+1. TypeScript/frontend build. The build invokes the C# CatalogExporter, generates `generated/action-catalog.json` and `generated/demo-catalog.ts`, typechecks all TypeScript and bundles `web/app.js`.
+2. Frontend contract and separate catalog contract: views/buttons/action IDs agree with the C# backend; generated metadata preserves action order and parameter definitions; the test intentionally injects catalog drift/duplicate IDs in memory and checks rejection. The UI action timeout outlives backend budgets.
 3. UI smoke in a headless Chromium/Edge: navigation, keyboard focus across the periodic refresh, accessible names and roles, results staying with the module that requested them, and a degraded start (first snapshot and catalog requests fail) that must recover on its own.
 4. Package, resource, CI-parity and WebView security contracts.
 5. Platform compatibility contract: PerMonitorV2, physical-pixel/DIP conversion, UAC/runas, current-user IPC, global-per-user single-instance semantics and WMI policy degradation.

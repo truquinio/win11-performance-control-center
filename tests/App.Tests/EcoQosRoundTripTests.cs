@@ -9,6 +9,7 @@ namespace App.Tests;
 /// Exercises the real power-throttling APIs against a throwaway child
 /// process owned by the test, so nothing else on the machine is touched.
 /// </summary>
+[Trait("Layer", "EcoQa35Synthetic")]
 public sealed class EcoQosRoundTripTests
 {
     // Querying ProcessPowerThrottling needs Windows 11 22H2 or later, which

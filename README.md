@@ -43,15 +43,15 @@ La interfaz ofrece **Compact** para uso diario y **Developer** para Action Catal
 
 | Compact | Developer |
 | --- | --- |
-| ![Dashboard Compact](docs/screenshots/dashboard-compact.png) | ![Dashboard Developer](docs/screenshots/dashboard-developer.png) |
+| ![Dashboard Compact](docs/screenshots/dashboard-compact.png) | ![Dashboard Developer — QA actual](docs/screenshots/dashboard-developer-current-20261011.png) |
 
-> Las capturas usan el modo DEMO con datos simulados; no exponen información del equipo real.
+> Las capturas usan DEMO con datos simulados. La captura Developer corresponde a QA del 11/10/2026 y muestra la interfaz implementada, **no** una certificación de igualdad con el mockup aprobado. Se preservó el archivo Developer anterior como referencia histórica.
 
 ## ⚡ Capacidades
 
 - 🧠 **CPU / EcoQoS** — análisis de procesos, aplicación controlada y rollback.
 - 🧩 **RAM / MemoryTrim** — presión de memoria, preview y recorte seleccionado.
-- 💾 **Almacenamiento** — espacio disponible, categorías recuperables y Safe Cleanup en dry-run.
+- 💾 **Almacenamiento** — espacio disponible, categorías recuperables, previsualización (dry-run) y limpieza real limitada a cachés regenerables con confirmación.
 - 🛡️ **Integridad** — línea base del sistema y DISM CheckHealth con elevación puntual.
 - 🌐 **Red** — adaptador activo, enlace y tráfico medido.
 - 🌡️ **Energía y temperatura** — plan de energía, ACPI y lectura NVIDIA cuando está disponible.
@@ -72,7 +72,7 @@ La interfaz ofrece **Compact** para uso diario y **Developer** para Action Catal
 | Acciones administrativas | UAC sólo cuando la acción lo requiere |
 | Comandos arbitrarios desde UI | No permitidos |
 | Reinicio automático | No |
-| Safe Cleanup | `DRY_RUN` en la versión actual |
+| Safe Cleanup | `DRY_RUN` para previsualizar; `disk.cleanup.execute` para limpieza controlada de cachés con confirmación explícita |
 
 El helper elevado vuelve a ejecutar el mismo ejecutable, valida el Action ID y usa un token efímero de respuesta.
 
@@ -168,7 +168,7 @@ docs/                    # arquitectura, seguridad y screenshots
 
 ## 📌 Estado
 
-**Preview / v0.1.0.** El repositorio contiene funcionalidades read-only y acciones controladas; Safe Cleanup continúa en dry-run.
+**Preview / v0.2.0-preview.1.** El repositorio contiene diagnósticos de solo lectura y acciones controladas; Safe Cleanup distingue previsualización `DRY_RUN` y eliminación `WRITE` restringida con confirmación. El soporte de una función no equivale a una mejora de rendimiento demostrada.
 
 No hay una licencia de reutilización declarada en el repositorio en este momento.
 
@@ -204,3 +204,12 @@ La vista de integridad distingue residuos inactivos de extensiones realmente rot
 ## Actionability
 
 La app sigue el patrón detectar -> explicar -> proponer -> confirmar -> ejecutar -> verificar -> rollback. Las acciones administrativas usan UAC con IDs allowlisted y parámetros tipados; no se expone una shell arbitraria. Véase docs/ACTIONABILITY.md.
+
+
+## Limpieza reversible C y D (10/10/2026)
+
+Esta rama incorpora el análisis acotado de duplicados SHA-256 y cambia disk.cleanup.execute para enviar cachés permitidas a la Papelera, registrando las rutas originales en un manifiesto. La previsualización no modifica archivos; el resultado de duplicados indica si es parcial. Los bytes enviados a la Papelera no se presentan como espacio físico recuperado.
+
+No elimina duplicados de forma automática, ni entra en repositorios activos, perfiles de navegador, discos de emulador, keystores o bases de datos del bot. Más detalles y límites en [Limpieza C y D — reconstrucción segura](docs/STORAGE_REBUILD.md).
+
+El seguimiento adicional disk.directories.watch conserva una referencia de cambios por carpeta entre capturas completas; cualquier medicion parcial queda excluida de la diferencia. No actua sobre archivos ni inicia agentes en segundo plano.

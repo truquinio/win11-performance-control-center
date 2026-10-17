@@ -1,9 +1,12 @@
 param(
-    [string]$Executable = (Join-Path $PSScriptRoot "..\src\App\bin\Release\net10.0-windows\Win11PerformanceControlCenter.exe")
+    [string]$Executable = (Join-Path $PSScriptRoot "..\src\App\bin\Release\net10.0-windows\Win11PerformanceControlCenter.exe"),
+    [ValidateSet('','--developer')][string]$InitialModeArgument = ''
 )
 
 $resolved = (Resolve-Path $Executable).Path
-$process = Start-Process $resolved -PassThru
+$launch = @{ FilePath = $resolved; PassThru = $true; WindowStyle = 'Minimized' }
+if ($InitialModeArgument) { $launch.ArgumentList = @($InitialModeArgument) }
+$process = Start-Process @launch
 
 Add-Type @'
 using System;
@@ -14,7 +17,7 @@ public static class WindowLaunch {
 }
 '@
 
-for ($i = 0; $i -lt 40; $i++) {
+for ($i = 0; $i -lt 200; $i++) {
     Start-Sleep -Milliseconds 100
     $process.Refresh()
     if ($process.HasExited) { break }

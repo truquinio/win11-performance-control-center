@@ -8,7 +8,6 @@ namespace Win11PerformanceControlCenter.App.Core;
 public sealed class AppLogger : IDisposable
 {
     private const int DefaultMaxLogBytes = 2 * 1024 * 1024;
-    private const int MaxArchives = 5;
     private static readonly UTF8Encoding RecordEncoding = new(false);
     private static readonly byte[] RecordSeparator =
         RecordEncoding.GetBytes(Environment.NewLine);
@@ -176,28 +175,10 @@ public sealed class AppLogger : IDisposable
             ".jsonl");
         File.Move(_path, archive, false);
 
-        // Archive names start with a sortable timestamp. Creation time is not
-        // reliable here: NTFS tunnelling hands the old creation time to the
-        // next app.jsonl, so several archives can share it.
-        var old = new DirectoryInfo(info.DirectoryName!)
-            .GetFiles("app-*.jsonl")
-            .OrderByDescending(file => file.Name, StringComparer.Ordinal)
-            .Skip(MaxArchives);
-        foreach (var file in old)
-        {
-            try
-            {
-                file.Delete();
-            }
-            catch (IOException)
-            {
-                // Retention cleanup is best-effort.
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // A log can still be held by another process.
-            }
-        }
+        // Keep all rotated audit journals. Recovery can depend on a STARTED
+        // record in an older archive, and automatic pruning destroys evidence.
+        // Any future retention/export policy must preserve the originals
+        // until the user explicitly approves their disposal.
     }
 
     public void Dispose() => _gate.Dispose();

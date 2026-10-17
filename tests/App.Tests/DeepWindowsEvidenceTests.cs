@@ -167,6 +167,7 @@ public sealed class DeepWindowsEvidenceTests
 
     [Fact]
     [Trait("Layer", "RealWorldEval")]
+    [Trait("Layer", "EcoQa35Synthetic")]
     public async Task DiagnosticBundle_IsSanitizedAndContainsExpectedFiles()
     {
         using var root = new TestDataRoot();

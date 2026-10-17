@@ -7,7 +7,7 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>Win11PerformanceControlCenter</AssemblyName>
     <RootNamespace>Win11PerformanceControlCenter.App</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.2.0-preview.1</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app-icon.ico</ApplicationIcon>
     <Deterministic>true</Deterministic>

@@ -179,7 +179,9 @@ public sealed class RollbackCenterService
             entries
                 .OrderBy(entry => entry.Title, StringComparer.OrdinalIgnoreCase)
                 .ToArray(),
-            recoveryStatus.IncompleteOperations);
+            recoveryStatus.IncompleteOperations,
+            recoveryStatus.PotentiallyChangedFailedOperations,
+            recoveryStatus.PotentiallyChangedCancelledOperations);
     }
 
     private static bool HasNonEmptyState(string path)
@@ -349,4 +351,6 @@ public sealed record RollbackCenterEntry(
 
 public sealed record RollbackCenterReport(
     IReadOnlyList<RollbackCenterEntry> Entries,
-    IReadOnlyList<RecoveryOperation> IncompleteOperations);
+    IReadOnlyList<RecoveryOperation> IncompleteOperations,
+    IReadOnlyList<RecoveryOperation> PotentiallyChangedFailedOperations,
+    IReadOnlyList<RecoveryOperation> PotentiallyChangedCancelledOperations);

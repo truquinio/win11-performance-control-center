@@ -6,6 +6,10 @@ The product uses a lightweight hybrid architecture:
 
 `HTML/CSS/TypeScript UI → Provider/IPC → C# Core → Windows services/APIs`
 
+The TypeScript frontend is modular: `contracts.ts`, `providers/local.ts`, `providers/demo.ts`, `module-definitions.ts`, and `components/{formatting,result-primitives,action-results}.ts` are bundled by esbuild into one `web/app.js`. The renderer receives its execution callback and the current catalog through explicit dependency injection; it has no second copy of ActionCatalog. `app.ts` owns the UI state and lifecycle rather than a 1,700-line action-results conditional. Action metadata originates from C# `ActionCatalog.All` via `tools/CatalogExporter`; TypeScript enums/record types are generated from `Models/Contracts.cs`. A contract test rejects drift in action IDs, parameters, action ordering and generated model types. The browser never compiles or evaluates backend C#.
+
+`ActionExecutor` retains a single allowlisted dispatch boundary, with platform/startup, system/memory, and storage operations moved into separate partial class files (`ActionExecutor.Storage.cs` for storage/hibernation). The corresponding Windows services stay responsible for OS access. The executor does not expose a generic command endpoint.
+
 The same frontend is used by both targets:
 
 - **Local:** WPF + WebView2 + C# backend with real local data.
@@ -58,16 +62,17 @@ The local package is framework-dependent and reuses the installed .NET Windows D
 
 Build outputs:
 
-- `artifacts/local-win-x64` — framework-dependent Windows x64 application.
-- `artifacts/Win11PerformanceControlCenter-win-x64.zip` — compressed local package.
+- `artifacts/local-win-x64-<timestamp>-<nonce>` — new, uniquely named framework-dependent Windows x64 QA application per build.
+- `artifacts/Win11PerformanceControlCenter-win-x64-<timestamp>-<nonce>.zip` — its matching immutable QA package, with a SHA-256 printed by the build script. Prior packages and the legacy `artifacts/local-win-x64` remain untouched; QA must use the exact newly reported path.
+- **Release acceptance is separate**: these outputs are internal QA artifacts until the 35 Windows WRITE actions, UAC, snapshots/rollback and physical accessibility/visual checks are certified.
 - `artifacts/demo` — static shared frontend.
 - `artifacts/visual-qa` — Compact/Developer visual QA captures.
 
 ## Safety invariants
 
 - No arbitrary shell execution from frontend input.
-- No destructive cleanup in the current vertical slice.
-- Safe Cleanup remains `DRY_RUN`.
+- `disk.cleanup.safe` is `DRY_RUN`. The separate `disk.cleanup.execute` is a guarded `WRITE` with an explicit preview and confirmation; it only targets allowlisted, regenerable caches and excludes profiles, sessions and user documents.
+- Other `WRITE` actions (e.g. EcoQoS, pagefile and Edge extension orphan quarantine) require their own parameter, privilege and interlock guards; rollback is available only where supported.
 - Unsupported or inaccessible evidence sources degrade gracefully.
-- Writes must be explicit Action Catalog entries with verification and rollback design.
-- Logs are local and structured.
+- Writes must be explicit Action Catalog entries with verification and rollback design where applicable.
+- Logs are local, structured and rotated.

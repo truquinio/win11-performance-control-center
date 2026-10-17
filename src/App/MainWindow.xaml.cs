@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
@@ -31,6 +32,12 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        var informationalVersion = typeof(MainWindow).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion.Split('+')[0]
+            ?? typeof(MainWindow).Assembly.GetName().Version?.ToString(3)
+            ?? "unknown";
+        ShellVersionText.Text = $"  v{informationalVersion}  ·  by truquinio";
         SourceInitialized += OnSourceInitialized;
         Loaded += OnLoaded;
         StateChanged += (_, _) =>
@@ -285,8 +292,14 @@ public partial class MainWindow : Window
         core.WebMessageReceived += OnWebMessageReceived;
         core.ProcessFailed += OnWebViewProcessFailed;
 
-        WebView.Source = new Uri(
-            "https://wpcc.local/index.html?surface=local");
+        // An exact opt-in flag changes only the initial VIEW, never IPC privileges.
+        // This also lets QA inspect Developer without browser UI Automation access.
+        var startDeveloper = Array.Exists(
+            Environment.GetCommandLineArgs(),
+            arg => string.Equals(arg, "--developer", StringComparison.OrdinalIgnoreCase));
+        WebView.Source = new Uri(startDeveloper
+            ? "https://wpcc.local/index.html?surface=local&mode=developer"
+            : "https://wpcc.local/index.html?surface=local");
     }
 
     private static bool IsTrustedLocalUri(string value)

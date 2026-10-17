@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "manual-testing": {
+      "source": "mgifford/accessibility-skills",
+      "sourceType": "github",
+      "skillPath": "skills/manual-testing/SKILL.md",
+      "computedHash": "6dbe184c8f699d0be15ab96ba4e6418e8b3e5394f31342386254823b953d742f"
+    }
+  }
+}

@@ -1,5 +1,10 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+$visualSource = [IO.File]::ReadAllText((Join-Path $root "scripts\visual-qa.ps1"))
+if ($visualSource.Contains('Remove-Item $output') -or
+    -not $visualSource.Contains('if (Test-Path -LiteralPath $output)')) {
+    throw "VISUAL_QA_CONTRACT_FAIL existing screenshots may be overwritten."
+}
 $dummy = Join-Path $env:TEMP ("wpcc-visual-contract-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force $dummy | Out-Null
 Set-Content (Join-Path $dummy "index.html") "<html>WRONG SERVER</html>" -Encoding utf8

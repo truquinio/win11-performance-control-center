@@ -10,6 +10,20 @@ public sealed class SystemRemediationService
 {
     private static readonly TimeSpan ShortTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan IntegrityTimeout = TimeSpan.FromMinutes(25);
+    private readonly Func<string, IReadOnlyList<string>, TimeSpan, Task<RemediationStep>> commandRunner;
+    private readonly Func<string, Task<RemediationStep>> serviceRestartRunner;
+    private readonly Func<Task<SystemRemediationResult>> explorerRestartRunner;
+
+    public SystemRemediationService(
+        Func<string, IReadOnlyList<string>, TimeSpan, Task<RemediationStep>>? commandRunner = null,
+        Func<string, Task<RemediationStep>>? serviceRestartRunner = null,
+        Func<Task<SystemRemediationResult>>? explorerRestartRunner = null)
+    {
+        // Production keeps bounded Windows runners; tests can isolate global operations.
+        this.commandRunner = commandRunner ?? RunAsync;
+        this.serviceRestartRunner = serviceRestartRunner ?? RestartServiceAsync;
+        this.explorerRestartRunner = explorerRestartRunner ?? RestartExplorerCoreAsync;
+    }
 
     public async Task<SystemRemediationResult> RepairIntegrityAsync()
     {
@@ -18,7 +32,7 @@ public sealed class SystemRemediationService
         var dism = Path.Combine(windows, "System32", "dism.exe");
         var sfc = Path.Combine(windows, "System32", "sfc.exe");
 
-        var restore = await RunAsync(
+        var restore = await commandRunner(
             dism,
             ["/Online", "/Cleanup-Image", "/RestoreHealth", "/English", "/NoRestart"],
             IntegrityTimeout);
@@ -31,7 +45,7 @@ public sealed class SystemRemediationService
                 [restore]);
         }
 
-        var scan = await RunAsync(
+        var scan = await commandRunner(
             sfc,
             ["/scannow"],
             IntegrityTimeout);
@@ -47,7 +61,7 @@ public sealed class SystemRemediationService
     {
         var system = Environment.GetFolderPath(
             Environment.SpecialFolder.System);
-        var result = await RunAsync(
+        var result = await commandRunner(
             Path.Combine(system, "ipconfig.exe"),
             ["/flushdns"],
             ShortTimeout);
@@ -63,7 +77,7 @@ public sealed class SystemRemediationService
     {
         var system = Environment.GetFolderPath(
             Environment.SpecialFolder.System);
-        var result = await RunAsync(
+        var result = await commandRunner(
             Path.Combine(system, "netsh.exe"),
             ["winsock", "reset"],
             ShortTimeout);
@@ -79,7 +93,7 @@ public sealed class SystemRemediationService
     {
         var system = Environment.GetFolderPath(
             Environment.SpecialFolder.System);
-        var result = await RunAsync(
+        var result = await commandRunner(
             Path.Combine(system, "pnputil.exe"),
             ["/scan-devices"],
             ShortTimeout);
@@ -87,6 +101,23 @@ public sealed class SystemRemediationService
         return new SystemRemediationResult(
             result.ExitCode == 0,
             result.ExitCode == 0 ? "DEVICES_RESCANNED" : "DEVICE_RESCAN_FAILED",
+            false,
+            [result]);
+    }
+
+    public async Task<SystemRemediationResult> ReduceHibernateAsync()
+    {
+        var system = Environment.GetFolderPath(
+            Environment.SpecialFolder.System);
+        var result = await commandRunner(
+            Path.Combine(system, "powercfg.exe"),
+            ["/h", "/type", "reduced"],
+            TimeSpan.FromSeconds(25));
+        var success = result.ExitCode == 0;
+
+        return new SystemRemediationResult(
+            success,
+            success ? "HIBERNATION_REDUCED" : "HIBERNATION_REDUCTION_FAILED",
             false,
             [result]);
     }
@@ -102,6 +133,9 @@ public sealed class SystemRemediationService
             "WINDOWS_UPDATE_SERVICES_RESTARTED");
 
     public Task<SystemRemediationResult> RestartExplorerAsync() =>
+        explorerRestartRunner();
+
+    private Task<SystemRemediationResult> RestartExplorerCoreAsync() =>
         Task.Run(async () =>
         {
             var before = Process.GetProcessesByName("explorer");
@@ -173,7 +207,7 @@ public sealed class SystemRemediationService
                 []);
         });
 
-    private static async Task<SystemRemediationResult> RestartServicesAsync(
+    private async Task<SystemRemediationResult> RestartServicesAsync(
         IReadOnlyList<string> names,
         string successStatus)
     {
@@ -182,7 +216,7 @@ public sealed class SystemRemediationService
 
         foreach (var name in names)
         {
-            var outcome = await RestartServiceAsync(name);
+            var outcome = await serviceRestartRunner(name);
             steps.Add(outcome);
             success &= outcome.ExitCode == 0;
         }

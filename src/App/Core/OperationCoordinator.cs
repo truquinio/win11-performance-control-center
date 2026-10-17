@@ -5,6 +5,8 @@ public sealed class OperationCoordinator
     private readonly Lock _gate = new();
     private string _state = "IDLE";
     private string? _activeAction;
+    private long _leaseSequence;
+    private long _activeLeaseId;
 
     public string State
     {
@@ -16,7 +18,7 @@ public sealed class OperationCoordinator
         get { lock (_gate) return _activeAction; }
     }
 
-    public IDisposable Begin(string actionId, string state = "ANALYZING")
+    public OperationLease Begin(string actionId, string state = "ANALYZING")
     {
         lock (_gate)
         {
@@ -26,26 +28,85 @@ public sealed class OperationCoordinator
 
             _state = state;
             _activeAction = actionId;
-            return new Lease(this);
+            _activeLeaseId = ++_leaseSequence;
+            return new OperationLease(this, _activeLeaseId);
         }
     }
 
-    private void End()
+    private void End(long leaseId)
     {
         lock (_gate)
         {
+            if (_activeLeaseId != leaseId)
+                return;
+
             _activeAction = null;
+            _activeLeaseId = 0;
             _state = "IDLE";
         }
     }
 
-    private sealed class Lease(OperationCoordinator owner) : IDisposable
+    public sealed class OperationLease(
+        OperationCoordinator owner,
+        long leaseId) : IDisposable
     {
+        private readonly object _gate = new();
         private OperationCoordinator? _owner = owner;
+        private bool _retained;
+        private bool _disposed;
+
+        public void RetainUntil(Task work)
+        {
+            ArgumentNullException.ThrowIfNull(work);
+            lock (_gate)
+            {
+                if (_owner is null || _disposed)
+                    throw new ObjectDisposedException(nameof(OperationLease));
+                if (_retained)
+                    return;
+                _retained = true;
+            }
+
+            _ = work.ContinueWith(
+                task =>
+                {
+                    if (task.IsFaulted)
+                        _ = task.Exception;
+                    Release();
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
 
         public void Dispose()
         {
-            Interlocked.Exchange(ref _owner, null)?.End();
+            OperationCoordinator? owner = null;
+            lock (_gate)
+            {
+                if (_disposed)
+                    return;
+                _disposed = true;
+                if (!_retained)
+                {
+                    owner = _owner;
+                    _owner = null;
+                }
+            }
+
+            owner?.End(leaseId);
+        }
+
+        private void Release()
+        {
+            OperationCoordinator? owner;
+            lock (_gate)
+            {
+                owner = _owner;
+                _owner = null;
+            }
+
+            owner?.End(leaseId);
         }
     }
 }

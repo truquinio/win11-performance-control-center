@@ -120,6 +120,59 @@ public sealed class StorageWatchTests
     }
 
     [Fact]
+    public async Task HotspotScan_CappedTopLevelEnumerationMustBeMarkedIncomplete()
+    {
+        using var root = new TestDataRoot();
+        // The scanner intentionally measures at most 16 folders. A 17th
+        // folder must not silently disappear from a "complete" report.
+        for (var i = 0; i < 17; i++)
+            Directory.CreateDirectory(Path.Combine(root.Path, $"folder-{i:00}"));
+
+        var service = new StorageWatchService(
+            Path.Combine(root.Path, "storage-watch.json"),
+            () =>
+            [
+                new StorageWatchService.VolumeProbe(
+                    "D:\\", "TEST", "NTFS", root.Path,
+                    100L * Gib, 5L * Gib)
+            ],
+            () => DateTimeOffset.UtcNow,
+            TimeSpan.FromSeconds(3));
+
+        var report = await service.ScanLowSpaceHotspotsAsync();
+
+        var volume = Assert.Single(report.Volumes);
+        Assert.False(volume.Complete);
+        Assert.True(report.Partial);
+        Assert.Equal(12, volume.Items.Count);
+        Assert.Equal(17, Directory.GetDirectories(root.Path).Length);
+    }
+
+    [Fact]
+    public async Task HotspotScan_ExactlyTheDirectoryLimitRemainsComplete()
+    {
+        using var root = new TestDataRoot();
+        for (var i = 0; i < 16; i++)
+            Directory.CreateDirectory(Path.Combine(root.Path, $"folder-{i:00}"));
+
+        var service = new StorageWatchService(
+            Path.Combine(root.Path, "storage-watch.json"),
+            () =>
+            [
+                new StorageWatchService.VolumeProbe(
+                    "D:\\", "TEST", "NTFS", root.Path,
+                    100L * Gib, 5L * Gib)
+            ],
+            () => DateTimeOffset.UtcNow,
+            TimeSpan.FromSeconds(3));
+
+        var report = await service.ScanLowSpaceHotspotsAsync();
+
+        Assert.False(report.Partial);
+        Assert.True(Assert.Single(report.Volumes).Complete);
+    }
+
+    [Fact]
     public async Task CorruptedPrimaryState_FallsBackToFreshBaseline()
     {
         using var dataRoot = new TestDataRoot();

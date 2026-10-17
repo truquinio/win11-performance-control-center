@@ -1,13 +1,15 @@
 {
   "name": "win11-performance-control-center",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0-preview.1",
   "description": "Shared frontend for the local Windows app and static demo.",
   "scripts": {
     "clean": "node scripts/frontend-build.mjs clean",
     "build:frontend": "node scripts/frontend-build.mjs build",
     "build:demo": "node scripts/frontend-build.mjs demo",
     "test:frontend-contract": "node scripts/frontend-contract.mjs",
+    "test:catalog-contract": "node scripts/catalog-contract.mjs",
+    "test:demo-fail-closed": "node scripts/demo-fail-closed-contract.mjs",
     "test:ui-smoke": "npm run build:demo && node scripts/ui-smoke.mjs",
     "test:package-contract": "node scripts/package-contract.mjs",
     "test:resource-contract": "node scripts/resource-contract.mjs",
@@ -15,9 +17,11 @@
     "test:webview-security": "node scripts/webview-security-contract.mjs",
     "test:platform-contract": "node scripts/platform-contract.mjs",
     "watch:frontend": "tsc --watch",
-    "test:real-world-evals": "node scripts/real-world-evals-contract.mjs"
+    "test:real-world-evals": "node scripts/real-world-evals-contract.mjs",
+    "report:actions": "node scripts/action-certification.mjs"
   },
   "devDependencies": {
+    "esbuild": "0.28.2",
     "typescript": "^5.9.3"
   }
 }

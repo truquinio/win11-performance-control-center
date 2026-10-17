@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="./style.css">
 </head>
 <body data-mode="compact">
+  <a class="skip-link" href="#main-workspace">Saltar al contenido principal</a>
   <svg class="svg-sprite" aria-hidden="true">
     <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5M5.5 10v9h13v-9M9.5 19v-5h5v5"/></symbol>
     <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a8 8 0 1 1 16 0M12 18l4-6M7 18h10"/></symbol>
@@ -65,10 +66,10 @@
         <button class="nav-item compact-tool" data-view="tools"><img class="asset-icon" src="./icons/herramientas.png" alt="" aria-hidden="true"><span>Herramientas</span><span class="chev">›</span></button>
         <button class="nav-item" data-view="settings"><img class="asset-icon" src="./icons/herramientas.png" alt="" aria-hidden="true"><span>Configuración</span></button>
       </nav>
-      <div class="sidebar-foot"><span>v0.1.0 · by truquinio</span><span id="surface-badge">LOCAL</span></div>
+      <div class="sidebar-foot"><span>v0.2.0-preview.1 · by truquinio</span><span id="surface-badge">LOCAL</span></div>
     </aside>
 
-    <main class="workspace">
+    <main id="main-workspace" class="workspace" tabindex="-1">
       <header class="topbar">
         <div class="title-group">
           <h1>Win11 Performance Control Center</h1>
@@ -81,11 +82,15 @@
           <button id="refresh-btn" class="btn btn-secondary"><img class="asset-icon" src="./icons/windows-update.png" alt="" aria-hidden="true">Actualizar</button>
           <button class="btn btn-secondary developer-only action-trigger" data-action="disk.cleanup.safe"><img class="asset-icon" src="./icons/limpieza.png" alt="" aria-hidden="true">Limpieza segura</button>
           <button class="btn btn-secondary developer-only action-trigger profile-performance-btn" data-action="cpu.ecoqos.analyze"><img class="asset-icon" src="./icons/rendimiento.png" alt="" aria-hidden="true">Perfil rendimiento</button>
-          <button id="mode-toggle" class="btn btn-secondary">Modo experto</button>
+          <button id="mode-toggle" class="btn btn-secondary" aria-describedby="mode-status">Modo experto</button><span id="mode-status" class="visually-hidden" role="status" aria-live="polite">Vista compacta activa</span>
         </div>
       </header>
 
       <section id="dashboard-view" class="view active">
+        <section class="panel tablet-status-panel" aria-label="Estado del sistema">
+          <div><span>Estado del sistema</span><strong id="tablet-system-status" aria-live="polite" aria-atomic="true">Iniciando…</strong><small id="tablet-status-source">Consultando proveedor de datos…</small></div>
+          <span class="badge badge-green" id="tablet-state-badge" role="status" aria-live="polite" aria-atomic="true"><i></i><span>IDLE</span></span>
+        </section>
         <div class="metrics-grid">
           <article class="metric-card spark-metric"><div class="metric-icon cyan"><img class="asset-icon" src="./icons/cpu.png" alt="" aria-hidden="true"></div><div class="metric-body"><span>CPU</span><strong id="cpu-value">—</strong><small id="cpu-sub">Midiendo…</small></div><div class="metric-bar"><i id="cpu-bar"></i></div><svg class="sparkline" aria-hidden="true" focusable="false" viewBox="0 0 100 24" preserveAspectRatio="none"><polyline id="cpu-sparkline" points="" /></svg></article>
           <article class="metric-card"><div class="metric-icon purple"><img class="asset-icon" src="./icons/ram.png" alt="" aria-hidden="true"></div><div class="metric-body"><span>RAM</span><strong id="ram-value">—</strong><small id="ram-sub">Midiendo…</small></div><div class="metric-bar purple-bar"><i id="ram-bar"></i></div></article>

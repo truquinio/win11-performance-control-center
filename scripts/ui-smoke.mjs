@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { stopOwnedBrowser } from "./visual-demo-process-cleanup.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const demo = path.join(root, "artifacts", "demo");
@@ -60,18 +61,24 @@ const edgeProcess = spawn(edge, [
   `--user-data-dir=${profile}`,
   `http://127.0.0.1:${appPort}/?mode=developer`
 ], { stdio: "ignore" });
+let browserLaunchError = null;
+edgeProcess.once("error", error => { browserLaunchError = error; });
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function cleanup(socket) {
   try { socket?.close(); } catch {}
-  edgeProcess.kill();
-  await sleep(300);
+  const browserStopped = await stopOwnedBrowser(edgeProcess);
   await new Promise(resolve => server.close(resolve));
-  try {
-    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
-  } catch {
-    // Edge can briefly retain profile handles after headless shutdown.
+  if (browserStopped) {
+    try {
+      fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    } catch {
+      console.warn("UI_SMOKE_TEMP_PROFILE_RETAINED", profile);
+    }
+  } else {
+    console.error("UI_SMOKE_BROWSER_STOP_UNCONFIRMED", edgeProcess.pid, "temporary profile retained:", profile);
+    process.exitCode = 1;
   }
 }
 
@@ -82,6 +89,8 @@ let target;
 // debugger and may list other pages first; only the app's own page counts.
 const appOrigin = `http://127.0.0.1:${appPort}/`;
 for (let i = 0; i < 300; i++) {
+  if (browserLaunchError)
+    throw new Error("UI_SMOKE_BROWSER_LAUNCH_FAILED " + browserLaunchError.message);
   try {
     const pages = await (await fetch(`http://127.0.0.1:${debugPort}/json`)).json();
     target = pages.find(item =>
@@ -162,6 +171,107 @@ await waitForPage(
    document.querySelectorAll("#catalog-grid .catalog-item").length > 0`,
   "demo");
 await sleep(1200);
+// Keyboard accessibility: the first Tab must bypass the long sidebar;
+// Enter moves the focus to the main landmark, without requiring a mouse.
+await call("Input.dispatchKeyEvent", {
+  type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9
+});
+await call("Input.dispatchKeyEvent", {
+  type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9
+});
+const firstTab = await call("Runtime.evaluate", {
+  expression: 'document.activeElement?.classList.contains("skip-link") === true',
+  returnByValue: true
+});
+if (firstTab.result?.value !== true)
+  throw new Error("UI_KEYBOARD_FAIL primer Tab no alcanza el enlace de salto");
+await call("Input.dispatchKeyEvent", {
+  type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13
+});
+await call("Input.dispatchKeyEvent", {
+  type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13
+});
+await waitForPage(
+  'document.activeElement?.id === "main-workspace"',
+  "enlace de salto por teclado",
+  4000
+);
+console.log("UI_KEYBOARD_SKIPLINK_OK Tab+Enter lleva al main");
+// Regression: Compact mode must remain readable at the product's minimum
+// documented desktop width; check the live layout, not just CSS strings.
+await call("Emulation.setDeviceMetricsOverride", {
+  width: 1024, height: 768, deviceScaleFactor: 1, mobile: false
+});
+const compactLayout = await call("Runtime.evaluate", {
+  expression: `(() => {
+    const originalMode = document.body.dataset.mode;
+    document.body.dataset.mode = "compact";
+    const header = document.querySelector(".topbar h1");
+    const titleHeight = header.getBoundingClientRect().height;
+    const overflow = document.documentElement.scrollWidth > innerWidth + 2;
+    const direction = getComputedStyle(document.querySelector(".topbar")).flexDirection;
+    document.body.dataset.mode = originalMode;
+    return { titleHeight, overflow, direction };
+  })()`,
+  returnByValue: true
+});
+await call("Emulation.clearDeviceMetricsOverride");
+// CSS viewport approximations for 1366px desktop at Windows scaling 100-200%.
+// This is headless layout evidence, not physical PerMonitorV2/DPI certification.
+const dpiViewportCases = [
+  { width: 1366, scale: 1 },
+  { width: 1093, scale: 1.25 },
+  { width: 911, scale: 1.5 },
+  { width: 683, scale: 2 },
+  { width: 512, scale: 2 }
+];
+for (const { width, scale } of dpiViewportCases) {
+  await call("Emulation.setDeviceMetricsOverride", {
+    width, height: Math.max(384, Math.round(768 / scale)),
+    deviceScaleFactor: scale, mobile: false
+  });
+  const result = await call("Runtime.evaluate", {
+    expression: `(() => {
+      const prior = document.body.dataset.mode;
+      const sample = {};
+      for (const mode of ["compact", "developer"]) {
+        document.body.dataset.mode = mode;
+        const workspace = document.querySelector(".workspace");
+        const header = document.querySelector(".topbar h1");
+        const actions = document.querySelector(".topbar-actions");
+        sample[mode] = {
+          overflow: Math.max(0, workspace.scrollWidth - workspace.clientWidth),
+          titleHeight: header.getBoundingClientRect().height,
+          actionsOverflow: Math.max(0, actions.scrollWidth - actions.clientWidth),
+          viewportWidth: document.documentElement.clientWidth,
+          missingNavigationTooltips: [...document.querySelectorAll(".nav-item")]
+            .filter(button => !button.title.trim()).length
+        };
+      }
+      document.body.dataset.mode = prior;
+      return sample;
+    })()`,
+    returnByValue: true
+  });
+  const modes = result.result?.value;
+  for (const mode of ["compact", "developer"]) {
+    const layout = modes?.[mode];
+    if (!layout || layout.overflow > 2 || layout.actionsOverflow > 2 ||
+        layout.titleHeight > 75 || layout.missingNavigationTooltips !== 0) {
+      throw new Error("UI_DPI_LAYOUT_FAIL " +
+        JSON.stringify({ scale, width, mode, layout }));
+    }
+  }
+  console.log("UI_DPI_LAYOUT_OK scale=" + scale + " width=" + width);
+}
+await call("Emulation.clearDeviceMetricsOverride");
+if (!compactLayout.result?.value ||
+    compactLayout.result.value.titleHeight > 75 ||
+    compactLayout.result.value.overflow ||
+    compactLayout.result.value.direction !== "column") {
+  throw new Error("COMPACT_1024_LAYOUT_FAIL " +
+    JSON.stringify(compactLayout.result?.value));
+}
 const expression = String.raw`
 (async () => {
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -194,6 +304,15 @@ const expression = String.raw`
   }
 
   const developerButtons = [...document.querySelectorAll(".developer-nav")].filter(visible);
+  const developerMetrics = [...document.querySelectorAll(".metrics-grid .metric-card")].filter(visible);
+  const developerActions = [...document.querySelectorAll(".actions-grid .action-card")].filter(visible);
+  if (developerMetrics.length !== 8 ||
+      !visible(document.querySelector(".developer-driver-card")) ||
+      visible(document.querySelector(".developer-reboot-card")))
+    errors.push("Developer debe mostrar 8 métricas con Drivers y Activación; reinicio sigue en Interlocks");
+  if (developerActions.length !== 6 ||
+      !visible(document.querySelector(".action-memory")))
+    errors.push("Developer debe mostrar 6 acciones recomendadas, incluida MemoryTrim");
   // Browser tests explicitly approve the safe cleanup confirmation dialog.
   window.confirm = () => true;
   let moduleButtonsSeen = 0;
@@ -227,10 +346,16 @@ const expression = String.raw`
       resultPanel?.classList.add("is-hidden");
       console.log("SMOKE_ACTION", actionButton.dataset.action || label);
       actionButton.click();
-      for (let i = 0; i < 160 && actionButton.disabled; i++) await wait(25);
-      if (actionButton.disabled) {
+      for (let i = 0; i < 160 && actionButton.hasAttribute("aria-busy"); i++) await wait(25);
+      if (actionButton.hasAttribute("aria-busy")) {
         errors.push("Acción de módulo quedó bloqueada: " + label);
         continue;
+      }
+      if (actionButton.dataset.action === "disk.cleanup.execute") {
+        if (!actionButton.disabled)
+          errors.push("Limpieza permite repetir WRITE sin nueva previsualización");
+      } else if (actionButton.disabled) {
+        errors.push("Acción de módulo quedó deshabilitada inesperadamente: " + label);
       }
       for (let i = 0; i < 40 &&
            resultPanel?.classList.contains("is-hidden"); i++) await wait(25);
@@ -238,6 +363,23 @@ const expression = String.raw`
         errors.push("Acción de módulo sin resultado visible: " + label);
       if (!document.querySelector("#module-result-title")?.textContent?.trim())
         errors.push("Resultado de módulo sin título: " + label);
+      if (actionButton.dataset.action === "lab.outcomes.status") {
+        const headers = [...document.querySelectorAll("#module-result-content th")]
+          .map(node => node.textContent?.toLowerCase() || "");
+        if (!headers.some(header => header.includes("cancel")))
+          errors.push("Auditoría WRITE oculta el contador de cancelaciones");
+      }
+      if (document.body.classList.contains("demo") &&
+          !document.querySelector("#module-result-subtitle")?.textContent?.toLowerCase().includes("simulad"))
+        errors.push("La demo presenta un resultado simulado como evidencia local: " + label);
+      if (actionButton.dataset.action === "disk.cleanup.safe") {
+        const cautionRow = [...document.querySelectorAll("#recovery-body tr")].find(
+          row => row.cells[0]?.textContent?.includes("Temporales de Windows"));
+        if (!cautionRow || cautionRow.cells[3]?.textContent?.trim() !== "—")
+          errors.push("Recuperable incluye cachés de categoría CAUTION no autorizadas");
+        if (!document.querySelector("#storage-recoverable")?.textContent?.includes("5.2"))
+          errors.push("DEMO calcula un recuperable diferente de la suma SAFE del backend");
+      }
       moduleActionsExecuted++;
     }
   }
@@ -308,6 +450,56 @@ const expression = String.raw`
   await runSelectionFlow("memory", "memory.trim.preview", "MemoryTrim seleccionado", false);
   await runSelectionFlow("cpu", "cpu.ecoqos.analyze", "Aplicar EcoQoS seleccionado", true);
 
+  // Every contextual write is accessible only after its READ/DRY_RUN
+  // evidence has rendered. Exercise the user-facing button, never call
+  // the DEMO provider directly; verify the dispatched ID in activity.
+  const contextualScenarios = [
+    ["startup", "startup.services.preview", "Dependencias", "startup.service.dependencies"],
+    ["startup", "startup.services.preview", "Manual", "startup.service.setmode"],
+    ["startup", "startup.entries.preview", "Deshabilitar ·", "startup.entry.disable"],
+    ["startup", "startup.tasks.preview", "Deshabilitar ·", "startup.task.disable"],
+    ["drivers", "drivers.usb.analyze", "Reiniciar ·", "drivers.usb.restart"],
+    ["browsers", "browsers.edge.performance.audit", "Optimizar Edge", "browsers.edge.performance.optimize"],
+    ["browsers", "browsers.extensions.orphans.preview", "Poner en cuarentena", "browsers.extensions.orphans.quarantine"]
+  ];
+  let contextualFlowsExecuted = 0;
+  for (const [view, analyzeId, label, expectedId] of contextualScenarios) {
+    const nav = developerButtons.find(node => node.dataset.view === view);
+    nav?.click();
+    await wait(30);
+    const analyzeButton = document.querySelector(
+      '#module-actions button[data-action="' + analyzeId + '"]');
+    if (!analyzeButton || analyzeButton.disabled) {
+      errors.push("Análisis contextual inaccesible: " + analyzeId);
+      continue;
+    }
+    analyzeButton.click();
+    for (let i = 0; i < 180 && analyzeButton.hasAttribute("aria-busy"); i++)
+      await wait(25);
+    const buttons = [...document.querySelectorAll("#module-result-content button")];
+    const followup = buttons.find(node => node.textContent.trim().startsWith(label));
+    if (!followup || followup.disabled) {
+      errors.push("Control contextual sin funcionar: " + expectedId);
+      continue;
+    }
+    followup.click();
+    // Activity is written before the post-action refresh/render completes;
+    // wait for aria-busy to clear before interacting with another preview.
+    for (let i = 0; i < 240 && followup.hasAttribute("aria-busy"); i++)
+      await wait(25);
+    if (followup.hasAttribute("aria-busy")) {
+      errors.push("La acción contextual quedó bloqueada: " + expectedId);
+      continue;
+    }
+    if (document.querySelector("#activity-list .activity-row b")?.textContent !== expectedId) {
+      errors.push("El botón contextual no despachó: " + expectedId);
+      continue;
+    }
+    if (document.querySelector("#module-result-panel")?.classList.contains("is-hidden"))
+      errors.push("La acción contextual no mostró resultado: " + expectedId);
+    contextualFlowsExecuted++;
+  }
+
   document.querySelector('[data-view="dashboard"]')?.click();
   await wait(20);
   const actions = [...document.querySelectorAll(".action-trigger")].filter(visible);
@@ -357,10 +549,28 @@ const expression = String.raw`
 
   const mode = document.querySelector("#mode-toggle");
   const beforeMode = document.body.dataset.mode;
+  const modeStatus = document.getElementById("mode-status");
+  if (mode?.getAttribute("aria-describedby") !== "mode-status" ||
+      modeStatus?.textContent?.trim() !== (beforeMode === "developer" ? "Vista experta activa" : "Vista compacta activa"))
+    errors.push("El selector de modo no anuncia la vista inicial a lectores de pantalla");
   mode?.click();
   await wait(15);
   if (document.body.dataset.mode === beforeMode)
     errors.push("Modo experto/compacto no cambió");
+  if (modeStatus?.textContent?.trim() !== (document.body.dataset.mode === "developer" ? "Vista experta activa" : "Vista compacta activa"))
+    errors.push("El selector de modo no actualiza el estado accesible al conmutar");
+  const ramText = document.querySelector("#ram-value")?.textContent?.trim() ?? "";
+  if (document.body.dataset.mode === "compact" && ramText.includes("/"))
+    errors.push("La RAM compacta muestra un valor combinado que se trunca en pantallas de 1366px");
+  if (document.body.dataset.mode === "developer" && !ramText.includes("/"))
+    errors.push("El modo Developer perdió la capacidad total de RAM");
+  const ramSub = document.querySelector("#ram-sub");
+  if (document.body.dataset.mode === "compact" && !ramSub?.textContent?.trim().endsWith("% en uso"))
+    errors.push("El subtítulo compacto de RAM se trunca en pantallas estrechas");
+  if (document.body.dataset.mode === "developer" && !ramSub?.textContent?.includes("disponibles"))
+    errors.push("El modo Developer no muestra la memoria disponible");
+  if (!ramSub?.getAttribute("aria-label")?.includes("disponibles"))
+    errors.push("Falta el detalle completo de RAM para accesibilidad");
 
   // Keyboard focus and the action buttons must survive the periodic
   // snapshot refresh (5 s) while a module view is open.
@@ -395,6 +605,7 @@ const expression = String.raw`
     errors.push("No se pudo preparar la prueba de resultado fuera de módulo");
   } else {
     const activityBefore = document.querySelector("#activity-list")?.textContent;
+    const originTitle = slowAction.closest(".module-action")?.querySelector("h3")?.textContent?.trim();
     slowAction.click();
     otherNav.click();
     // Completion is observed, not timed: the activity entry is written when
@@ -403,8 +614,22 @@ const expression = String.raw`
          document.querySelector("#activity-list")?.textContent === activityBefore; i++)
       await wait(25);
     await wait(700);
-    if (!resultHidden())
+    if (!resultHidden() &&
+        document.querySelector("#module-result-title")?.textContent?.trim() === originTitle)
       errors.push("El resultado de un módulo apareció en otro módulo");
+
+    // When the original operation completes off-screen, returning to its
+    // module must reveal its verified result without rerunning the action.
+    moduleNav?.click();
+    await wait(40);
+    if (resultHidden() ||
+        document.querySelector("#module-result-title")?.textContent?.trim() !== originTitle)
+      errors.push("El resultado terminado se perdió al volver al módulo de origen");
+    otherNav.click();
+    await wait(20);
+    if (!resultHidden() &&
+        document.querySelector("#module-result-title")?.textContent?.trim() === originTitle)
+      errors.push("El resultado del módulo anterior invadió el módulo actual");
 
     document.querySelector("#module-actions button:not([disabled])")?.click();
     for (let i = 0; i < 400 && resultHidden(); i++) await wait(25);
@@ -442,6 +667,7 @@ const expression = String.raw`
     actions: actions.length,
     moduleButtonsSeen,
     moduleActionsExecuted,
+    contextualFlowsExecuted,
     writeFlowsExecuted,
     literalButtons: document.querySelectorAll("button").length
   };
@@ -466,6 +692,8 @@ const fakeBridge = String.raw`
   const listeners = [];
   const seen = { snapshot: 0, catalog: 0 };
   const requests = [];
+  let failNextRun = false;
+  let nextActionResult = null;
   const reply = (requestId, ok, result, error) => setTimeout(() => {
     for (const listener of listeners)
       listener({ data: { requestId, ok, result, error } });
@@ -491,6 +719,31 @@ const fakeBridge = String.raw`
     id: "drivers.analyze", title: "Analizar drivers", description: "Prueba",
     category: "Drivers", risk: "SAFE", requiresAdmin: false,
     connectivity: "OFFLINE", reversible: false, mode: "READ"
+  }, {
+    id: "browsers.extensions.health", title: "Salud extensiones", description: "Prueba",
+    category: "Browsers", risk: "SAFE", requiresAdmin: false,
+    connectivity: "OFFLINE", reversible: false, mode: "READ"
+  }, {
+    id: "disk.cleanup.safe", title: "Previsualizar limpieza segura", description: "Prueba",
+    category: "Storage", risk: "SAFE", requiresAdmin: false,
+    connectivity: "OFFLINE", reversible: false, mode: "DRY_RUN"
+  }, {
+    id: "memory.trim.preview", title: "Previsualizar MemoryTrim", description: "Prueba",
+    category: "Memory", risk: "SAFE", requiresAdmin: false,
+    connectivity: "OFFLINE", reversible: false, mode: "DRY_RUN"
+  }, {
+    id: "backup.status", title: "Estado de recuperación", description: "Prueba",
+    category: "Backup", risk: "SAFE", requiresAdmin: false,
+    connectivity: "OFFLINE", reversible: false, mode: "READ"
+  }, {
+    id: "backup.rollback.center", title: "Centro de rollback", description: "Prueba",
+    category: "Backup", risk: "SAFE", requiresAdmin: false,
+    connectivity: "OFFLINE", reversible: false, mode: "READ"
+  }, {
+    // UI-only fixture: does not invoke Windows WRITE or UAC.
+    id: "memory.pagefile.restore", title: "Restaurar paginación", description: "Prueba",
+    category: "Memory", risk: "SAFE", requiresAdmin: false,
+    connectivity: "OFFLINE", reversible: false, mode: "READ"
   }];
   const host = window.chrome ?? {};
   host.webview = {
@@ -514,6 +767,15 @@ const fakeBridge = String.raw`
       }
       if (message.method === "system.reliability")
         return reply(message.requestId, true, []);
+      if (message.method === "actions.run" && nextActionResult) {
+        const result = nextActionResult;
+        nextActionResult = null;
+        return reply(message.requestId, true, result);
+      }
+      if (message.method === "actions.run" && failNextRun) {
+        failNextRun = false;
+        return reply(message.requestId, false, null, "Fallo de acción inyectado para QA");
+      }
       return reply(message.requestId, true, {
         success: true, dryRun: false, message: "ok",
         data: { status: "OK", items: [] }
@@ -521,7 +783,11 @@ const fakeBridge = String.raw`
     }
   };
   if (!window.chrome) window.chrome = host;
-  window.__wpccFakeBridge = { requests };
+  window.__wpccFakeBridge = {
+    requests,
+    setFailNextRun() { failNextRun = true; },
+    setNextActionResult(value) { nextActionResult = value; }
+  };
 })();
 `;
 await call("Page.enable");
@@ -548,19 +814,216 @@ const degradedExpression = String.raw`
 
   const recovered = () =>
     document.querySelector("#cpu-value")?.textContent?.trim() === "37%" &&
-    document.querySelectorAll("#catalog-grid .catalog-item").length === 1 &&
+    document.querySelectorAll("#catalog-grid .catalog-item").length === 7 &&
     fake().requests.includes("actions.run:drivers.analyze");
   for (let i = 0; i < 180 && !recovered(); i++) await wait(50);
 
   if (document.querySelector("#cpu-value")?.textContent?.trim() !== "37%")
     errors.push("El snapshot no se recuperó tras un fallo de arranque");
-  if (document.querySelectorAll("#catalog-grid .catalog-item").length !== 1)
+  if (document.querySelectorAll("#catalog-grid .catalog-item").length !== 7)
     errors.push("El catálogo no se recuperó tras un fallo de arranque");
   if (!fake().requests.includes("actions.run:drivers.analyze"))
     errors.push("La línea base de salud no se ejecutó tras la recuperación");
   if (document.querySelectorAll("#toast-host .toast").length > 2)
     errors.push("El arranque degradado acumuló avisos repetidos");
 
+  // Regression: failed LOCAL action must remain visible after its toast expires
+  // and its result must not leak across module navigation.
+  const system = document.querySelector('.nav-item[data-view="system"]');
+  system?.click();
+  await wait(40);
+  const button = document.querySelector('#module-actions button[data-action="drivers.analyze"]');
+  if (!button) {
+    errors.push("No se pudo probar error de acción local");
+  } else {
+    fake().setFailNextRun();
+    button.click();
+    for (let i = 0; i < 200 && button.hasAttribute("aria-busy"); i++) await wait(25);
+    const panel = document.querySelector("#module-result-panel");
+    if (panel?.classList.contains("is-hidden") ||
+        !panel?.textContent?.includes("Fallo de acción inyectado para QA") ||
+        document.querySelector("#module-result-status")?.textContent?.trim() !== "WARNING")
+      errors.push("El error de acción local no permanece visible en su módulo");
+    document.querySelector('.nav-item[data-view="cleanup"]')?.click();
+    await wait(25);
+    if (!panel?.classList.contains("is-hidden"))
+      errors.push("El error de acción local se filtró a otro módulo");
+    system.click();
+    await wait(25);
+    if (panel?.classList.contains("is-hidden") ||
+        !panel?.textContent?.includes("Fallo de acción inyectado para QA"))
+      errors.push("Se perdió la evidencia del fallo al volver al módulo");
+  }
+
+  // A failed ActionResult with data present must never get an OK badge.
+  document.querySelector("#mode-toggle")?.click();
+  document.querySelector('.nav-item[data-view="browsers"]')?.click();
+  await wait(30);
+  const browserButton = document.querySelector(
+    '#module-actions button[data-action="browsers.extensions.health"]');
+  if (!browserButton) {
+    errors.push("No hay botón de salud de extensiones para la regresión");
+  } else {
+    fake().setNextActionResult({
+      success: false, dryRun: true,
+      message: "Inspección fallida con datos parciales",
+      data: { status: "FAILED", brokenCount: 0, dataOnlyCount: 0 }
+    });
+    browserButton.click();
+    for (let i = 0; i < 200 && browserButton.hasAttribute("aria-busy"); i++)
+      await wait(25);
+    const status = document.querySelector("#module-result-status");
+    if (status?.textContent?.trim() === "OK" ||
+        status?.classList.contains("badge-green"))
+      errors.push("Resultado de salud de extensiones fallido mostrado falsamente como OK");
+    if (!document.querySelector("#module-result-content")?.textContent?.includes("Inspección fallida"))
+      errors.push("Resultado de salud de extensiones fallido perdió su mensaje");
+  }
+
+  // Even if a failed analysis returns candidates, its WRITE follow-up
+  // must be inert while retaining the partial diagnostic evidence.
+  document.querySelector('.nav-item[data-view="memory"]')?.click();
+  await wait(35);
+  const trimPreview = document.querySelector(
+    '#module-actions button[data-action="memory.trim.preview"]');
+  if (!trimPreview) {
+    errors.push("No se pudo probar un análisis MemoryTrim fallido con candidatos");
+  } else {
+    fake().setNextActionResult({
+      success: false, dryRun: true, message: "Fallo con candidatos incompletos",
+      data: { observedProcesses: 1,
+        candidates: [{ name: "QA fixture", processId: 98765, workingSetBytes: 65536 }] }
+    });
+    trimPreview.click();
+    for (let i = 0; i < 200 && trimPreview.hasAttribute("aria-busy"); i++) await wait(25);
+    const unsafeButtons = [...document.querySelectorAll("#module-result-content button")]
+      .filter(control => !control.disabled);
+    if (unsafeButtons.length > 0)
+      errors.push("El resultado fallido habilita acciones WRITE a partir de candidatos parciales");
+    if (!document.querySelector("#module-result-content")?.textContent?.includes("Fallo con candidatos"))
+      errors.push("Se perdió la evidencia parcial de MemoryTrim");
+  }
+
+  // A second cleanup preview that fails must invalidate the previous
+  // recoverable estimate, even if the old scan detected SAFE bytes.
+  document.querySelector('.nav-item[data-view="cleanup"]')?.click();
+  await wait(35);
+  const preview = document.querySelector(
+    '#module-actions button[data-action="disk.cleanup.safe"]');
+  if (!preview) {
+    errors.push("Falta el DRY_RUN de limpieza segura en el módulo");
+  } else {
+    fake().setNextActionResult({
+      success: true, dryRun: true,
+      message: "Previsualización de QA",
+      data: { estimatedBytes: 2 * 1024 ** 3,
+        categories: [{ label: "Temporales de usuario", bytes: 2 * 1024 ** 3, risk: "SAFE" }] }
+    });
+    preview.click();
+    for (let i = 0; i < 200 && preview.hasAttribute("aria-busy"); i++) await wait(25);
+    if (!document.querySelector("#storage-recoverable")?.textContent?.includes("2"))
+      errors.push("No se registró el recuperable inicial del DRY_RUN");
+    fake().setFailNextRun();
+    preview.click();
+    for (let i = 0; i < 200 && preview.hasAttribute("aria-busy"); i++) await wait(25);
+    if (document.querySelector("#storage-recoverable")?.textContent?.includes("2") ||
+        document.querySelector("#module-summary")?.textContent?.includes("2 GB"))
+      errors.push("Previsualización fallida conserva cifras recuperables antiguas");
+    if (document.querySelector("#recovery-body")?.textContent?.includes("2 GB"))
+      errors.push("Previsualización fallida conserva filas de limpieza antiguas");
+    fake().setNextActionResult({
+      success: true, dryRun: true,
+      message: "No hay archivos regenerables seguros",
+      data: { estimatedBytes: 0, categories: [] }
+    });
+    preview.click();
+    for (let i = 0; i < 200 && preview.hasAttribute("aria-busy"); i++) await wait(25);
+    const cleanupExecute = document.querySelector(
+      '#module-actions button[data-action="disk.cleanup.execute"]');
+    if (cleanupExecute && !cleanupExecute.disabled)
+      errors.push("DRY_RUN de cero bytes permite ejecutar limpieza WRITE");
+    if (document.querySelector("#storage-recoverable")?.textContent?.includes("2"))
+      errors.push("DRY_RUN sin candidatos mantiene bytes obsoletos");
+    if (document.querySelector("#recovery-body")?.textContent?.includes("Temporales de usuario"))
+      errors.push("DRY_RUN sin candidatos conserva la tabla anterior");
+  }
+  // Pagefile failures must be visibly distinct from warnings. Pre-mutation
+  // interlocks provide safe guidance; postcheck failure may have changed state.
+  // This is a LOCAL synthetic fixture, never a Windows WRITE/UAC invocation.
+  document.querySelector('.nav-item[data-view="memory"]')?.click();
+  await wait(35);
+  const pagefileRestore = document.querySelector(
+    '#module-actions button[data-action="memory.pagefile.restore"]');
+  if (!pagefileRestore) {
+    errors.push("Falta fixture de restauración pagefile");
+  } else {
+    for (const [code, guidance] of [
+      ["SNAPSHOT_UNREADABLE", "revisá permisos o corrupción"],
+      ["SNAPSHOT_INCOMPLETE", "falta la configuración original"],
+      ["SNAPSHOT_SAVE_FAILED", "comprobá permisos y espacio"],
+      ["RESTORE_POSTCHECK_FAILED", null]
+    ]) {
+      fake().setNextActionResult({
+        success: false, dryRun: false,
+        message: "Pagefile: recuperación fallida (" + code + ").",
+        data: { status: code, restoreAvailable: true }
+      });
+      pagefileRestore.click();
+      for (let i = 0; i < 200 && pagefileRestore.hasAttribute("aria-busy"); i++)
+        await wait(25);
+      const badge = document.querySelector("#module-result-status");
+      const content = document.querySelector("#module-result-content")?.textContent ?? "";
+      if (badge?.textContent?.trim() !== "FALLIDO")
+        errors.push("Pagefile " + code + " no figura como FALLIDO");
+      if (!content.includes(code))
+        errors.push("Pagefile " + code + " perdió el estado de fallo");
+      if (guidance) {
+        if (!content.includes("No se ejecutó ningún cambio") ||
+            !content.includes("Conservá") || !content.includes(guidance))
+          errors.push("Pagefile " + code + " carece de orientación segura");
+      } else if (content.includes("No se ejecutó ningún cambio")) {
+        errors.push("Pagefile postcheck fallido afirma falsamente que no hubo cambios");
+      }
+    }
+  }
+
+  // Recovery alerts are successful READs but must not show a green OK
+  // when a failed WRITE may have left unverified changes.
+  document.querySelector('.nav-item[data-view="backup"]')?.click();
+  await wait(40);
+  for (const id of ["backup.status", "backup.rollback.center"]) {
+    const button = document.querySelector('#module-actions button[data-action="' + id + '"]');
+    if (!button) {
+      errors.push("Falta acción de recuperación: " + id);
+      continue;
+    }
+    fake().setNextActionResult({
+      success: true, dryRun: false, message: "Recuperación QA: revisar WRITE",
+      data: {
+        incompleteOperations: [], rollbackSnapshots: [], ecoQosTargets: [], entries: [],
+        potentiallyChangedFailedOperations: [
+          { actionId: "disk.cleanup.execute", startedAt: "2026-10-11T07:00:00Z",
+            lastStatus: "FAILED" }
+        ],
+        potentiallyChangedCancelledOperations: [
+          { actionId: "startup.service.setmode", startedAt: "2026-10-11T07:01:00Z",
+            lastStatus: "CANCELLED", incomplete: false }
+        ]
+      }
+    });
+    button.click();
+    for (let i = 0; i < 200 && button.hasAttribute("aria-busy"); i++) await wait(25);
+    const badge = document.querySelector("#module-result-status");
+    const content = document.querySelector("#module-result-content");
+    if (badge?.textContent?.trim() !== "REVISAR" || badge.classList.contains("badge-green"))
+      errors.push("Recuperación con WRITE fallida muestra OK: " + id);
+    if (!content?.textContent?.includes("disk.cleanup.execute") ||
+        !content?.textContent?.includes("Posible cambio sin verificar"))
+      errors.push("Recuperación omite revisión de WRITE fallida: " + id);
+    if (!content?.textContent?.includes("startup.service.setmode") ||
+        !content?.textContent?.includes("Cancelación no demuestra reversión"))
+      errors.push("Recuperación omite revisión de WRITE cancelada: " + id);
+  }
   return { errors, requests: fake().requests };
 })()
 `;
@@ -580,7 +1043,7 @@ console.log(
 );
 
 console.log(
-  `UI_SMOKE_OK developerButtons=${result.developerButtons} compactButtons=${result.compactButtons} dashboardActions=${result.actions} moduleButtons=${result.moduleButtonsSeen} moduleActionsExecuted=${result.moduleActionsExecuted} writeFlows=${result.writeFlowsExecuted} buttons=${result.literalButtons}`
+  `UI_SMOKE_OK developerButtons=${result.developerButtons} compactButtons=${result.compactButtons} dashboardActions=${result.actions} moduleButtons=${result.moduleButtonsSeen} moduleActionsExecuted=${result.moduleActionsExecuted} contextualFlows=${result.contextualFlowsExecuted} writeFlows=${result.writeFlowsExecuted} buttons=${result.literalButtons}`
 );
 
 } finally {
